@@ -21,7 +21,7 @@ metatomic: PET-MAD v1.5 exported model
 ## Inputs
 
 `models/pet-mad-1.5-s_40nn_nostress.ckpt` is the supplied PET-MAD v1.5
-checkpoint.  On its first use, `mof-md.py` exports it to a local `.pt` file
+checkpoint.  On its first use, `run.py` exports it to a local `.pt` file
 through `upet.save_upet`; LAMMPS loads that exported file through
 `pair_style metatomic`.
 
@@ -43,7 +43,7 @@ provide `pair_style metatomic`.
 
 ```bash
 conda activate mof-heat-capacity
-python work/mof-heat-capacity/mof-md.py --rerun
+python run.py --rerun
 ```
 
 The default structure is `data/mof5.cif`.  Use `--structure` only when you
