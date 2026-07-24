@@ -8,10 +8,13 @@ channels:
 
 dependencies:
   - python=3.12
+  - jupyterlab
   - lammps-metatomic
   - pip
   - pip:
       - ase>=3.23
+      - chemiscope>=1.1.0
+      - matplotlib
       - metatomic-ase>=0.1.2
       - ipi>=3.2.0
       - upet>=0.2.6

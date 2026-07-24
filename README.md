@@ -59,3 +59,17 @@ For a longer exploratory trajectory, change `--steps` only after inspecting a
 successful smoke test.  Converge timestep, equilibration, trajectory length,
 thermostat, model applicability, and structure stability before interpreting
 the energy or any eventual Hessian-based heat capacity.
+
+## Analyze a trajectory
+
+After a run, start JupyterLab from this directory and open `visualize.ipynb`:
+
+```bash
+jupyter lab
+```
+
+The notebook automatically selects the newest ASE trajectory in `output/` and
+its matching log. It plots potential/total energy, temperature, and the maximum
+atomic force over time. It also opens every stored trajectory frame in the
+Chemiscope 3D widget and saves a portable `output/<trajectory>.json.gz` dataset
+that can be opened at <https://chemiscope.org>.
