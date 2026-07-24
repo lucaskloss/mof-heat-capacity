@@ -40,8 +40,17 @@ def write_structure_pdb(output_path: Path, structure: Atoms) -> None:
     output_path.write_text("\n".join(lines) + "\n")
 
 
-def build_input_xml(structure_path: Path, *, temperature: float, steps: int, timestep_fs: float,
-                    output_prefix: Path, output_stride: int, socket_name: str, seed: int) -> str:
+def build_input_xml(
+    structure_path: Path,
+    *,
+    temperature: float,
+    steps: int,
+    timestep_fs: float,
+    output_prefix: Path,
+    output_stride: int,
+    socket_name: str,
+    seed: int,
+) -> str:
     """Build an NVT, one-bead i-PI input for lightweight classical MD."""
     if temperature <= 0.0 or timestep_fs <= 0.0:
         raise ValueError("temperature and timestep_fs must be positive")
@@ -52,7 +61,9 @@ def build_input_xml(structure_path: Path, *, temperature: float, steps: int, tim
     output = ET.SubElement(root, "output", prefix=str(output_prefix))
     properties = ET.SubElement(output, "properties", filename="out", stride=str(output_stride))
     properties.text = "[ step, time{picosecond}, conserved, potential, kinetic_cv, temperature ]"
-    trajectory = ET.SubElement(output, "trajectory", filename="pos", stride=str(output_stride), format="pdb")
+    trajectory = ET.SubElement(
+        output, "trajectory", filename="pos", stride=str(output_stride), format="pdb"
+    )
     trajectory.text = "positions{angstrom}"
     ET.SubElement(root, "total_steps").text = str(steps)
     prng = ET.SubElement(root, "prng")
@@ -64,7 +75,9 @@ def build_input_xml(structure_path: Path, *, temperature: float, steps: int, tim
     initialize = ET.SubElement(system, "initialize", nbeads="1")
     structure = ET.SubElement(initialize, "file", mode="pdb", units="angstrom")
     structure.text = str(structure_path)
-    ET.SubElement(initialize, "velocities", mode="thermal", units="kelvin").text = f"{temperature:g}"
+    ET.SubElement(initialize, "velocities", mode="thermal", units="kelvin").text = (
+        f"{temperature:g}"
+    )
     forces = ET.SubElement(system, "forces")
     ET.SubElement(forces, "force", forcefield="lmp").text = "lmp"
     ensemble = ET.SubElement(system, "ensemble")
@@ -85,8 +98,15 @@ def write_lammps_data(output_path: Path, structure: Atoms) -> None:
              specorder=MOF5_SPECIES)
 
 
-def write_lammps_input(input_path: Path, *, data_path: Path, model_path: Path, device: str,
-                       socket_name: str, seed: int) -> None:
+def write_lammps_input(
+    input_path: Path,
+    *,
+    data_path: Path,
+    model_path: Path,
+    device: str,
+    socket_name: str,
+    seed: int,
+) -> None:
     """Write the metatomic LAMMPS force-client input for PET-MAD."""
     input_path.write_text(
         "units metal\n"

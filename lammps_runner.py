@@ -32,8 +32,16 @@ def _stop_processes(processes: list[subprocess.Popen[object]]) -> None:
                 process.kill()
 
 
-def run_lammps_socket(xml_file: Path, lammps_input: Path, *, socket_name: str, clients: int,
-                      ipi_command: str, lammps_command: str, runtime_dir: Path | None = None) -> None:
+def run_lammps_socket(
+    xml_file: Path,
+    lammps_input: Path,
+    *,
+    socket_name: str,
+    clients: int,
+    ipi_command: str,
+    lammps_command: str,
+    runtime_dir: Path | None = None,
+) -> None:
     """Run i-PI and LAMMPS force clients connected by a Unix socket."""
     if clients < 1:
         raise ValueError("clients must be positive")
