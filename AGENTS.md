@@ -7,21 +7,19 @@ analysis are planned but are not implemented yet.
 
 ## Layout
 
-- `mof-md.py` is the command-line entry point.
-- `workflow_io.py` validates structures and writes the four input files.
-- `lammps_runner.py` launches i-PI and metatomic-enabled LAMMPS.
+- `run.py` is the ASE/metatomic command-line entry point.
+- `ase_md.py` contains the socket-free ASE/metatomic MD implementation.
+- `workflow_io.py` validates periodic structures.
 - `model_utils.py` exports the bundled PET-MAD checkpoint when needed.
-- `data/` contains the structure and fixed i-PI/LAMMPS inputs.
+- `data/` contains the input crystal structure.
 - `output/` contains generated properties, trajectories, logs, and restarts.
 - `models/` contains supplied model checkpoints and exported model files.
 
-Use the metatensor `lammps-metatomic` package. Do not substitute ordinary
-LAMMPS: the workflow requires both `pair_style metatomic` and `fix ipi`.
+The active workflow uses `metatomic-ase` and does not require LAMMPS, i-PI, or
+the Unix-socket force-client path.
 
 The default run uses `data/mof5.cif`, CUDA model evaluation, one bead, and a
-short NVT smoke test. Run `python mof-md.py` from this directory. If the
-structure or simulation settings change, regenerate the four files in `data/`
-with `python mof-md.py --prepare-inputs --rerun`.
+short NVT smoke test. Run `python run.py` from this directory.
 
 Keep the generated output out of source control. Do not add exported weights,
 trajectories, restart files, logs, or caches unless explicitly requested.

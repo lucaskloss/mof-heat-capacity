@@ -9,21 +9,17 @@ capacity is calculated here yet.
 periodic MOF-5 structure
         |
         v
-i-PI: one-bead NVT integration
-        | Unix-domain socket
-        v
-LAMMPS: fix ipi force client
+ASE: Langevin NVT integration
         |
         v
-metatomic: PET-MAD v1.5 exported model
+metatomic-ase: PET-MAD v1.5 exported model on CUDA
 ```
 
 ## Inputs
 
 `models/pet-mad-1.5-s_40nn_nostress.ckpt` is the supplied PET-MAD v1.5
 checkpoint.  On its first use, `run.py` exports it to a local `.pt` file
-through `upet.save_upet`; LAMMPS loads that exported file through
-`pair_style metatomic`.
+through `upet.save_upet`; `metatomic-ase` loads that exported file directly.
 
 A MOF-5 crystal structure is intentionally not bundled.  Provide a vetted,
 fully periodic CIF, PDB, or other ASE-readable structure with C, H, O, and Zn
@@ -38,8 +34,7 @@ structure and must not be used for scientific MD or heat-capacity results.
 
 ## Run the smoke test
 
-Use the repository's metatomic-enabled environment.  Plain LAMMPS does not
-provide `pair_style metatomic`.
+Use the repository environment with `metatomic-ase` installed.
 
 ```bash
 conda activate mof-heat-capacity
@@ -49,29 +44,16 @@ python run.py --rerun
 The default structure is `data/mof5.cif`.  Use `--structure` only when you
 want to run a different structure.
 
-The defaults are intentionally lightweight: one bead, one force client, ten
-steps, a 0.25 fs timestep, and CUDA model evaluation.  They only test the
-structure reader, checkpoint export, i-PI socket, LAMMPS/metatomic type map,
-and short integration.  They cannot establish stability or yield a meaningful
-thermodynamic quantity.
+The defaults are intentionally lightweight: ten steps, a 0.25 fs timestep,
+and CUDA model evaluation. The run evaluates energy and forces directly with
+`metatomic-ase`, then uses ASE's Langevin integrator. It writes
+`mof5-ase-smoke.traj` and `mof5-ase-smoke.log` under `output/`.
 
 CUDA model evaluation is the default on this machine.  Use `--device cpu` if
 you need a CPU-only run.
 
-The fixed LAMMPS mapping is:
-
-```text
-LAMMPS type 1: C  -> 6
-LAMMPS type 2: H  -> 1
-LAMMPS type 3: O  -> 8
-LAMMPS type 4: Zn -> 30
-```
-
-The four input files are kept below `data/` (or `--input-dir`): `mof5.pdb` and
-`input.xml` for i-PI, plus `mof5.data` and `in.lmp` for LAMMPS.  Properties,
-restart data, logs, and trajectories are written below `output/` (or
-`--output-dir`).  If the structure or run settings change, regenerate the four
-inputs explicitly with `--prepare-inputs`.
+Use `--device cpu` for a CPU test. Properties, logs, and trajectories are
+written below `output/`.
 
 For a longer exploratory trajectory, change `--steps` only after inspecting a
 successful smoke test.  Converge timestep, equilibration, trajectory length,
