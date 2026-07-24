@@ -31,6 +31,13 @@ def write_structure_pdb(output_path: Path, structure: Atoms) -> None:
     """Write the ASE-readable periodic structure in i-PI's PDB input format."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     io.write(output_path, structure, format="proteindatabank")
+    lines = output_path.read_text().splitlines()
+    # i-PI's PDB reader expects CRYST1 followed directly by ATOM records and
+    # recognizes END as the only terminator (ASE emits MODEL/ENDMDL).
+    lines = [line for line in lines if line not in {"MODEL     1", "ENDMDL"}]
+    if not lines or lines[-1] != "END":
+        lines.append("END")
+    output_path.write_text("\n".join(lines) + "\n")
 
 
 def build_input_xml(structure_path: Path, *, temperature: float, steps: int, timestep_fs: float,

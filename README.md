@@ -42,16 +42,21 @@ Use the repository's metatomic-enabled environment.  Plain LAMMPS does not
 provide `pair_style metatomic`.
 
 ```bash
-conda run --prefix .conda/pet-mad python \
-  work/mof-heat-capacity/mof-md.py \
-  --structure /path/to/mof5.cif --device cpu --rerun
+conda activate mof-heat-capacity
+python work/mof-heat-capacity/mof-md.py --rerun
 ```
 
+The default structure is `data/mof5.cif`.  Use `--structure` only when you
+want to run a different structure.
+
 The defaults are intentionally lightweight: one bead, one force client, ten
-steps, a 0.25 fs timestep, and CPU model evaluation.  They only test the
+steps, a 0.25 fs timestep, and CUDA model evaluation.  They only test the
 structure reader, checkpoint export, i-PI socket, LAMMPS/metatomic type map,
 and short integration.  They cannot establish stability or yield a meaningful
 thermodynamic quantity.
+
+CUDA model evaluation is the default on this machine.  Use `--device cpu` if
+you need a CPU-only run.
 
 The fixed LAMMPS mapping is:
 
@@ -62,10 +67,11 @@ LAMMPS type 3: O  -> 8
 LAMMPS type 4: Zn -> 30
 ```
 
-Generated XML, PDB, LAMMPS data/input, properties, and trajectory files are
-written below `output/` (or `--output-dir`).  Keep the XML and LAMMPS input
-with any later calculation: they record the model path, type mapping, device,
-temperature, timestep, seed, and trajectory settings.
+The four input files are kept below `data/` (or `--input-dir`): `mof5.pdb` and
+`input.xml` for i-PI, plus `mof5.data` and `in.lmp` for LAMMPS.  Properties,
+restart data, logs, and trajectories are written below `output/` (or
+`--output-dir`).  If the structure or run settings change, regenerate the four
+inputs explicitly with `--prepare-inputs`.
 
 For a longer exploratory trajectory, change `--steps` only after inspecting a
 successful smoke test.  Converge timestep, equilibration, trajectory length,

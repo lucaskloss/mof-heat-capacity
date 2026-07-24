@@ -33,7 +33,7 @@ def _stop_processes(processes: list[subprocess.Popen[object]]) -> None:
 
 
 def run_lammps_socket(xml_file: Path, lammps_input: Path, *, socket_name: str, clients: int,
-                      ipi_command: str, lammps_command: str) -> None:
+                      ipi_command: str, lammps_command: str, runtime_dir: Path | None = None) -> None:
     """Run i-PI and LAMMPS force clients connected by a Unix socket."""
     if clients < 1:
         raise ValueError("clients must be positive")
@@ -45,18 +45,19 @@ def run_lammps_socket(xml_file: Path, lammps_input: Path, *, socket_name: str, c
     if lammps_executable is None:
         raise FileNotFoundError(f"Could not find LAMMPS executable: {lammps_command}")
 
-    workdir = xml_file.parent
+    workdir = (runtime_dir or xml_file.parent).resolve()
+    workdir.mkdir(parents=True, exist_ok=True)
     socket_path = Path("/tmp") / f"ipi_{socket_name}"
     processes: list[subprocess.Popen[object]] = []
     if socket_path.exists():
         raise FileExistsError(f"Socket path already exists: {socket_path}")
 
     try:
-        server = subprocess.Popen([ipi_executable, xml_file.name], cwd=workdir)
+        server = subprocess.Popen([ipi_executable, str(xml_file.resolve())], cwd=workdir)
         processes.append(server)
         _wait_for_socket(socket_path, server)
         client_processes = [
-            subprocess.Popen([lammps_executable, "-in", lammps_input.name], cwd=workdir)
+            subprocess.Popen([lammps_executable, "-in", str(lammps_input.resolve())], cwd=workdir)
             for _ in range(clients)
         ]
         processes.extend(client_processes)
