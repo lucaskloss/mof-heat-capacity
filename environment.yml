@@ -19,5 +19,6 @@ dependencies:
       - matplotlib
       - metatomic-ase>=0.1.2
       - ipi>=3.2.0
+      - "jax[cuda13]"
       - upet>=0.2.6
       - vesin>=0.4.2
