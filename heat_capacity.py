@@ -1,4 +1,4 @@
-"""Compute harmonic heat capacity from selected ASE trajectory frames."""
+"""Compute harmonic heat capacity from selected trajectory frames and a PET-JAX model."""
 
 from __future__ import annotations
 
@@ -6,37 +6,29 @@ import argparse
 import json
 from pathlib import Path
 
-from ase.io import read
-from sadmof.models.pet import load_pet
-from sadmof.observables import cv_from_hessian
-from sadmof.models.pet import atoms_to_inputs, get_energy_fn
-from sadmof.sparse import get_hessian_fn, sparsity_pattern
-from petjax.convert import convert_checkpoint
-import asdex
-import jax
 import numpy as np
 
+from workflow_config import RunConfig, load_run_config
+
+
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_TRAJECTORY = SCRIPT_DIR / "output" / "long-run" / "mof5-ase-100.traj"
-DEFAULT_CHECKPOINT = SCRIPT_DIR / "models" / "pet-mad-1.5-s_40nn_nostress.ckpt"
-DEFAULT_JAX_CHECKPOINT = SCRIPT_DIR / "models" / "pet-mad-1.5-s_40nn_jax"
+DEFAULT_CONFIG = SCRIPT_DIR / "configs" / "mof5_pet_mad.toml"
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line options."""
+    """Parse a run specification and heat-capacity overrides."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--trajectory", type=Path, default=DEFAULT_TRAJECTORY)
-    parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
-    parser.add_argument("--jax-checkpoint", type=Path, default=DEFAULT_JAX_CHECKPOINT)
-    parser.add_argument("--frames", default="1", help="count, 'all', or comma-separated indices")
-    parser.add_argument("--stride", type=int, default=None)
-    parser.add_argument("--temperatures", default="100:500:10", help="start:stop:step in K")
-    parser.add_argument("--output", type=Path, default=SCRIPT_DIR / "output" / "heat-capacity.npz")
-    parser.add_argument("--dtype", choices=("float32", "float64"), default="float64")
-    parser.add_argument("--chunk-size", type=int, default=4)
-    parser.add_argument("--hops", type=int, default=7)
-    parser.add_argument("--remat", action="store_true")
-    parser.add_argument("--shadow", action="store_true", help="retain PET adaptive-cutoff shadow derivatives")
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--trajectory", type=Path)
+    parser.add_argument("--frames", help="Count, 'all', or comma-separated indices")
+    parser.add_argument("--stride", type=int)
+    parser.add_argument("--temperatures", help="Inclusive start:stop:step range in K")
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--dtype", choices=("float32", "float64"))
+    parser.add_argument("--chunk-size", type=int)
+    parser.add_argument("--hops", type=int)
+    parser.add_argument("--remat", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--shadow", action="store_true")
     return parser.parse_args()
 
 
@@ -68,38 +60,59 @@ def parse_temperatures(spec: str) -> np.ndarray:
     return np.arange(start, stop + 0.5 * step, step, dtype=float)
 
 
-def ensure_jax_checkpoint(checkpoint: Path, jax_checkpoint: Path) -> Path:
-    """Convert a local PET checkpoint when a PET-JAX directory is absent."""
-    if (checkpoint / "model.msgpack").is_file():
+def ensure_jax_checkpoint(checkpoint: Path | None, jax_checkpoint: Path | None) -> Path:
+    """Convert a PET checkpoint when no PET-JAX directory is available."""
+    if checkpoint is not None and checkpoint.is_dir() and (checkpoint / "model.msgpack").is_file():
         return checkpoint
-    if not checkpoint.is_file():
-        raise FileNotFoundError(f"checkpoint not found: {checkpoint}")
+    if checkpoint is None or not checkpoint.is_file():
+        raise FileNotFoundError(f"PET checkpoint not found: {checkpoint}")
+    if jax_checkpoint is None:
+        raise ValueError("model.jax_checkpoint is required for a PET checkpoint conversion")
     if (jax_checkpoint / "model.msgpack").is_file():
         return jax_checkpoint
+
+    from petjax.convert import convert_checkpoint
+
     jax_checkpoint.parent.mkdir(parents=True, exist_ok=True)
     print(f"Converting PET checkpoint to PET-JAX: {jax_checkpoint}")
     convert_checkpoint(str(checkpoint), str(jax_checkpoint))
     return jax_checkpoint
 
 
-def compute_frame_hessian(atoms, model, params, metadata, *, args, jax, np):
+def compute_frame_hessian(
+    atoms,
+    model,
+    params,
+    metadata,
+    *,
+    dtype: str,
+    hops: int,
+    chunk_size: int,
+    remat: bool,
+):
     """Compute one sparse PET Hessian and return its real-atom dense block."""
+    import asdex
+    import jax
+
+    from sadmof.models.pet import atoms_to_inputs, get_energy_fn
+    from sadmof.sparse import get_hessian_fn, sparsity_pattern
+
     positions, cell, graph = atoms_to_inputs(
         atoms,
         model,
         metadata,
-        float_dtype=np.float64 if args.dtype == "float64" else np.float32,
+        float_dtype=np.float64 if dtype == "float64" else np.float32,
     )
     pattern_graph = {
         "centers": graph["sel_centers"],
         "others": graph["sel_others"],
         "atomic_numbers": graph["atomic_numbers"],
     }
-    pattern = sparsity_pattern(pattern_graph, hops=args.hops)
+    pattern = sparsity_pattern(pattern_graph, hops=hops)
     coloring = asdex.hessian_coloring_from_sparsity(pattern, mode="fwd_over_rev")
-    energy_fn = get_energy_fn(model, metadata, no_shadow=not args.shadow)
+    energy_fn = get_energy_fn(model, metadata, no_shadow=True)
     hessian_fn = jax.jit(
-        get_hessian_fn(energy_fn, coloring, chunk_size=args.chunk_size, remat=args.remat)
+        get_hessian_fn(energy_fn, coloring, chunk_size=chunk_size, remat=remat)
     )
     hessian = jax.block_until_ready(hessian_fn(params, positions, cell, graph))
     hessian = np.asarray(hessian.todense())
@@ -107,21 +120,46 @@ def compute_frame_hessian(atoms, model, params, metadata, *, args, jax, np):
     return hessian[:n_atoms, :, :n_atoms, :].reshape(3 * n_atoms, 3 * n_atoms)
 
 
-def main() -> None:
-    """Load trajectory frames, calculate Hessians, and save harmonic C_v."""
-    args = parse_args()
-    trajectory_path = args.trajectory.expanduser().resolve()
+def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
+    """Evaluate SADMOF's PET sparse-Hessian path for selected trajectory frames."""
+    if config.ad_backend != "pet-jax":
+        raise NotImplementedError(
+            f"AD backend {config.ad_backend!r} is not implemented; "
+            "only PET-JAX/SADMOF currently supports harmonic heat capacity"
+        )
+    if args.shadow or config.heat_shadow:
+        raise ValueError(
+            "shadow derivatives require a dense PET Hessian path, not this sparse workflow"
+        )
+
+    trajectory_path = (args.trajectory or config.output_dir / f"{config.md_prefix}.traj")
+    trajectory_path = trajectory_path.expanduser().resolve()
     if not trajectory_path.is_file():
         raise FileNotFoundError(f"trajectory not found: {trajectory_path}")
-    if args.dtype == "float64":
+
+    dtype = args.dtype or config.heat_dtype
+    hops = config.heat_hops if args.hops is None else args.hops
+    chunk_size = config.heat_chunk_size if args.chunk_size is None else args.chunk_size
+    remat = config.heat_remat if args.remat is None else args.remat
+    frame_spec = args.frames or config.heat_frames
+    temperature_spec = args.temperatures or config.heat_temperatures
+    output_path = args.output or config.output_dir / "heat-capacity.npz"
+    output_path = output_path.expanduser().resolve()
+    if hops < 0 or chunk_size < 1:
+        raise ValueError("hops must be non-negative and chunk-size must be positive")
+
+    import jax
+    from ase.io import read
+    from sadmof.models.pet import load_pet
+    from sadmof.observables import cv_from_hessian
+
+    if dtype == "float64":
         jax.config.update("jax_enable_x64", True)
     frames = read(str(trajectory_path), index=":")
-    indices = select_indices(args.frames, len(frames), args.stride)
-    temperatures = parse_temperatures(args.temperatures)
-    jax_checkpoint = ensure_jax_checkpoint(
-        args.checkpoint.expanduser().resolve(), args.jax_checkpoint.expanduser().resolve()
-    )
-    model, params, metadata = load_pet(jax_checkpoint, dtype=args.dtype)
+    indices = select_indices(frame_spec, len(frames), args.stride)
+    temperatures = parse_temperatures(temperature_spec)
+    jax_checkpoint = ensure_jax_checkpoint(config.checkpoint, config.jax_checkpoint)
+    model, params, metadata = load_pet(jax_checkpoint, dtype=dtype)
 
     frequencies = []
     heat_capacities = []
@@ -129,23 +167,51 @@ def main() -> None:
         atoms = frames[index].copy()
         atoms.calc = None
         print(f"Computing Hessian for frame {index} ({len(atoms)} atoms)")
-        hessian = compute_frame_hessian(atoms, model, params, metadata, args=args, jax=jax, np=np)
+        hessian = compute_frame_hessian(
+            atoms,
+            model,
+            params,
+            metadata,
+            dtype=dtype,
+            hops=hops,
+            chunk_size=chunk_size,
+            remat=remat,
+        )
         freqs, cv = cv_from_hessian(hessian, atoms.get_masses(), temperatures, enforce_asr=True)
         frequencies.append(freqs)
         heat_capacities.append([cv[temperature] for temperature in temperatures])
         print(f"  C_v(300 K) = {cv.get(300.0, float('nan')):.6f} J/(g K)")
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
-        args.output,
+        output_path,
+        run_name=config.name,
+        structure=str(config.structure),
         trajectory=str(trajectory_path),
+        checkpoint=str(jax_checkpoint),
         frame_indices=np.asarray(indices, dtype=int),
         temperatures_K=temperatures,
         frequencies_cm1=np.asarray(frequencies),
         cv_J_per_gK=np.asarray(heat_capacities),
-        metadata=json.dumps({"dtype": args.dtype, "hops": args.hops, "shadow": args.shadow}),
+        metadata=json.dumps(
+            {
+                "ad_backend": config.ad_backend,
+                "dtype": dtype,
+                "hops": hops,
+                "chunk_size": chunk_size,
+                "remat": remat,
+                "shadow": False,
+            }
+        ),
     )
-    print(f"Saved heat-capacity results: {args.output}")
+    print(f"Saved heat-capacity results: {output_path}")
+    return output_path
+
+
+def main() -> None:
+    """Load a TOML specification and calculate harmonic heat capacity."""
+    args = parse_args()
+    run_heat_capacity(load_run_config(args.config), args)
 
 
 if __name__ == "__main__":

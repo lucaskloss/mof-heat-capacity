@@ -1,4 +1,4 @@
-"""Run a short PET-MAD/ASE CUDA molecular-dynamics smoke test for MOF-5."""
+"""Run configuration-driven ASE molecular dynamics with a metatomic MLIP."""
 
 from __future__ import annotations
 
@@ -9,87 +9,121 @@ from ase import units
 from ase.io import Trajectory
 from ase.md import Langevin, MDLogger
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary
-from metatomic_ase import MetatomicCalculator
-import metatomic_ase._neighbors as metatomic_neighbors
 
 from model_utils import ensure_exported_model
-from workflow_io import load_mof5_structure
+from workflow_config import RunConfig, load_run_config
+from workflow_io import load_structure
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_STRUCTURE = SCRIPT_DIR / "data" / "mof5.cif"
-DEFAULT_CHECKPOINT = SCRIPT_DIR / "models" / "pet-mad-1.5-s_40nn_nostress.ckpt"
-DEFAULT_EXPORTED_MODEL = SCRIPT_DIR / "models" / "pet-mad-1.5-s_40nn_nostress.pt"
+DEFAULT_CONFIG = SCRIPT_DIR / "configs" / "mof5_pet_mad.toml"
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line options."""
+    """Parse a run specification and lightweight MD overrides."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--structure", type=Path, default=DEFAULT_STRUCTURE)
-    parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
-    parser.add_argument("--model", type=Path, default=DEFAULT_EXPORTED_MODEL)
-    parser.add_argument("--device", default="cuda", help="Torch device, e.g. cuda or cpu")
-    parser.add_argument("--temperature", type=float, default=300.0)
-    parser.add_argument("--steps", type=int, default=10)
-    parser.add_argument("--timestep-fs", type=float, default=0.25)
-    parser.add_argument("--output-dir", type=Path, default=SCRIPT_DIR / "output")
-    parser.add_argument("--prefix", default="mof5-ase-smoke")
-    parser.add_argument("--rerun", action="store_true")
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--device", help="Override model.device, e.g. cuda or cpu")
+    parser.add_argument("--steps", type=int, help="Override md.steps")
+    parser.add_argument("--output-dir", type=Path, help="Override run.output_dir")
+    parser.add_argument("--prefix", help="Override md.prefix")
+    parser.add_argument(
+        "--rerun", action="store_true", help="Overwrite an existing trajectory"
+    )
+    parser.add_argument("--print-config", action="store_true")
     return parser.parse_args()
 
 
-def main() -> None:
-    """Run short NVT dynamics with ASE and the metatomic calculator."""
-    args = parse_args()
-    if args.steps < 1 or args.temperature <= 0.0 or args.timestep_fs <= 0.0:
-        raise ValueError("steps, temperature, and timestep-fs must be positive")
+def run_md(
+    config: RunConfig,
+    *,
+    device: str | None = None,
+    steps: int | None = None,
+    output_dir: Path | None = None,
+    prefix: str | None = None,
+    rerun: bool = False,
+) -> Path:
+    """Run one NVT trajectory described by ``config`` and return its path."""
+    from metatomic_ase import MetatomicCalculator
+    import metatomic_ase._neighbors as metatomic_neighbors
 
-    structure_path = args.structure.expanduser().resolve()
-    output_dir = args.output_dir.expanduser().resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    prefix = Path(args.prefix).name
-    output_file = output_dir / f"{prefix}.traj"
-    log_file = output_dir / f"{prefix}.log"
-    if output_file.exists() and not args.rerun:
-        print(f"Reusing existing trajectory: {output_file}")
-        return
-    if not structure_path.is_file():
-        available = ", ".join(path.name for path in sorted(structure_path.parent.glob("*.cif"))) or "none"
-        message = f"MOF-5 structure not found: {structure_path}. Available CIF files: {available}"
-        raise FileNotFoundError(message)
+    active_steps = config.md_steps if steps is None else steps
+    active_device = config.device if device is None else device
+    active_output = (
+        config.output_dir if output_dir is None else output_dir.expanduser().resolve()
+    )
+    active_prefix = config.md_prefix if prefix is None else Path(prefix).name
+    if active_steps < 1:
+        raise ValueError("steps must be positive")
 
-    atoms = load_mof5_structure(structure_path)
-    model_path = ensure_exported_model(args.checkpoint, args.model)
-    # The optional nvalchemi neighbor backend currently fails for this
-    # environment; metatomic-ase's vesin fallback supports CPU and CUDA.
+    active_output.mkdir(parents=True, exist_ok=True)
+    trajectory_path = active_output / f"{active_prefix}.traj"
+    log_path = active_output / f"{active_prefix}.log"
+    if trajectory_path.exists() and not rerun:
+        print(f"Reusing existing trajectory: {trajectory_path}")
+        return trajectory_path
+
+    atoms = load_structure(config.structure, required_elements=config.required_elements)
+    model_path = _prepare_metatomic_model(config)
+    # The vesin backend works for both CPU and CUDA in the supported environment.
     metatomic_neighbors.HAS_NVALCHEMIOPS = False
     atoms.calc = MetatomicCalculator(
-        model_path,
-        device=args.device,
-        check_consistency=True,
+        model_path, device=active_device, check_consistency=True
     )
 
     energy = atoms.get_potential_energy()
     forces = atoms.get_forces()
     print(
-        f"Loaded {len(atoms)} atoms; energy={energy:.6f} eV; "
+        f"Run {config.name}: {len(atoms)} atoms; energy={energy:.6f} eV; "
         f"max force={abs(forces).max():.6f} eV/A"
     )
-    MaxwellBoltzmannDistribution(atoms, temperature_K=args.temperature)
+    MaxwellBoltzmannDistribution(atoms, temperature_K=config.temperature_K)
     Stationary(atoms)
     dynamics = Langevin(
         atoms,
-        timestep=args.timestep_fs * units.fs,
-        temperature_K=args.temperature,
+        timestep=config.timestep_fs * units.fs,
+        temperature_K=config.temperature_K,
         friction=0.01 / units.fs,
     )
-    trajectory = Trajectory(output_file, "w", atoms)
+    trajectory = Trajectory(trajectory_path, "w", atoms)
     dynamics.attach(trajectory.write, interval=1)
     dynamics.attach(
-        MDLogger(dynamics, atoms, log_file, header=True, stress=False, peratom=False), interval=1
+        MDLogger(dynamics, atoms, log_path, header=True, stress=False, peratom=False),
+        interval=1,
     )
-    dynamics.run(args.steps)
+    dynamics.run(active_steps)
     trajectory.close()
-    print(f"Completed ASE MD. Trajectory: {output_file}")
+    print(f"Completed ASE MD. Trajectory: {trajectory_path}")
+    return trajectory_path
+
+
+def _prepare_metatomic_model(config: RunConfig) -> Path:
+    """Return an exported model, exporting a PET-MAD checkpoint only when needed."""
+    if config.exported_model.is_file():
+        return config.exported_model
+    if config.checkpoint is None:
+        raise FileNotFoundError(
+            f"exported metatomic model not found: {config.exported_model}; "
+            "model.checkpoint is required to create it"
+        )
+    return ensure_exported_model(config.checkpoint, config.exported_model)
+
+
+def main() -> None:
+    """Load a TOML specification and run its MD stage."""
+    args = parse_args()
+    config = load_run_config(args.config)
+    if args.print_config:
+        print(config)
+        return
+    run_md(
+        config,
+        device=args.device,
+        steps=args.steps,
+        output_dir=args.output_dir,
+        prefix=args.prefix,
+        rerun=args.rerun,
+    )
 
 
 if __name__ == "__main__":

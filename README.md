@@ -32,6 +32,68 @@ activation state, and atom count before scientific use. The loader only checks
 that the structure is periodic and contains C, H, O, and Zn; passing these
 checks does not establish that an arbitrary file is a valid MOF-5 structure.
 
+## Modular runs: structures, MLIPs, and outputs
+
+Each calculation is described by a TOML file in `configs/`. The scripts no
+longer encode MOF-5 paths or a fixed output prefix. A run file provides:
+
+| TOML table | Controls |
+|---|---|
+| `[run]` | Run name and isolated output directory. |
+| `[structure]` | Any ASE-readable, fully periodic structure; optional required elements. |
+| `[model]` | MD backend, exported metatomic model, optional PET source checkpoint, JAX checkpoint, and device. |
+| `[md]` | Temperature, timestep, number of steps, and trajectory prefix. |
+| `[heat_capacity]` | Frame selection, temperature grid, precision, HVP chunking, hops, and rematerialization. |
+
+The working PET-MAD example is [configs/mof5_pet_mad.toml](configs/mof5_pet_mad.toml).
+Run its MD and harmonic-Cv stages independently:
+
+```bash
+conda activate mof-heat-capacity
+
+python run.py --config configs/mof5_pet_mad.toml
+python heat_capacity.py --config configs/mof5_pet_mad.toml
+```
+
+Use lightweight command-line overrides for one-off tests without editing the
+TOML file:
+
+```bash
+python run.py --config configs/mof5_pet_mad.toml --steps 100 --rerun
+python heat_capacity.py --config configs/mof5_pet_mad.toml --frames 1 --hops 3
+```
+
+To add CH4, another adsorbate, a new host material, or a different MLIP, copy
+[configs/metatomic_md_template.toml](configs/metatomic_md_template.toml), then
+change the structure path, model paths, run name, and output directory:
+
+```bash
+cp configs/metatomic_md_template.toml configs/mof5-ch4-your-model.toml
+```
+
+The structure only needs a nonzero periodic cell and periodic boundary
+conditions. Keep `required_elements` only when it provides a useful validation;
+for example, remove it for a host-plus-CH4 system if its composition changes.
+Use a separate output directory and prefix for every structure/model pair so a
+trajectory can never be mistaken for one made with another potential.
+
+### Backend capability boundary
+
+`md_backend = "metatomic"` supports MD for any compatible exported metatomic
+`.pt` model, including a model that is already exported and therefore has no
+source `.ckpt`. Set `ad_backend = "none"` for such a model.
+
+`ad_backend = "pet-jax"` is different: the current heat-capacity code calls
+SADMOF's PET-JAX adapter and therefore needs a compatible PET checkpoint plus
+its PET-JAX conversion directory. It cannot automatically differentiate every
+metatomic model. Adding MACE or another differentiable model requires its own
+SADMOF adapter and a model-specific Hessian path; until that exists, run MD but
+do not interpret an unavailable AD heat capacity as a zero or generic result.
+
+For a PET-JAX run, keep `checkpoint`, `exported_model`, and `jax_checkpoint`
+unique to that potential. `run.py` creates the metatomic export if it is absent;
+`heat_capacity.py` creates the PET-JAX conversion if it is absent.
+
 ## Install SADMOF for Hessian heat capacities
 
 SADMOF is research software rather than a released, stable application. Its

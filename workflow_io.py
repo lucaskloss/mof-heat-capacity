@@ -8,6 +8,26 @@ from ase import Atoms, io
 MOF5_SPECIES = ("C", "H", "O", "Zn")
 
 
+def load_structure(
+    structure_path: Path, *, required_elements: frozenset[str] | None = None
+) -> Atoms:
+    """Read a non-empty periodic structure, optionally checking its elements."""
+    structure = io.read(structure_path)
+    if structure.cell.volume <= 0.0:
+        raise ValueError("structure must define a non-zero periodic cell")
+    if not all(structure.pbc):
+        raise ValueError("structure must be periodic in all three directions")
+    if len(structure) == 0:
+        raise ValueError("structure contains no atoms")
+
+    if required_elements is not None:
+        elements = set(structure.get_chemical_symbols())
+        missing = sorted(required_elements.difference(elements))
+        if missing:
+            raise ValueError("structure is missing required elements: " + ", ".join(missing))
+
+    return structure
+
 def load_mof5_structure(structure_path: Path) -> Atoms:
     """Read and validate a periodic MOF-5 structure with the expected elements."""
     structure = io.read(structure_path)

@@ -1,0 +1,32 @@
+[run]
+name = "mof5-pet-mad"
+output_dir = "../output/mof5-pet-mad"
+
+[structure]
+path = "../data/mof5.cif"
+required_elements = ["C", "H", "O", "Zn"]
+
+[model]
+# MD uses the metatomic export; harmonic AD uses this same checkpoint through
+# PET-JAX/SADMOF. Swap all three paths together when changing a PET-MAD model.
+md_backend = "metatomic"
+ad_backend = "pet-jax"
+checkpoint = "../models/pet-mad-1.5-s_40nn_nostress.ckpt"
+exported_model = "../models/pet-mad-1.5-s_40nn_nostress.pt"
+jax_checkpoint = "../models/pet-mad-1.5-s_40nn_jax"
+device = "cuda"
+
+[md]
+temperature_K = 300.0
+steps = 10
+timestep_fs = 0.25
+prefix = "mof5-md"
+
+[heat_capacity]
+frames = "1"
+temperatures_K = "100:500:10"
+dtype = "float32"
+chunk_size = 1
+hops = 3
+remat = true
+shadow = false
