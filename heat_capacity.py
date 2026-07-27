@@ -6,6 +6,14 @@ import argparse
 import json
 from pathlib import Path
 
+from ase.io import read
+from sadmof.models.pet import load_pet
+from sadmof.observables import cv_from_hessian
+from sadmof.models.pet import atoms_to_inputs, get_energy_fn
+from sadmof.sparse import get_hessian_fn, sparsity_pattern
+from petjax.convert import convert_checkpoint
+import asdex
+import jax
 import numpy as np
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -68,9 +76,6 @@ def ensure_jax_checkpoint(checkpoint: Path, jax_checkpoint: Path) -> Path:
         raise FileNotFoundError(f"checkpoint not found: {checkpoint}")
     if (jax_checkpoint / "model.msgpack").is_file():
         return jax_checkpoint
-
-    from petjax.convert import convert_checkpoint
-
     jax_checkpoint.parent.mkdir(parents=True, exist_ok=True)
     print(f"Converting PET checkpoint to PET-JAX: {jax_checkpoint}")
     convert_checkpoint(str(checkpoint), str(jax_checkpoint))
@@ -79,11 +84,6 @@ def ensure_jax_checkpoint(checkpoint: Path, jax_checkpoint: Path) -> Path:
 
 def compute_frame_hessian(atoms, model, params, metadata, *, args, jax, np):
     """Compute one sparse PET Hessian and return its real-atom dense block."""
-    import asdex
-
-    from sadmof.models.pet import atoms_to_inputs, get_energy_fn
-    from sadmof.sparse import get_hessian_fn, sparsity_pattern
-
     positions, cell, graph = atoms_to_inputs(
         atoms,
         model,
@@ -113,16 +113,8 @@ def main() -> None:
     trajectory_path = args.trajectory.expanduser().resolve()
     if not trajectory_path.is_file():
         raise FileNotFoundError(f"trajectory not found: {trajectory_path}")
-
-    import jax
-    from ase.io import read
-
     if args.dtype == "float64":
         jax.config.update("jax_enable_x64", True)
-
-    from sadmof.models.pet import load_pet
-    from sadmof.observables import cv_from_hessian
-
     frames = read(str(trajectory_path), index=":")
     indices = select_indices(args.frames, len(frames), args.stride)
     temperatures = parse_temperatures(args.temperatures)

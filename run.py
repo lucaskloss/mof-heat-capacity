@@ -53,7 +53,9 @@ def main() -> None:
         print(f"Reusing existing trajectory: {output_file}")
         return
     if not structure_path.is_file():
-        raise FileNotFoundError(f"MOF-5 structure not found: {structure_path}")
+        available = ", ".join(path.name for path in sorted(structure_path.parent.glob("*.cif"))) or "none"
+        message = f"MOF-5 structure not found: {structure_path}. Available CIF files: {available}"
+        raise FileNotFoundError(message)
 
     atoms = load_mof5_structure(structure_path)
     model_path = ensure_exported_model(args.checkpoint, args.model)
