@@ -1,0 +1,215 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{siunitx}
+
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+\sisetup{per-mode=symbol}
+
+\title{Molecular Dynamics and Harmonic Heat Capacity of MOF-5 with a Machine-Learned Interatomic Potential}
+\author{\textit{Author name}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report describes a workflow for molecular-dynamics (MD) simulations of periodic MOF-5 using the PET-MAD machine-learned interatomic potential (MLIP). The present implementation performs short, constant-temperature MD trajectories with ASE and metatomic-ase. A planned post-processing workflow uses automatic differentiation (AD) to obtain the potential-energy Hessian, vibrational frequencies, and the harmonic constant-volume heat capacity $C_V(T)$. This document states the equations, assumptions, and convergence checks needed before interpreting calculated heat capacities.
+\end{abstract}
+
+\section{System and computational objective}
+
+Metal--organic frameworks (MOFs) are periodic solids with many low-frequency collective modes. These modes can make a substantial contribution to the temperature-dependent heat capacity. The system considered here is MOF-5, represented by a periodic atomic structure with positions $\bm{R}=\{\bm{R}_i\}_{i=1}^N$, atomic masses $m_i$, and cell matrix $\bm{h}$.
+
+The computational workflow has two distinct stages:
+
+\begin{enumerate}
+  \item A molecular-dynamics stage checks that the structure and MLIP can be evaluated stably at finite temperature.
+  \item A harmonic lattice-dynamics stage evaluates the curvature of the MLIP energy with AD and converts the resulting vibrational spectrum into $C_V(T)$.
+\end{enumerate}
+
+The second stage is not a heat-capacity estimator based on short-trajectory energy fluctuations. It is a quantum harmonic approximation based on the Hessian at a selected reference geometry.
+
+\section{Machine-learned interatomic potential}
+
+\subsection{Energy, forces, and stress}
+
+An MLIP approximates the Born--Oppenheimer potential-energy surface as a function of atomic geometry and chemical identities,
+\begin{equation}
+  E_{\mathrm{ML}} = E_{\mathrm{ML}}(\bm{R}, \bm{h}, \{Z_i\}),
+\end{equation}
+where $Z_i$ is the atomic number of atom $i$. PET-MAD is a learned, local message-passing potential: the local environment of each atom is encoded from neighboring atoms within the model's interaction range, and the total energy is assembled from learned atomic contributions,
+\begin{equation}
+  E_{\mathrm{ML}}(\bm{R}) = \sum_{i=1}^{N} \varepsilon_i(\mathcal{N}_i; \theta).
+\end{equation}
+Here $\mathcal{N}_i$ denotes the periodic neighbor environment of atom $i$ and $\theta$ denotes the learned parameters. The model is constructed to respect the relevant physical symmetries: invariance to translation, rotation, and permutation of atoms of the same element.
+
+For an energy-conserving potential, forces are obtained from the energy gradient,
+\begin{equation}
+  \bm{F}_i = -\frac{\partial E_{\mathrm{ML}}}{\partial \bm{R}_i}.
+  \label{eq:forces}
+\end{equation}
+When cell relaxation or pressure calculations are required, the stress can similarly be obtained from the response of the energy to strain. In this project, metatomic-ase evaluates the PET-MAD model on the GPU and presents the resulting energy and forces through the ASE calculator interface.
+
+\subsection{Why MLIPs are useful here}
+
+First-principles forces are accurate but costly for a MOF cell containing hundreds of atoms. A trained MLIP replaces repeated electronic-structure calculations with a fast evaluation of $E_{\mathrm{ML}}$ and Eq.~\eqref{eq:forces}. This makes finite-temperature dynamics feasible and, provided that the model is differentiable, allows direct calculation of second derivatives. Model predictions remain an approximation: accuracy depends on the training data and on whether the sampled MOF-5 geometries lie within the model's domain of applicability.
+
+\section{Molecular dynamics}
+
+\subsection{Equations of motion}
+
+Classical MD propagates positions and momenta according to Newton's equations,
+\begin{equation}
+  m_i \ddot{\bm{R}}_i = \bm{F}_i.
+\end{equation}
+For a microcanonical ($NVE$) simulation, the total energy
+\begin{equation}
+  E_{\mathrm{tot}} = E_{\mathrm{ML}}(\bm{R}) + \sum_i \frac{\bm{p}_i^2}{2m_i}
+\end{equation}
+should be approximately conserved; any residual drift diagnoses finite timestep, force, or integration errors.
+
+The current workflow uses the Langevin thermostat implemented in ASE to sample an approximately canonical ($NVT$) ensemble. Its continuous-time equation is
+\begin{equation}
+  m_i \ddot{\bm{R}}_i = \bm{F}_i - m_i\gamma \dot{\bm{R}}_i + \bm{\eta}_i(t),
+  \label{eq:langevin}
+\end{equation}
+where $\gamma$ is the friction coefficient and $\bm{\eta}_i(t)$ is a random force satisfying the fluctuation--dissipation relation,
+\begin{equation}
+  \left\langle \eta_{i\alpha}(t)\eta_{j\beta}(t') \right\rangle
+  = 2m_i\gamma k_{\mathrm{B}}T\,\delta_{ij}\delta_{\alpha\beta}\delta(t-t').
+\end{equation}
+The random and frictional terms exchange energy with a heat bath and therefore the instantaneous total energy is not expected to be constant in $NVT$ dynamics.
+
+\subsection{Current simulation settings}
+
+The current smoke-test script initializes velocities from the Maxwell--Boltzmann distribution at the target temperature and removes the net centre-of-mass momentum. It uses a Langevin integrator with a timestep of \SI{0.25}{fs}, target temperature of \SI{300}{K}, friction $\gamma=\SI{0.01}{fs^{-1}}$, and PET-MAD force evaluations on CUDA by default. The trajectory stores the atomic positions and periodic cell at every integration step, while the log records time, total energy, potential energy, kinetic energy, and temperature.
+
+These settings are intentionally lightweight and are not converged production parameters. Before using MD averages, one should test timestep, thermostat coupling, equilibration length, trajectory length, cell size, and statistical correlation times. A gradual temperature drift during a very short trajectory is not by itself evidence of a faulty potential, but it does mean that the trajectory is not yet an equilibrated canonical sample.
+
+\subsection{Trajectory observables}
+
+For a trajectory containing configurations $\bm{R}(t)$, useful diagnostics include the potential energy $E_{\mathrm{ML}}(t)$, kinetic energy, temperature, structural integrity, and force magnitudes. In a sufficiently equilibrated canonical ensemble, the classical fluctuation expression is
+\begin{equation}
+  C_V = \frac{\left\langle E^2 \right\rangle - \left\langle E \right\rangle^2}
+  {k_{\mathrm{B}}T^2}.
+  \label{eq:fluctuation-cv}
+\end{equation}
+Equation~\eqref{eq:fluctuation-cv} requires a long equilibrated trajectory and careful treatment of autocorrelation. It is not the heat-capacity method implemented in the AD/Hessian workflow below.
+
+\section{Relaxed reference structure}
+
+The harmonic approximation requires a reference structure at a local minimum of the chosen MLIP energy. A fixed-cell relaxation optimizes the atomic coordinates while retaining the supplied lattice vectors. The convergence criterion is based primarily on forces,
+\begin{equation}
+  \max_i \left\lVert \bm{F}_i \right\rVert < f_{\mathrm{max}},
+\end{equation}
+with a representative target such as $f_{\mathrm{max}}=\SI{0.005}{eV\per\angstrom}$. The energy should also change negligibly between final optimization steps. A cell-and-position relaxation additionally requires reliable stress predictions and corresponds more closely to a zero-pressure reference.
+
+The relaxed structure is not defined by a constant MD energy. Rather, it is a stationary point of $E_{\mathrm{ML}}$ for which the first derivatives in Eq.~\eqref{eq:forces} vanish to the chosen tolerance.
+
+\section{Automatic differentiation and the Hessian}
+
+\subsection{Cartesian Hessian}
+
+The Cartesian Hessian is the matrix of second energy derivatives,
+\begin{equation}
+  H_{i\alpha,j\beta} =
+  \frac{\partial^2 E_{\mathrm{ML}}}
+       {\partial R_{i\alpha}\,\partial R_{j\beta}}
+  = -\frac{\partial F_{i\alpha}}{\partial R_{j\beta}},
+  \label{eq:hessian}
+\end{equation}
+where $i,j$ label atoms and $\alpha,\beta\in\{x,y,z\}$ label Cartesian components. For $N$ atoms, $H$ has dimensions $3N\times3N$ and units of \si{eV\per\angstrom\squared}.
+
+Automatic differentiation evaluates Eq.~\eqref{eq:hessian} by differentiating the MLIP computation graph, rather than using finite differences of forces. This avoids selecting a displacement size and can give highly accurate derivatives when the potential and neighbor-selection procedure are differentiable. In practice, the implementation calculates Hessian--vector products (HVPs),
+\begin{equation}
+  \bm{H}\bm{v} = \frac{\mathrm{d}}{\mathrm{d}\epsilon}
+  \nabla E_{\mathrm{ML}}(\bm{R}+\epsilon\bm{v})\bigg|_{\epsilon=0},
+\end{equation}
+using forward-over-reverse AD. Applying HVPs to a basis of coordinate vectors reconstructs the dense Hessian.
+
+For larger systems, the Hessian can be sparse because a local message-passing potential couples only atoms connected through a finite number of neighbor-graph hops. The \texttt{sadmof} workflow uses a graph-derived sparsity pattern and Hessian coloring to reconstruct multiple Hessian columns from fewer HVPs. The sparsity pattern and the number of graph hops must be converged; an overly aggressive truncation can omit physically relevant force constants.
+
+\subsection{Hessians from trajectory frames}
+
+Hessians need not be computed during MD. Since a saved ASE trajectory contains positions, cell, chemical identities, and periodic boundary conditions, the MLIP graph can be rebuilt and the Hessian evaluated afterwards for selected frames. This is preferable because one Hessian calculation is much more expensive than one MD force evaluation. A practical workflow is to select decorrelated frames from an equilibrated trajectory and process them independently.
+
+For the conventional harmonic heat capacity, the preferred first calculation is a single Hessian at the relaxed reference structure. Hessians evaluated at thermally displaced trajectory frames can instead be used to study the variation of local curvature or to construct an approximate temperature-dependent effective spectrum. They are not automatically equivalent to a rigorously anharmonic heat capacity.
+
+\section{From Hessian to vibrational frequencies}
+
+The Hessian must be mass weighted before diagonalization. Define the dynamical matrix
+\begin{equation}
+  D_{i\alpha,j\beta} =
+  \frac{H_{i\alpha,j\beta}}{\sqrt{m_i m_j}}.
+  \label{eq:dynamical-matrix}
+\end{equation}
+Its eigenvalue problem is
+\begin{equation}
+  \bm{D}\bm{e}_k = \omega_k^2\bm{e}_k,
+\end{equation}
+where $\omega_k$ is the angular frequency of mode $k$. The eigenvalues are converted from the internal units of Eq.~\eqref{eq:hessian} to frequencies $\nu_k$ in \si{cm^{-1}}.
+
+At a stable minimum, all non-translational modes should have non-negative $\omega_k^2$. Negative eigenvalues yield imaginary frequencies and may indicate an unconverged structure, a structural instability, numerical error, or an MLIP artifact. The three rigid translations of a periodic structure should be zero-frequency acoustic modes. A force-constant acoustic sum rule can be imposed to reduce small numerical violations of translational invariance,
+\begin{equation}
+  \sum_j H_{i\alpha,j\beta} = 0.
+\end{equation}
+
+\section{Harmonic heat capacity}
+
+Within the quantum harmonic approximation, each vibrational mode is an independent quantum harmonic oscillator. For temperature $T$, define
+\begin{equation}
+  x_k = \frac{h c \nu_k}{k_{\mathrm{B}}T},
+\end{equation}
+where $h$ is Planck's constant and $c$ is the speed of light. The molar constant-volume contribution of mode $k$ is
+\begin{equation}
+  C_{V,k} = R\left(\frac{x_k/2}{\sinh(x_k/2)}\right)^2,
+  \label{eq:qho-cv}
+\end{equation}
+and the total heat capacity is
+\begin{equation}
+  C_V(T) = \sum_{k\in\mathcal{V}} C_{V,k}.
+\end{equation}
+The set $\mathcal{V}$ excludes translational zero modes and, by convention, imaginary or near-zero modes below a specified frequency threshold. For comparison between cells of different sizes, the result can be reported gravimetrically as
+\begin{equation}
+  C_V^{\mathrm{grav}}(T) = \frac{C_V(T)}{M},
+\end{equation}
+where $M$ is the molar mass in \si{g\per mol}; the resulting unit is \si{J\per g\per K}.
+
+At high temperature, each retained harmonic mode approaches the classical limit $R$. At low temperature, high-frequency modes are quantum mechanically frozen out. This quantum treatment is a key difference from a purely classical MD fluctuation estimate.
+
+\section{Convergence and limitations}
+
+The calculated heat capacity is meaningful only after several sources of error have been assessed:
+
+\begin{itemize}
+  \item \textbf{MLIP validity:} PET-MAD must provide reliable energies and curvatures for MOF-5 configurations.
+  \item \textbf{Relaxation:} forces, energy changes, and residual stress should be converged before calculating a reference Hessian.
+  \item \textbf{Finite size:} a primitive or conventional cell samples only selected phonon wavevectors. Supercell size or reciprocal-space sampling must be converged for bulk thermodynamic predictions.
+  \item \textbf{AD settings:} floating-point precision, HVP batching, rematerialization, sparse coloring, and graph-hop cutoff require verification against a dense reference where possible.
+  \item \textbf{Mode treatment:} inspect imaginary modes and report the acoustic-sum-rule and frequency-threshold choices.
+  \item \textbf{Harmonic approximation:} Eq.~\eqref{eq:qho-cv} omits anharmonicity, thermal expansion, phase changes, and the difference between $C_V$ and constant-pressure heat capacity $C_P$.
+\end{itemize}
+
+\section{Reproducibility information to report}
+
+Each result should record the structure source and atom count, MLIP checkpoint and conversion, model device and precision, relaxation criterion, cell treatment, MD timestep and thermostat settings, trajectory length and frame-selection rule, Hessian method (dense or sparse), graph-hop cutoff, acoustic-sum-rule choice, frequency threshold, temperature grid, and statistical or convergence uncertainty.
+
+\begin{thebibliography}{9}
+
+\bibitem{ase}
+A. H. Larsen et al., \emph{The Atomic Simulation Environment---a Python library for working with atoms}, Journal of Physics: Condensed Matter \textbf{29}, 273002 (2017).
+
+\bibitem{langevin}
+T. Sch"afer, A. S. R. S. de Wijn, and R. K. P. Zia, \emph{Langevin dynamics and the canonical ensemble}, placeholder reference to be replaced by the thermostat reference used in the final report.
+
+\bibitem{sadMof}
+SADMof development repository, \emph{Sparse automatic differentiation for heat capacity of metal--organic frameworks}, project software documentation (accessed 2026).
+
+\end{thebibliography}
+
+\end{document}
