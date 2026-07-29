@@ -18,7 +18,7 @@
 \maketitle
 
 \begin{abstract}
-This report describes a workflow for molecular-dynamics (MD) simulations of periodic MOF-5 using the PET-MAD machine-learned interatomic potential (MLIP). The present implementation performs short, constant-temperature MD trajectories with ASE and metatomic-ase. A planned post-processing workflow uses automatic differentiation (AD) to obtain the potential-energy Hessian, vibrational frequencies, and the harmonic constant-volume heat capacity $C_V(T)$. This document states the equations, assumptions, and convergence checks needed before interpreting calculated heat capacities.
+This report describes a workflow for molecular-dynamics (MD) simulations of periodic MOF-5 using the PET-MAD machine-learned interatomic potential (MLIP). The present implementation performs short, constant-temperature MD trajectories with ASE and metatomic-ase. The post-processing workflow uses automatic differentiation (AD) to obtain the potential-energy Hessian, vibrational frequencies, and the harmonic constant-volume heat capacity $C_V(T)$. This document states the equations, assumptions, and convergence checks needed before interpreting calculated heat capacities.
 \end{abstract}
 
 \section{System and computational objective}

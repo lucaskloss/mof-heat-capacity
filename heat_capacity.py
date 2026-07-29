@@ -60,6 +60,41 @@ def parse_temperatures(spec: str) -> np.ndarray:
     return np.arange(start, stop + 0.5 * step, step, dtype=float)
 
 
+def convert_pet_checkpoint(checkpoint: Path, output_dir: Path) -> None:
+    """Convert wrapped or bare PET checkpoints with the pinned PET-JAX release."""
+    import metatomic.torch  # noqa: F401  (registers ModelMetadata for torch.load)
+    import torch
+
+    import petjax.convert as converter
+
+    loaded = torch.load(str(checkpoint), weights_only=False, map_location="cpu")
+    if loaded.get("architecture_name") != "pet":
+        converter.convert_checkpoint(str(checkpoint), str(output_dir))
+        return
+
+    version = loaded.get("model_ckpt_version")
+    if version != 11:
+        raise ValueError(
+            f"unsupported bare PET checkpoint version {version!r}; expected version 11"
+        )
+
+    metadata = converter._extract_metadata(loaded)
+    params = converter._unflatten(
+        converter._convert_state_dict(loaded["best_model_state_dict"])
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    converter.write_msgpack(output_dir / "model.msgpack", params)
+    converter.write_yaml(
+        output_dir / "metadata.yaml",
+        {
+            "config": metadata["config"],
+            "energy_scale": metadata["energy_scale"],
+            "shifts": metadata["shifts"],
+            "species_to_index": metadata["species_to_index"],
+        },
+    )
+
+
 def ensure_jax_checkpoint(checkpoint: Path | None, jax_checkpoint: Path | None) -> Path:
     """Convert a PET checkpoint when no PET-JAX directory is available."""
     if checkpoint is not None and checkpoint.is_dir() and (checkpoint / "model.msgpack").is_file():
@@ -68,14 +103,19 @@ def ensure_jax_checkpoint(checkpoint: Path | None, jax_checkpoint: Path | None) 
         raise FileNotFoundError(f"PET checkpoint not found: {checkpoint}")
     if jax_checkpoint is None:
         raise ValueError("model.jax_checkpoint is required for a PET checkpoint conversion")
-    if (jax_checkpoint / "model.msgpack").is_file():
+    metadata_path = jax_checkpoint / "metadata.yaml"
+    if (jax_checkpoint / "model.msgpack").is_file() and metadata_path.is_file() and (
+        "energy_scale:" in metadata_path.read_text()
+        and "species_to_index:" in metadata_path.read_text()
+    ):
         return jax_checkpoint
 
-    from petjax.convert import convert_checkpoint
+    if jax_checkpoint.exists():
+        print(f"Regenerating incomplete PET-JAX conversion: {jax_checkpoint}")
 
     jax_checkpoint.parent.mkdir(parents=True, exist_ok=True)
     print(f"Converting PET checkpoint to PET-JAX: {jax_checkpoint}")
-    convert_checkpoint(str(checkpoint), str(jax_checkpoint))
+    convert_pet_checkpoint(checkpoint, jax_checkpoint)
     return jax_checkpoint
 
 

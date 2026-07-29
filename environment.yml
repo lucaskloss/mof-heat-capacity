@@ -1,7 +1,7 @@
 name: mof-heat-capacity
 
-# Keep metatensor first: the metatomic LAMMPS and GROMACS builds come from this
-# channel. Do not replace either package with an ordinary conda-forge build.
+# Keep metatensor first: the metatomic LAMMPS build comes from this channel.
+# Do not replace it with an ordinary conda-forge build.
 channels:
   - metatensor
   - conda-forge
@@ -9,8 +9,8 @@ channels:
 dependencies:
   - python=3.12
   - jupyterlab
-  - gromacs-metatomic
   - lammps-metatomic
+  - mkl>=2026,<2027
   - pip
   - pip:
       - ase>=3.23

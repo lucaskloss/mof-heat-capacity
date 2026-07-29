@@ -13,7 +13,8 @@ from ase.geometry import get_distances
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_HOST = SCRIPT_DIR / "data" / "mof5.pdb"
 DEFAULT_METHANE = SCRIPT_DIR / "data" / "ch4.gro"
-DEFAULT_OUTPUT = SCRIPT_DIR / ".." / "output" / "mof5-ch4" / "mof5_ch4.gro"
+DEFAULT_OUTPUT = SCRIPT_DIR / "output" / "mof5-pet-mad" / "mof5-md.pdb"
+DEFAULT_DATA_OUTPUT = SCRIPT_DIR / "output" / "mof5-pet-mad" / "mof5-md.data"
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,7 +25,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--molecule", type=Path, default=DEFAULT_METHANE,
                         help="One-molecule methane structure (GRO or PDB).")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT,
-                        help="Combined output structure; format follows its suffix.")
+                        help="Combined PDB output structure (default: matching MD output path).")
+    parser.add_argument("--data-output", type=Path, default=DEFAULT_DATA_OUTPUT,
+                        help="LAMMPS data output (default: matching MD output path).")
     parser.add_argument("--nmol", type=int, default=1,
                         help="Number of methane molecules to insert (default: 1).")
     parser.add_argument("--try", dest="tries", type=int, default=1000,
@@ -97,8 +100,9 @@ def main() -> None:
         raise FileNotFoundError("host and molecule structure files must exist")
     if args.nmol < 1 or args.tries < 1 or args.min_distance <= 0.0:
         raise ValueError("--nmol, --try, and --min-distance must be positive")
-    if args.output.resolve() in {args.host.resolve(), args.molecule.resolve()}:
-        raise ValueError("--output must differ from both input structures")
+    input_paths = {args.host.resolve(), args.molecule.resolve()}
+    if args.output.resolve() in input_paths or args.data_output.resolve() in input_paths:
+        raise ValueError("output files must differ from both input structures")
 
     host = io.read(args.host)
     molecule = io.read(args.molecule)
@@ -112,9 +116,13 @@ def main() -> None:
     print(f"Prepared {len(combined)} atoms ({args.nmol} methane molecules) in "
           f"{combined.cell.volume:.3f} A^3")
     if not args.dry_run:
+        from workflow_io import write_lammps_data, write_structure_pdb
+
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        io.write(args.output, combined)
-        print(f"Wrote host-plus-CH4 structure: {args.output}")
+        write_structure_pdb(args.output, combined)
+        write_lammps_data(args.data_output, combined)
+        print(f"Wrote host-plus-CH4 PDB structure: {args.output}")
+        print(f"Wrote host-plus-CH4 LAMMPS data: {args.data_output}")
 
 
 if __name__ == "__main__":
