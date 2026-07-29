@@ -55,6 +55,35 @@ python run.py --config configs/mof5_pet_mad.toml
 python heat_capacity.py --config configs/mof5_pet_mad.toml
 ```
 
+The environment also includes the metatomic-enabled GROMACS build
+`gromacs-metatomic`. It is provided through the `metatensor` channel and
+supports loading exported metatomic `.pt` models through GROMACS's metatomic
+module. The package selector chooses the most capable available build by
+default; for a single-node CPU run, a no-MPI build can be selected explicitly:
+
+```bash
+conda install -c metatensor -c conda-forge "gromacs-metatomic=*=nompi*"
+```
+
+After creating or updating the environment, verify both the executable and
+the metatomic build:
+
+```bash
+conda activate mof-heat-capacity
+which gmx
+gmx --version
+conda list --show-channel-urls gromacs-metatomic libmetatomic-torch
+```
+
+The metatomic GROMACS interface is documented in the
+[official installation and usage guide](https://docs.metatensor.org/metatomic/latest/engines/gromacs.html).
+Its MDP interface activates the model with `metatomic-active = yes`, selects
+the simulation group with `metatomic-input-group`, and supplies the exported
+model with `metatomic-modelfile` plus `metatomic-device = cpu` or `cuda`.
+GROMACS integration is separate from the ASE insertion script: use
+`insert_methane.py` to prepare the host-plus-CH4 coordinates, then define the
+GROMACS topology and MDP settings appropriate for the selected force field.
+
 Use lightweight command-line overrides for one-off tests without editing the
 TOML file:
 

@@ -1,7 +1,7 @@
 name: mof-heat-capacity
 
-# Keep metatensor first: lammps-metatomic provides both pair_style metatomic
-# and fix ipi. Do not replace it with the ordinary conda-forge lammps package.
+# Keep metatensor first: the metatomic LAMMPS and GROMACS builds come from this
+# channel. Do not replace either package with an ordinary conda-forge build.
 channels:
   - metatensor
   - conda-forge
@@ -9,6 +9,7 @@ channels:
 dependencies:
   - python=3.12
   - jupyterlab
+  - gromacs-metatomic
   - lammps-metatomic
   - pip
   - pip:
