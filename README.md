@@ -4,6 +4,11 @@ This directory contains the runnable workflow for MOF-5 molecular dynamics and
 harmonic heat-capacity analysis. Scientific background, equations, assumptions,
 and convergence requirements are in [report.tex](report.tex).
 
+For CUDA jobs submitted with Slurm on EPFL's SCITAS Izar cluster, follow
+[IZAR.md](IZAR.md). Izar's V100 GPUs require the CUDA 12 JAX environment
+described there; the desktop environment below currently selects CUDA 13. A
+reusable submission template is provided in [izar_job.slurm](izar_job.slurm).
+
 ## 1. Create the environment
 
 From this directory:
