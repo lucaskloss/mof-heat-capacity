@@ -2,7 +2,10 @@
 
 This directory contains the runnable workflow for MOF-5 molecular dynamics and
 harmonic heat-capacity analysis. Scientific background, equations, assumptions,
-and convergence requirements are in [report.tex](docs/report.tex).
+and convergence requirements are in [report.tex](docs/report.tex). The
+simulation-focused summary of Kapil et al. (2019), including the published
+parameters, current-project compatibility, and an Izar execution path, is in
+[KAPIL_2019.md](docs/KAPIL_2019.md).
 
 For CUDA jobs submitted with Slurm on EPFL's SCITAS Izar cluster, follow
 [IZAR.md](docs/IZAR.md). The environment pins both JAX and PyTorch to CUDA 12 builds
