@@ -76,7 +76,7 @@ export PYTHONUNBUFFERED=1
 
 cd "${SLURM_SUBMIT_DIR}"
 
-if [[ ! -f run.py || ! -f heat_capacity.py || ! -f "${MOF_CONFIG}" ]]; then
+if [[ ! -f run.py || ! -f utils/heat_capacity.py || ! -f "${MOF_CONFIG}" ]]; then
     echo "error: submit from mof-heat-capacity and check MOF_CONFIG=${MOF_CONFIG}" >&2
     exit 2
 fi
@@ -148,7 +148,7 @@ run_md() {
 
 
 run_heat_capacity() {
-    local command=(python heat_capacity.py --config "${MOF_CONFIG}")
+    local command=(python utils/heat_capacity.py --config "${MOF_CONFIG}")
 
     if [[ -n "${MOF_HEAT_FRAMES}" ]]; then
         command+=(--frames "${MOF_HEAT_FRAMES}")

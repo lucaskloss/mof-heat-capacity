@@ -11,9 +11,9 @@ from ase.io import Trajectory
 from ase.md import Langevin, MDLogger
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary
 
-from model_utils import ensure_exported_model
-from workflow_config import RunConfig, load_run_config
-from workflow_io import load_structure
+from utils.model_utils import ensure_exported_model
+from utils.workflow_config import RunConfig, load_run_config
+from utils.workflow_io import load_structure
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent

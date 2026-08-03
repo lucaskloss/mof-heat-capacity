@@ -3,7 +3,7 @@ name = "mof5-pet-mad"
 output_dir = "../output/mof5-pet-mad"
 
 [structure]
-path = "../data/mof5.cif"
+path = "../input/mof5.cif"
 required_elements = ["C", "H", "O", "Zn"]
 
 [model]

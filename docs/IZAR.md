@@ -1,8 +1,8 @@
 # Running the MOF-5 workflow on SCITAS Izar
 
-This guide adapts the desktop CUDA instructions in [README.md](README.md) to
+This guide adapts the desktop CUDA instructions in [README.md](../README.md) to
 EPFL's SCITAS Izar cluster. It covers a single-GPU run of `run.py` followed by
-`heat_capacity.py`. Both programs are single-process Python programs; requesting
+`utils/heat_capacity.py`. Both programs are single-process Python programs; requesting
 more GPUs will not make the current implementation faster.
 
 The commands and limits below were checked against the SCITAS documentation on
@@ -102,7 +102,7 @@ conda env create \
 conda activate "$HOME/.conda/envs/mof-heat-capacity-izar"
 
 cd "$HOME/project/mof-heat-capacity"
-./install_sadmof.sh
+./scripts/install_sadmof.sh
 exit
 exit
 ```
@@ -114,12 +114,12 @@ of `conda info --base`; batch scripts need its exact
 not copy a versioned module name from another cluster without checking it on
 Izar.
 
-`install_sadmof.sh` expects the SADMOF source at
+`scripts/install_sadmof.sh` expects the SADMOF source at
 `$HOME/project/repos/sadmof-work` for the layout above. If it is elsewhere,
 run it as:
 
 ```bash
-SADMOF_SOURCE=/persistent/path/to/sadmof-work ./install_sadmof.sh
+SADMOF_SOURCE=/persistent/path/to/sadmof-work ./scripts/install_sadmof.sh
 ```
 
 Do not load a separate CUDA toolkit module when using `jax[cuda12]`: these JAX
@@ -189,7 +189,7 @@ preserve the full job output and contact SCITAS support.
 There is no universal resource request based only on the number of atoms or MD
 steps. Choose resources from the program's parallelism and measurements from a
 representative short run. Slurm command-line options override matching
-`#SBATCH` lines, so most tests do not require editing `izar_job.slurm`.
+`#SBATCH` lines, so most tests do not require editing `scripts/izar_job.sh`.
 
 First inspect the live cluster rather than relying only on this file:
 
@@ -261,11 +261,11 @@ only a disposable smoke-test trajectory. For example:
 ```bash
 sbatch --qos=debug --cpus-per-task=2 --time=00:30:00 \
   --export=ALL,MOF_STAGE=md,MOF_STEPS=100,MOF_RERUN=1 \
-  izar_job.slurm
+  scripts/izar_job.sh
 
 sbatch --qos=debug --cpus-per-task=4 --time=00:30:00 \
   --export=ALL,MOF_STAGE=md,MOF_STEPS=100,MOF_RERUN=1 \
-  izar_job.slurm
+  scripts/izar_job.sh
 ```
 
 Do not submit these simultaneously against the same output. Compare elapsed
@@ -355,13 +355,13 @@ jobs; SCITAS recommends job arrays or contacting support for very large
 campaigns.
 
 Selected heat-capacity frames are independent scientifically, although the
-current `heat_capacity.py` processes them serially. The template supports a
+current `utils/heat_capacity.py` processes them serially. The template supports a
 Slurm array that maps each array index to one frame and one unique NPZ file:
 
 ```bash
 sbatch --array=0,10,20%2 \
   --export=ALL,MOF_STAGE=heat-capacity,MOF_HEAT_FRAMES=array \
-  izar_job.slurm
+  scripts/izar_job.sh
 ```
 
 This runs frames 0, 10, and 20, with at most two jobs active at once. Results
@@ -387,13 +387,13 @@ age without making it start sooner.
 
 ## Submit the molecular-dynamics job
 
-The repository includes [izar_job.slurm](izar_job.slurm), a reusable version of
+The repository includes [izar_job.sh](../scripts/izar_job.sh), a reusable version of
 the templates below. Submit it from the directory containing `run.py`. It runs
 the MD stage by default:
 
 ```bash
 cd "$SCRATCH/project/mof-heat-capacity"
-sbatch --export=ALL,MOF_STAGE=md izar_job.slurm
+sbatch --export=ALL,MOF_STAGE=md scripts/izar_job.sh
 ```
 
 The template defaults to the environment created above and the bundled TOML
@@ -401,10 +401,10 @@ configuration. Override these without editing the script when necessary:
 
 ```bash
 sbatch --export=ALL,MOF_STAGE=md,MOF_CONFIG=configs/production.toml \
-  izar_job.slurm
+  scripts/izar_job.sh
 
 sbatch --export=ALL,MOF_STAGE=md,MOF_STEPS=100,MOF_RERUN=1 \
-  izar_job.slurm
+  scripts/izar_job.sh
 ```
 
 If Conda is not found automatically after `module purge`, pass the literal
@@ -412,7 +412,7 @@ initialization path obtained from `conda info --base`:
 
 ```bash
 sbatch --export=ALL,MOF_STAGE=md,MOF_CONDA_SH=/path/to/conda/etc/profile.d/conda.sh \
-  izar_job.slurm
+  scripts/izar_job.sh
 ```
 
 Edit the `#SBATCH --time` and `--cpus-per-task` defaults after measuring a
@@ -492,7 +492,7 @@ export MKL_NUM_THREADS="$SLURM_CPUS_PER_TASK"
 
 cd "$SLURM_SUBMIT_DIR"
 nvidia-smi -L
-srun python heat_capacity.py \
+srun python utils/heat_capacity.py \
   --config configs/mof5_pet_mad.toml \
   --frame-indices 0 \
   --hops 3
@@ -501,10 +501,10 @@ srun python heat_capacity.py \
 Submit it only after a successful MD job, or create a Slurm dependency:
 
 ```bash
-md_job=$(sbatch --parsable --export=ALL,MOF_STAGE=md izar_job.slurm)
+md_job=$(sbatch --parsable --export=ALL,MOF_STAGE=md scripts/izar_job.sh)
 md_job=${md_job%%;*}
 sbatch --dependency="afterok:${md_job}" \
-  --export=ALL,MOF_STAGE=heat-capacity izar_job.slurm
+  --export=ALL,MOF_STAGE=heat-capacity scripts/izar_job.sh
 ```
 
 `afterok` prevents analysis from starting if MD fails. For production, remove
@@ -515,7 +515,7 @@ This analysis writes one output file, so simultaneous jobs must use distinct
 To run both stages sequentially inside one allocation, use:
 
 ```bash
-sbatch --export=ALL,MOF_STAGE=all izar_job.slurm
+sbatch --export=ALL,MOF_STAGE=all scripts/izar_job.sh
 ```
 
 Separate dependent jobs are normally preferable because MD and Hessian

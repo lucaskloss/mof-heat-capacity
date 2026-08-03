@@ -11,10 +11,11 @@ from ase.geometry import get_distances
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_HOST = SCRIPT_DIR / "data" / "mof5.pdb"
-DEFAULT_METHANE = SCRIPT_DIR / "data" / "ch4.gro"
-DEFAULT_OUTPUT = SCRIPT_DIR / "output" / "mof5-pet-mad" / "mof5-md.pdb"
-DEFAULT_DATA_OUTPUT = SCRIPT_DIR / "output" / "mof5-pet-mad" / "mof5-md.data"
+PROJECT_DIR = SCRIPT_DIR.parent
+DEFAULT_HOST = PROJECT_DIR / "input" / "mof5.pdb"
+DEFAULT_METHANE = PROJECT_DIR / "input" / "ch4.gro"
+DEFAULT_OUTPUT = PROJECT_DIR / "output" / "mof5-pet-mad" / "mof5-md.pdb"
+DEFAULT_DATA_OUTPUT = PROJECT_DIR / "output" / "mof5-pet-mad" / "mof5-md.data"
 
 
 def parse_args() -> argparse.Namespace:

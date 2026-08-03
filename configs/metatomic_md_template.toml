@@ -6,7 +6,7 @@ name = "material-model-label"
 output_dir = "../output/material-model-label"
 
 [structure]
-path = "../data/your-structure-with-ch4.cif"
+path = "../input/your-structure-with-ch4.cif"
 # required_elements = ["C", "H", "O", "Zn"]
 
 [model]

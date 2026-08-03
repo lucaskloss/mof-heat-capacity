@@ -4,8 +4,9 @@ set -euo pipefail
 
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-SADMOF_SOURCE=${SADMOF_SOURCE:-"${SCRIPT_DIR}/../repos/sadmof-work"}
-SADMOF_DIR="${SCRIPT_DIR}/external/sadmof"
+PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/.." && pwd)
+SADMOF_SOURCE=${SADMOF_SOURCE:-"${PROJECT_DIR}/../repos/sadmof-work"}
+SADMOF_DIR="${PROJECT_DIR}/external/sadmof"
 DEPENDENCY_DIR="${SADMOF_DIR}/deps"
 
 
@@ -25,7 +26,7 @@ if [[ -e "$SADMOF_DIR" ]]; then
     rm -rf -- "$SADMOF_DIR"
 fi
 
-mkdir -p "${SCRIPT_DIR}/external"
+mkdir -p "${PROJECT_DIR}/external"
 git clone --no-recurse-submodules "$SADMOF_SOURCE" "$SADMOF_DIR"
 mkdir -p "$DEPENDENCY_DIR"
 git clone https://github.com/adrhill/asdex.git "$DEPENDENCY_DIR/asdex"

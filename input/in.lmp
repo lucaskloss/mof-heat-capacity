@@ -1,6 +1,6 @@
 units metal
 atom_style atomic
-read_data /home/dealmeid/project/work/mof-heat-capacity/data/mof5.data
+read_data /home/dealmeid/project/work/mof-heat-capacity/input/mof5.data
 pair_style metatomic /home/dealmeid/project/work/mof-heat-capacity/models/pet-mad-1.5-s_40nn_nostress.pt device cuda
 pair_coeff * * 6 1 8 30
 neighbor 2.0 bin

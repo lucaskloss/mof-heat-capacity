@@ -2,13 +2,13 @@
 
 This directory contains the runnable workflow for MOF-5 molecular dynamics and
 harmonic heat-capacity analysis. Scientific background, equations, assumptions,
-and convergence requirements are in [report.tex](report.tex).
+and convergence requirements are in [report.tex](docs/report.tex).
 
 For CUDA jobs submitted with Slurm on EPFL's SCITAS Izar cluster, follow
-[IZAR.md](IZAR.md). The environment pins both JAX and PyTorch to CUDA 12 builds
+[IZAR.md](docs/IZAR.md). The environment pins both JAX and PyTorch to CUDA 12 builds
 that can target Izar's V100 GPUs; allowing pip to select the current default
 PyTorch wheel installs CUDA 13 and fails on Izar's 535-series driver. A reusable
-submission template is provided in [izar_job.slurm](izar_job.slurm).
+submission template is provided in [izar_job.sh](scripts/izar_job.sh).
 
 ## 1. Create the environment
 
@@ -19,10 +19,10 @@ conda env create --file environment.yml
 conda activate mof-heat-capacity
 ```
 
-Install SADMOF and the compatible dependencies used by `heat_capacity.py`:
+Install SADMOF and the compatible dependencies used by `utils/heat_capacity.py`:
 
 ```bash
-./install_sadmof.sh
+./scripts/install_sadmof.sh
 ```
 
 By default, the installer clones the SADMOF source at `../repos/sadmof-work`
@@ -31,7 +31,7 @@ pinned public dependencies into the active Conda environment. To use SADMOF
 from a different location:
 
 ```bash
-SADMOF_SOURCE=/path/to/sadmof-work ./install_sadmof.sh
+SADMOF_SOURCE=/path/to/sadmof-work ./scripts/install_sadmof.sh
 ```
 
 ## 2. Run the bundled MOF-5 example
@@ -57,7 +57,7 @@ places randomly oriented methane molecules, checks minimum atom distances, and
 writes a combined structure.
 
 ```bash
-python insert_methane.py --nmol 1 --seed 2025
+python utils/insert_methane.py --nmol 1 --seed 2025
 ```
 
 The default outputs are `output/mof5-pet-mad/mof5-md.pdb` and
@@ -65,8 +65,8 @@ The default outputs are `output/mof5-pet-mad/mof5-md.pdb` and
 and prefix. Useful options are:
 
 ```bash
-python insert_methane.py --nmol 4 --try 5000 --min-distance 1.5
-python insert_methane.py --nmol 1 --dry-run
+python utils/insert_methane.py --nmol 4 --try 5000 --min-distance 1.5
+python utils/insert_methane.py --nmol 1 --dry-run
 ```
 
 Use the generated structure in a copied TOML configuration:
@@ -90,13 +90,13 @@ in the same file before running `run.py`.
 After generating a trajectory, run the analysis using the matching TOML file:
 
 ```bash
-python heat_capacity.py --config configs/mof5_pet_mad.toml
+python utils/heat_capacity.py --config configs/mof5_pet_mad.toml
 ```
 
 For a small diagnostic run:
 
 ```bash
-python heat_capacity.py \
+python utils/heat_capacity.py \
   --config configs/mof5_pet_mad.toml \
   --frame-indices 0 \
   --hops 3
@@ -115,7 +115,7 @@ Open the trajectory notebook from this directory:
 jupyter lab
 ```
 
-Then open `visualize.ipynb`. Inspect the structure, forces, temperature,
+Then open `utils/visualize.ipynb`. Inspect the structure, forces, temperature,
 energy, and trajectory stability before interpreting heat-capacity results.
 
 Use a separate output directory and prefix for each structure, model, and

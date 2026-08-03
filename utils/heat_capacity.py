@@ -12,7 +12,7 @@ from workflow_config import RunConfig, load_run_config
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_CONFIG = SCRIPT_DIR / "configs" / "mof5_pet_mad.toml"
+DEFAULT_CONFIG = SCRIPT_DIR.parent / "configs" / "mof5_pet_mad.toml"
 
 
 def parse_args() -> argparse.Namespace:
