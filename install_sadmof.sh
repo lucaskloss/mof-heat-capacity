@@ -41,6 +41,12 @@ python -m pip install -e "$DEPENDENCY_DIR/asdex"
 python -m pip install -e "$DEPENDENCY_DIR/marathon"
 python -m pip install -e "$DEPENDENCY_DIR/pet-jax"
 python -m pip install --no-deps -e "$SADMOF_DIR"
+# Keep the CUDA plugin ABI matched with the JAX version pinned in
+# environment.yml. Installing flax above can otherwise select an incompatible
+# plugin release without changing jaxlib.
+python -m pip install --force-reinstall --no-deps \
+    "jax==0.11.0" "jaxlib==0.11.0" \
+    "jax-cuda12-plugin==0.11.0" "jax-cuda12-pjrt==0.11.0"
 
 python -c 'from petjax.select import _selection; import asdex, sadmof; print("Verified SADMOF imports:", sadmof.__file__)'
 echo "SADMOF and its pinned public dependencies are installed."

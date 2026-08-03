@@ -80,7 +80,8 @@ exist after staging. The default configuration expects the checkpoint below
 Izar's V100 is a Volta GPU with compute capability 7.0. CUDA 13 dropped Volta
 library and offline-compilation support, and its drivers require release 580 or
 newer. Izar job 3099805 instead reported driver 535.154.5. The repository's
-`environment.yml` therefore selects `jax[cuda12]` and pins PyTorch 2.5.1's
+`environment.yml` therefore selects JAX 0.11.0 with its matching CUDA 12
+plugin/PJRT packages, and pins PyTorch 2.5.1's
 CUDA 12.1 wheel, which includes V100 (sm_70) kernels. Do not remove that
 PyTorch pin: newer wheels can omit V100 kernels or select CUDA 13 and fail on
 Izar.
