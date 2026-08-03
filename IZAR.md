@@ -77,27 +77,13 @@ exist after staging. The default configuration expects the checkpoint below
 
 ## Create an Izar-compatible environment
 
-Do not use the desktop environment file unchanged on Izar. Izar's V100 is a
-Volta GPU with compute capability 7.0. CUDA 13 dropped Volta library and
-offline-compilation support, and JAX's CUDA 13 wheels require compute capability
-7.5 or newer. JAX's CUDA 12 wheels still support Volta.
-
-Make an Izar-only copy of the environment specification in persistent storage
-and change only the JAX extra:
-
-```bash
-cd "$HOME/project/mof-heat-capacity"
-cp environment.yml environment-izar.yml
-sed -i 's/jax\[cuda13\]/jax[cuda12]/' environment-izar.yml
-diff -u environment.yml environment-izar.yml
-```
-
-The diff should contain exactly this replacement:
-
-```diff
--      - "jax[cuda13]"
-+      - "jax[cuda12]"
-```
+Izar's V100 is a Volta GPU with compute capability 7.0. CUDA 13 dropped Volta
+library and offline-compilation support, and its drivers require release 580 or
+newer. Izar job 3099805 instead reported driver 535.154.5. The repository's
+`environment.yml` therefore selects `jax[cuda12]` and pins PyTorch 2.5.1's
+CUDA 12.1 wheel, which includes V100 (sm_70) kernels. Do not remove that
+PyTorch pin: newer wheels can omit V100 kernels or select CUDA 13 and fail on
+Izar.
 
 Create the environment under `/home` or `/work`, not under scratch. Package
 installation can be run in Izar's GPU-free `build` QOS rather than consuming a
@@ -111,7 +97,7 @@ srun --pty bash -l
 
 conda env create \
   --prefix "$HOME/.conda/envs/mof-heat-capacity-izar" \
-  --file "$HOME/project/mof-heat-capacity/environment-izar.yml"
+  --file "$HOME/project/mof-heat-capacity/environment.yml"
 conda activate "$HOME/.conda/envs/mof-heat-capacity-izar"
 
 cd "$HOME/project/mof-heat-capacity"
@@ -140,6 +126,24 @@ wheels bring their CUDA user-space libraries, and an incompatible
 `LD_LIBRARY_PATH` can override them. The NVIDIA driver remains supplied by the
 cluster.
 
+Do not repair an existing environment only by changing JAX. Confirm the Torch
+build without initializing a GPU:
+
+```bash
+python -c 'import torch; print(torch.__version__, torch.version.cuda)'
+```
+
+For this environment it must report `2.5.1+cu121` and CUDA `12.1`, not a newer
+build without `sm_70` support. Creating the fresh prefix above is safer than modifying the
+failed environment in place because pip may leave CUDA 13 runtime packages
+behind.
+
+The environment pins Vesin to 0.6.1 because `metatomic-ase` 0.1.2 requires
+that API, and pins `nvalchemi-toolkit-ops` to 0.3.1 for compatibility with
+Torch 2.5.1. The runner uses that GPU neighbor backend by default, avoiding
+Vesin's NVRTC JIT path on Izar's V100. Set `MOF_USE_NVALCHEMIOPS=0` only for
+diagnostics on a different CUDA stack.
+
 ## Validate CUDA in a debug allocation
 
 Never test GPU availability on the login node. Request one GPU interactively:
@@ -160,7 +164,7 @@ conda activate "$HOME/.conda/envs/mof-heat-capacity-izar"
 
 nvidia-smi
 python -c 'import jax; print(jax.devices())'
-python -c 'import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))'
+python -c 'import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available(), torch.cuda.get_device_name(0))'
 
 cd "$SCRATCH/project/mof-heat-capacity"
 python run.py --config configs/mof5_pet_mad.toml \
@@ -172,11 +176,12 @@ angle-bracket placeholders are not valid shell paths. The JAX output must list
 a CUDA device, the PyTorch check must print `True` and a V100 device name, and
 the ten-step trajectory must finish before proceeding.
 
-If JAX reports a driver error, compare the driver shown by `nvidia-smi` with
-JAX's current CUDA 12 minimum (driver 525 on Linux at the time of writing). Do
-not switch back to CUDA 13: it cannot target the V100. If JAX or PyTorch cannot
-initialize CUDA despite the checks above, preserve the full job output and
-contact SCITAS support.
+CUDA 12 supports minor-version compatibility with Linux drivers 525 through
+the 570 series, subject to NVIDIA's documented feature restrictions, so the
+reported 535.154.5 driver belongs to the correct major compatibility range.
+Do not switch to CUDA 13: it requires driver 580 or newer and cannot target the
+V100. If JAX or the pinned CUDA 12 PyTorch build still cannot initialize CUDA,
+preserve the full job output and contact SCITAS support.
 
 ## Choose the Slurm resources
 
@@ -488,7 +493,7 @@ cd "$SLURM_SUBMIT_DIR"
 nvidia-smi -L
 srun python heat_capacity.py \
   --config configs/mof5_pet_mad.toml \
-  --frames 1 \
+  --frame-indices 0 \
   --hops 3
 ```
 

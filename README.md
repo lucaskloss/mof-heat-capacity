@@ -5,9 +5,10 @@ harmonic heat-capacity analysis. Scientific background, equations, assumptions,
 and convergence requirements are in [report.tex](report.tex).
 
 For CUDA jobs submitted with Slurm on EPFL's SCITAS Izar cluster, follow
-[IZAR.md](IZAR.md). Izar's V100 GPUs require the CUDA 12 JAX environment
-described there; the desktop environment below currently selects CUDA 13. A
-reusable submission template is provided in [izar_job.slurm](izar_job.slurm).
+[IZAR.md](IZAR.md). The environment pins both JAX and PyTorch to CUDA 12 builds
+that can target Izar's V100 GPUs; allowing pip to select the current default
+PyTorch wheel installs CUDA 13 and fails on Izar's 535-series driver. A reusable
+submission template is provided in [izar_job.slurm](izar_job.slurm).
 
 ## 1. Create the environment
 
@@ -97,12 +98,14 @@ For a small diagnostic run:
 ```bash
 python heat_capacity.py \
   --config configs/mof5_pet_mad.toml \
-  --frames 1 \
+  --frame-indices 0 \
   --hops 3
 ```
 
-The analysis output is written to the configured output directory. Use
-`--help` on either script to see all available overrides.
+`--frames 1` also selects one evenly spaced frame, while `--frame-indices 10`
+selects trajectory frame 10 exactly. The analysis output is written to the
+configured output directory. Use `--help` on either script to see all available
+overrides.
 
 ## 5. Inspect results
 

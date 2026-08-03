@@ -13,13 +13,20 @@ dependencies:
   - mkl>=2026,<2027
   - pip
   - pip:
+      # PyPI's current default torch wheel uses CUDA 13, which cannot run on
+      # Izar's V100/535-series driver. Keep torch in the CUDA 12 family.
+      - --extra-index-url https://download.pytorch.org/whl/cu121
+      # CUDA 12.1 is the newest pinned PyTorch wheel here with V100 kernels.
+      - "torch==2.5.1+cu121"
       - ase>=3.23
       - anywidget>=0.9
       - chemiscope>=1.1.0
       - ipywidgets>=8.1
       - matplotlib
       - metatomic-ase>=0.1.2
+      - "nvalchemi-toolkit-ops[torch]==0.3.1"
       - ipi>=3.2.0
-      - "jax[cuda13]"
+      - "jax[cuda12]"
       - upet>=0.2.6
-      - vesin>=0.4.2
+      # metatomic-ase 0.1.2 requires Vesin 0.6.x (the 0.4 API lacks `skin`).
+      - "vesin==0.6.1"

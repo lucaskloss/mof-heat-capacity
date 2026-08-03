@@ -21,6 +21,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--trajectory", type=Path)
     parser.add_argument("--frames", help="Count, 'all', or comma-separated indices")
+    parser.add_argument(
+        "--frame-indices",
+        help="Explicit comma-separated trajectory indices (a single index is allowed)",
+    )
     parser.add_argument("--stride", type=int)
     parser.add_argument("--temperatures", help="Inclusive start:stop:step range in K")
     parser.add_argument("--output", type=Path)
@@ -47,6 +51,14 @@ def select_indices(spec: str, n_frames: int, stride: int | None) -> list[int]:
         if count < 1:
             raise ValueError("frames must be positive")
         indices = np.linspace(0, n_frames - 1, min(count, n_frames), dtype=int).tolist()
+    if any(index < 0 or index >= n_frames for index in indices):
+        raise IndexError(f"frame index outside 0..{n_frames - 1}")
+    return list(dict.fromkeys(indices))
+
+
+def select_explicit_indices(spec: str, n_frames: int) -> list[int]:
+    """Parse one or more explicit trajectory indices."""
+    indices = [int(item.strip()) for item in spec.split(",")]
     if any(index < 0 or index >= n_frames for index in indices):
         raise IndexError(f"frame index outside 0..{n_frames - 1}")
     return list(dict.fromkeys(indices))
@@ -196,7 +208,12 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
     if dtype == "float64":
         jax.config.update("jax_enable_x64", True)
     frames = read(str(trajectory_path), index=":")
-    indices = select_indices(frame_spec, len(frames), args.stride)
+    if args.frame_indices is not None:
+        if args.frames is not None or args.stride is not None:
+            raise ValueError("--frame-indices cannot be combined with --frames or --stride")
+        indices = select_explicit_indices(args.frame_indices, len(frames))
+    else:
+        indices = select_indices(frame_spec, len(frames), args.stride)
     temperatures = parse_temperatures(temperature_spec)
     jax_checkpoint = ensure_jax_checkpoint(config.checkpoint, config.jax_checkpoint)
     model, params, metadata = load_pet(jax_checkpoint, dtype=dtype)

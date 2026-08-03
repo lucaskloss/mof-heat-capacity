@@ -12,11 +12,10 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1
-#SBATCH --time=04:00:00
+#SBATCH --time=01:00:00
 #SBATCH --output=slurm-%x-%j.out
 
 set -euo pipefail
-
 
 MOF_STAGE="${MOF_STAGE:-md}"
 MOF_CONFIG="${MOF_CONFIG:-configs/mof5_pet_mad.toml}"
@@ -24,6 +23,7 @@ MOF_ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
 MOF_STEPS="${MOF_STEPS:-}"
 MOF_RERUN="${MOF_RERUN:-0}"
 MOF_HEAT_FRAMES="${MOF_HEAT_FRAMES:-}"
+MOF_HEAT_FRAME_INDICES="${MOF_HEAT_FRAME_INDICES:-}"
 MOF_HEAT_OUTPUT="${MOF_HEAT_OUTPUT:-}"
 
 
@@ -38,7 +38,8 @@ if [[ "${MOF_HEAT_FRAMES}" == "array" ]]; then
         exit 2
     fi
 
-    MOF_HEAT_FRAMES="${SLURM_ARRAY_TASK_ID}"
+    MOF_HEAT_FRAMES=""
+    MOF_HEAT_FRAME_INDICES="${SLURM_ARRAY_TASK_ID}"
     MOF_HEAT_OUTPUT="${MOF_HEAT_OUTPUT:-output/heat-capacity-frame-${SLURM_ARRAY_TASK_ID}.npz}"
 fi
 
@@ -86,8 +87,41 @@ echo "Stage:         ${MOF_STAGE}"
 echo "Configuration: ${MOF_CONFIG}"
 echo "Environment:   ${MOF_ENV_PREFIX}"
 nvidia-smi -L
-python -c 'import jax; print("JAX devices:", jax.devices())'
-python -c 'import torch; print("PyTorch CUDA:", torch.cuda.is_available(), torch.cuda.get_device_name(0))'
+
+
+check_pytorch_cuda() {
+    python - <<'PY'
+import torch
+
+print(f"PyTorch: {torch.__version__}; CUDA build: {torch.version.cuda}")
+if torch.version.cuda is None or torch.version.cuda.split(".", 1)[0] != "12":
+    raise RuntimeError(
+        "Izar requires a CUDA 12 PyTorch build; recreate the environment from "
+        "the repository's pinned environment.yml"
+    )
+if not torch.cuda.is_available():
+    raise RuntimeError("PyTorch cannot initialize the allocated CUDA device")
+capability = torch.cuda.get_device_capability(0)
+if capability < (7, 0) or "sm_70" not in torch.cuda.get_arch_list():
+    raise RuntimeError(
+        f"PyTorch {torch.__version__} has no V100 (sm_70) kernels; "
+        "recreate the environment from environment.yml"
+    )
+print("PyTorch device:", torch.cuda.get_device_name(0))
+PY
+}
+
+
+check_jax_cuda() {
+    python - <<'PY'
+import jax
+
+devices = jax.devices()
+print(f"JAX: {jax.__version__}; devices: {devices}")
+if not any(device.platform == "gpu" for device in devices):
+    raise RuntimeError("JAX cannot initialize the allocated CUDA device")
+PY
+}
 
 
 run_md() {
@@ -120,6 +154,10 @@ run_heat_capacity() {
         command+=(--frames "${MOF_HEAT_FRAMES}")
     fi
 
+    if [[ -n "${MOF_HEAT_FRAME_INDICES}" ]]; then
+        command+=(--frame-indices "${MOF_HEAT_FRAME_INDICES}")
+    fi
+
     if [[ -n "${MOF_HEAT_OUTPUT}" ]]; then
         command+=(--output "${MOF_HEAT_OUTPUT}")
     fi
@@ -130,12 +168,16 @@ run_heat_capacity() {
 
 case "${MOF_STAGE}" in
     md)
+        check_pytorch_cuda
         run_md
         ;;
     heat-capacity)
+        check_jax_cuda
         run_heat_capacity
         ;;
     all)
+        check_pytorch_cuda
+        check_jax_cuda
         run_md
         run_heat_capacity
         ;;
