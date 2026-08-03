@@ -88,6 +88,20 @@ path = "../output/mof5-pet-mad/mof5-md.pdb"
 Set model paths, output directory, temperature, timestep, and trajectory prefix
 in the same file before running `run.py`.
 
+For the short MOF-5 + 100 CH4 Izar validation sweep at 100, 200, 300, 400,
+and 500 K, prepare the shared loaded structure and five 2 ps configurations,
+preview the Slurm commands, and submit them with:
+
+```bash
+./scripts/prepare_mof5_100ch4_tests.sh
+./scripts/submit_mof5_100ch4_tests.sh --dry-run
+./scripts/submit_mof5_100ch4_tests.sh
+```
+
+The submission script defaults to the `gpu` partition, `normal` QOS, one GPU,
+four CPUs, and two hours per job. Use `--help` to override those values after
+checking Izar's live QOS and partition configuration.
+
 ## 4. Calculate harmonic heat capacity
 
 After generating a trajectory, run the analysis using the matching TOML file:
