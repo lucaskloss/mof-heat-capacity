@@ -2,14 +2,19 @@
 
 \usepackage[margin=2.5cm]{geometry}
 \usepackage{amsmath,amssymb,bm}
+\usepackage{array}
 \usepackage{booktabs}
 \usepackage{hyperref}
+\usepackage{microtype}
 \usepackage{siunitx}
 
 \hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
 \sisetup{per-mode=symbol}
+\newcommand{\chfour}{\ensuremath{\mathrm{CH_4}}}
+\newcommand{\cv}{\ensuremath{C_V}}
+\newcommand{\cpheat}{\ensuremath{C_P}}
 
-\title{Molecular Dynamics and Harmonic Heat Capacity of MOF-5 with a Machine-Learned Interatomic Potential}
+\title{Molecular Dynamics and Harmonic Heat Capacity of Pristine and Methane-Loaded MOF-5 with a Machine-Learned Interatomic Potential}
 \author{\textit{Author name}}
 \date{\today}
 
@@ -18,197 +23,1095 @@
 \maketitle
 
 \begin{abstract}
-This report describes a workflow for molecular-dynamics (MD) simulations of periodic MOF-5 using the PET-MAD machine-learned interatomic potential (MLIP). The present implementation performs short, constant-temperature MD trajectories with ASE and metatomic-ase. The post-processing workflow uses automatic differentiation (AD) to obtain the potential-energy Hessian, vibrational frequencies, and the harmonic constant-volume heat capacity $C_V(T)$. This document states the equations, assumptions, and convergence checks needed before interpreting calculated heat capacities.
+This report develops a simulation workflow for pristine and methane-loaded
+MOF-5 using the PET-MAD machine-learned interatomic potential. Classical
+constant-temperature molecular dynamics (MD) is performed with the Atomic
+Simulation Environment (ASE), while automatic differentiation (AD) through a
+PET-JAX model provides sparse Cartesian Hessians, normal-mode frequencies, and
+the quantum harmonic constant-volume heat capacity, \cv. The scientific
+motivation and reference protocol are taken from Kapil \emph{et al.}, who
+showed that harmonic quantum lattice dynamics describes empty MOF-5 well, but
+that loaded MOF-5 requires both anharmonic and nuclear-quantum effects for a
+quantitative constant-pressure heat capacity, \cpheat. The present project
+therefore provides a defensible harmonic route for pristine MOF-5 and a
+diagnostic local-curvature analysis for MOF-5 containing 100 methane
+molecules; it does not reproduce the published path-integral \cpheat. Five
+short, \SI{2}{ps} NVT validation trajectories at 100, 200, 300, 400, and
+\SI{500}{K} have been completed. They demonstrate execution of the 924-atom
+loaded system, but are too short to establish equilibration or statistical
+convergence. This report sets out the theory, implementation, interpretation,
+and convergence tests required to turn the current validation workflow into a
+production calculation.
 \end{abstract}
 
-\section{System and computational objective}
+\section{Scientific motivation and scope}
 
-Metal--organic frameworks (MOFs) are periodic solids with many low-frequency collective modes. These modes can make a substantial contribution to the temperature-dependent heat capacity. The system considered here is MOF-5, represented by a periodic atomic structure with positions $\bm{R}=\{\bm{R}_i\}_{i=1}^N$, atomic masses $m_i$, and cell matrix $\bm{h}$.
+Metal--organic frameworks (MOFs) combine inorganic nodes with organic linkers
+to form porous crystalline networks. Their vibrational spectrum contains
+high-frequency local bond vibrations as well as soft linker, pore, and
+collective framework modes. Because the contribution of a quantum vibrational
+mode depends strongly on the ratio of its energy to $k_{\mathrm B}T$, a broad
+frequency distribution produces a strongly temperature-dependent heat
+capacity. Guest adsorption adds translational, rotational, and host--guest
+degrees of freedom that may be weakly confined and strongly anharmonic.
 
-The computational workflow has two distinct stages:
+The material considered here is MOF-5. Its conventional cubic cell contains
+424 framework atoms with composition
+$\mathrm{C}_{192}\mathrm{H}_{96}\mathrm{O}_{104}\mathrm{Zn}_{32}$. In the
+loaded calculations, 100 methane molecules add 500 atoms, giving a 924-atom
+system with composition
+$\mathrm{C}_{292}\mathrm{H}_{496}\mathrm{O}_{104}\mathrm{Zn}_{32}$.
+The principal objectives are:
 
 \begin{enumerate}
-  \item A molecular-dynamics stage checks that the structure and MLIP can be evaluated stably at finite temperature.
-  \item A harmonic lattice-dynamics stage evaluates the curvature of the MLIP energy with AD and converts the resulting vibrational spectrum into $C_V(T)$.
+  \item to test whether PET-MAD gives stable finite-temperature dynamics for
+        pristine and methane-loaded MOF-5;
+  \item to compute PET-MAD force constants efficiently by sparse AD;
+  \item to obtain and converge quantum harmonic \cv{} curves;
+  \item to distinguish results supported by the current implementation from
+        the anharmonic, constant-pressure quantities calculated by Kapil
+        \emph{et al.}\ \cite{kapil2019}; and
+  \item to establish a reproducible route from short cluster validation jobs
+        to statistically meaningful production calculations.
 \end{enumerate}
 
-The second stage is not a heat-capacity estimator based on short-trajectory energy fluctuations. It is a quantum harmonic approximation based on the Hessian at a selected reference geometry.
+The workflow has two computational stages. MD samples finite-temperature
+configurations and diagnoses dynamical stability. The Hessian stage evaluates
+the local curvature of the potential-energy surface at selected geometries.
+The latter is not, by itself, an energy-fluctuation estimator and does not
+become an exact anharmonic heat capacity merely by evaluating more frames.
 
-\section{Machine-learned interatomic potential}
+\section{Theory}
+\label{sec:theory}
 
-\subsection{Energy, forces, and stress}
+\subsection{Machine-learned interatomic potentials}
 
-An MLIP approximates the Born--Oppenheimer potential-energy surface as a function of atomic geometry and chemical identities,
+\subsubsection{Learning the potential-energy surface}
+
+Within the Born--Oppenheimer approximation, the electronic ground-state
+energy defines a potential-energy surface (PES) for the nuclei. An
+interatomic potential replaces an electronic-structure calculation by an
+approximation to this map,
 \begin{equation}
-  E_{\mathrm{ML}} = E_{\mathrm{ML}}(\bm{R}, \bm{h}, \{Z_i\}),
+  (\bm R,\bm h,\bm Z)\longmapsto
+  U(\bm R,\bm h,\bm Z),
 \end{equation}
-where $Z_i$ is the atomic number of atom $i$. PET-MAD is a learned, local message-passing potential: the local environment of each atom is encoded from neighboring atoms within the model's interaction range, and the total energy is assembled from learned atomic contributions,
+where $\bm R=(\bm R_1,\ldots,\bm R_N)$ are the nuclear coordinates,
+$\bm h$ is the periodic cell, and $\bm Z$ lists the chemical species. A
+machine-learned interatomic potential (MLIP) represents this map by a
+differentiable function with parameters $\theta$, fitted to energies and
+forces from electronic-structure calculations. Modern local MLIPs usually
+write the extensive energy as
 \begin{equation}
-  E_{\mathrm{ML}}(\bm{R}) = \sum_{i=1}^{N} \varepsilon_i(\mathcal{N}_i; \theta).
+  U_\theta(\bm R,\bm h,\bm Z)
+  = U_{\mathrm{base}}(\bm Z)
+  + \sum_{i=1}^{N}\varepsilon_i(\mathcal N_i;\theta),
+  \label{eq:mlip-energy}
 \end{equation}
-Here $\mathcal{N}_i$ denotes the periodic neighbor environment of atom $i$ and $\theta$ denotes the learned parameters. The model is constructed to respect the relevant physical symmetries: invariance to translation, rotation, and permutation of atoms of the same element.
+where $U_{\mathrm{base}}$ is an optional composition-dependent baseline and
+$\mathcal N_i$ is the learned environment of atom $i$. The decomposition
+makes the cost approximately linear in $N$ at fixed density and makes the
+energy size extensive. The individual atomic energies are a model
+construction rather than uniquely defined physical observables.
 
-For an energy-conserving potential, forces are obtained from the energy gradient,
+The force field is obtained by differentiating the scalar energy,
 \begin{equation}
-  \bm{F}_i = -\frac{\partial E_{\mathrm{ML}}}{\partial \bm{R}_i}.
-  \label{eq:forces}
+  \bm F_i=-\frac{\partial U_\theta}{\partial \bm R_i},
+  \label{eq:mlip-force}
 \end{equation}
-When cell relaxation or pressure calculations are required, the stress can similarly be obtained from the response of the energy to strain. In this project, metatomic-ase evaluates the PET-MAD model on the GPU and presents the resulting energy and forces through the ASE calculator interface.
+so the predicted forces are conservative, provided the same differentiable
+energy model is used throughout. Cell derivatives similarly give the virial
+or stress when the model and its interface support them. Automatic
+differentiation can be applied a second time to obtain the Cartesian Hessian
+used later in this project.
 
-\subsection{Why MLIPs are useful here}
+\subsubsection{From an atomic structure to a graph}
 
-First-principles forces are accurate but costly for a MOF cell containing hundreds of atoms. A trained MLIP replaces repeated electronic-structure calculations with a fast evaluation of $E_{\mathrm{ML}}$ and Eq.~\eqref{eq:forces}. This makes finite-temperature dynamics feasible and, provided that the model is differentiable, allows direct calculation of second derivatives. Model predictions remain an approximation: accuracy depends on the training data and on whether the sampled MOF-5 geometries lie within the model's domain of applicability.
+A graph neural network (GNN) represents the atoms by vertices and nearby
+interactions by directed edges. For a periodic system, an edge
+$(j,\bm n)\to i$ is included when
+\begin{align}
+  \bm r_{ij\bm n}
+    &= \bm R_j+\bm h\bm n-\bm R_i,
+  & r_{ij\bm n}&=\lVert\bm r_{ij\bm n}\rVert < r_{\mathrm c},
+  \label{eq:periodic-edge}
+\end{align}
+where $\bm n\in\mathbb Z^3$ identifies a periodic image and
+$r_{\mathrm c}$ is a cutoff. This construction removes dependence on the
+absolute origin. A smooth cutoff function $f_{\mathrm c}(r)$, which tends to
+zero continuously at $r_{\mathrm c}$, prevents discontinuous energy and force
+changes when a neighbor crosses the cutoff.
 
-\section{Molecular dynamics}
-
-\subsection{Equations of motion}
-
-Classical MD propagates positions and momenta according to Newton's equations,
+Neural networks operate on fixed-width numerical representations. Chemical
+identity is therefore mapped from a discrete species label to a trainable
+embedding vector,
 \begin{equation}
-  m_i \ddot{\bm{R}}_i = \bm{F}_i.
+  \bm h_i^{(0)}=\bm E_Z[Z_i]\in\mathbb R^d,
+  \label{eq:species-embedding}
 \end{equation}
-For a microcanonical ($NVE$) simulation, the total energy
+where each row of the embedding matrix $\bm E_Z$ is learned during training.
+Geometry may be embedded through radial basis functions,
 \begin{equation}
-  E_{\mathrm{tot}} = E_{\mathrm{ML}}(\bm{R}) + \sum_i \frac{\bm{p}_i^2}{2m_i}
+  \bm e_{ij}^{\mathrm{rad}}
+  =f_{\mathrm c}(r_{ij})
+   \bigl[\phi_1(r_{ij}),\ldots,\phi_K(r_{ij})\bigr],
+  \label{eq:radial-embedding}
 \end{equation}
-should be approximately conserved; any residual drift diagnoses finite timestep, force, or integration errors.
+and, in models that retain directional information, by the displacement
+$\bm r_{ij}$, its unit vector, spherical harmonics, or learned functions of
+these quantities. Here ``embedding vector'' means a vector in latent feature
+space; it need not transform as a physical three-dimensional vector.
 
-The current workflow uses the Langevin thermostat implemented in ASE to sample an approximately canonical ($NVT$) ensemble. Its continuous-time equation is
+\subsubsection{Message passing and many-body representations}
+
+At message-passing layer $\ell$, a generic GNN constructs a message on each
+edge, aggregates the incoming messages in a permutation-independent way, and
+updates the central representation:
+\begin{align}
+  \bm m_{ij}^{(\ell)}
+    &=M_\ell\bigl(\bm h_i^{(\ell)},\bm h_j^{(\ell)},
+                   \bm e_{ij}\bigr),
+  \\
+  \bm m_i^{(\ell)}
+    &=\sum_{j\in\mathcal N_i}\bm m_{ij}^{(\ell)},
+  \\
+  \bm h_i^{(\ell+1)}
+    &=U_\ell\bigl(\bm h_i^{(\ell)},\bm m_i^{(\ell)}\bigr).
+  \label{eq:message-passing}
+\end{align}
+The learned maps $M_\ell$ and $U_\ell$ are commonly multilayer
+perceptrons or attention blocks. Although the graph initially contains only
+pairwise edges, repeated updates create many-body features: after $L$ layers,
+an atom can depend on paths extending up to $L$ graph hops. A readout map then
+converts the final features into the local energies in
+Eq.~\eqref{eq:mlip-energy}.
+
+The Point Edge Transformer (PET) used by PET-MAD is a particular GNN that
+stores a token $\bm f_{ij}^{(\ell)}\in\mathbb R^{d_{\mathrm{PET}}}$ on every
+directed edge rather than storing information only on atoms
+\cite{pet,petmad}. For the environment centered on atom $i$, PET encodes the
+neighbor species, relative Cartesian position, and incoming edge message into
+a token of the schematic form
+\begin{align}
+  \bm p_{ij}^{(\ell)}
+    &=\sigma\bigl(\bm W_r^{(\ell)}\bm r_{ij}\bigr),
+  \\
+  \bm t_{ij}^{(\ell)}
+    &=\mathrm{MLP}_\ell\!\left(
+      \bm f_{ji}^{(\ell-1)}\Vert
+      \bm E_Z^{(\ell)}[Z_j]\Vert
+      \bm p_{ij}^{(\ell)}\right),
+  \label{eq:pet-token}
+\end{align}
+where $\Vert$ denotes concatenation and $\sigma$ is a nonlinear activation.
+In the first layer the incoming message is absent. A transformer mixes all
+tokens in one atomic environment by self-attention. For one attention head,
+\begin{align}
+  \bm q_a&=\bm W_Q\bm t_a,
+  &\bm k_b&=\bm W_K\bm t_b,
+  &\bm v_b&=\bm W_V\bm t_b,
+  \\
+  \alpha_{ab}
+    &=\frac{\exp(\bm q_a^{\mathrm T}\bm k_b/\sqrt{d_k})
+                    f_{\mathrm c}(r_{ib})}
+            {\sum_c\exp(\bm q_a^{\mathrm T}\bm k_c/\sqrt{d_k})
+                    f_{\mathrm c}(r_{ic})},
+  &\bm y_a&=\sum_b\alpha_{ab}\bm v_b.
+  \label{eq:self-attention}
+\end{align}
+Multi-head attention repeats this operation in several learned subspaces,
+followed by feed-forward layers and residual connections. Because no ordering
+of the neighbors enters Eq.~\eqref{eq:self-attention}, permuting the atoms
+permutes the edge outputs consistently. PET interprets these outputs as the
+messages for the next GNN layer and applies learned readout heads across edges
+and layers to form the total energy.
+
+\subsubsection{Physical symmetries}
+
+For an isolated non-magnetic system without external fields, a valid scalar
+energy should be unchanged by translation, rotation or reflection of the
+whole structure and by permutation of identical atoms:
 \begin{equation}
-  m_i \ddot{\bm{R}}_i = \bm{F}_i - m_i\gamma \dot{\bm{R}}_i + \bm{\eta}_i(t),
+  U(\bm R)=U(\bm R+\bm a)
+  =U(\bm Q\bm R)
+  =U(\bm P\bm R),
+  \qquad \bm Q\in O(3).
+  \label{eq:energy-symmetry}
+\end{equation}
+An invariant scalar is unchanged by a symmetry operation, whereas an
+equivariant vector changes in the corresponding way; for example,
+$\bm F_i(\bm Q\bm R)=\bm Q\bm F_i(\bm R)$. Translation invariance follows
+from using relative positions, and the shared local functions and symmetric
+aggregation enforce permutation invariance. Many MLIPs impose rotational
+symmetry exactly through invariant geometric descriptors or
+$E(3)$-equivariant features. PET instead processes Cartesian displacement
+vectors with an unconstrained transformer and learns rotational behavior from
+random rotational augmentation \cite{pet,petmad}. Thus the PET-MAD model used
+here is not intrinsically exactly rotation invariant, although its reported
+rotational discrepancies are small compared with its prediction errors.
+
+\subsubsection{Training and domain of validity}
+
+Given reference configurations $s$, a typical energy--force training
+objective is
+\begin{equation}
+  \mathcal L(\theta)=\sum_s\left[
+    w_E\left(\frac{U_\theta^{(s)}-U_{\mathrm{ref}}^{(s)}}{N_s}\right)^2
+    +\frac{w_F}{3N_s}\sum_{i\alpha}
+      \left(F_{i\alpha,\theta}^{(s)}
+                 -F_{i\alpha,\mathrm{ref}}^{(s)}\right)^2
+  \right],
+  \label{eq:mlip-loss}
+\end{equation}
+possibly augmented by stress terms and regularization. Because the force
+labels are derivatives of the PES, each configuration supplies $3N_s$ local
+slope constraints in addition to its energy. Optimization adjusts the
+embeddings, message-passing transformations and readout weights to minimize
+this loss. PET-MAD was trained on a chemically diverse DFT dataset rather than
+on MOF-5 alone, making it a universal pretrained potential \cite{petmad}.
+
+An MLIP interpolates the reference PES represented by its training data; it
+does not replace the approximations of the underlying electronic-structure
+method and need not extrapolate reliably to unfamiliar bonding, charge states,
+very short distances or thermodynamic phases. Energy and force test errors,
+trajectory stability and uncertainty indicators are therefore necessary but
+distinct checks. This project also uses second derivatives, which can be more
+sensitive than energies or forces and were not directly constrained by the
+usual loss in Eq.~\eqref{eq:mlip-loss}. Curvatures and vibrational spectra must
+therefore be validated explicitly.
+
+\subsection{Classical molecular dynamics}
+\label{sec:classical-md-theory}
+
+\subsubsection{Hamiltonian dynamics and statistical averages}
+
+Molecular dynamics (MD) generates a trajectory through phase space by
+propagating the nuclear positions and momenta on a chosen PES. For classical
+point nuclei with masses $m_i$, the Hamiltonian is
+\begin{equation}
+  \mathcal H(\bm R,\bm P)
+  =\sum_{i=1}^{N}\frac{\bm P_i^2}{2m_i}+U(\bm R),
+  \label{eq:classical-hamiltonian}
+\end{equation}
+and Hamilton's equations give
+\begin{equation}
+  \dot{\bm R}_i=\frac{\bm P_i}{m_i},
+  \qquad
+  \dot{\bm P}_i=-\frac{\partial U}{\partial\bm R_i}
+  =\bm F_i.
+  \label{eq:hamilton-equations}
+\end{equation}
+In exact microcanonical dynamics, $\mathcal H$ is conserved. If the dynamics
+is ergodic and the trajectory is sufficiently long, an equilibrium average
+can be estimated by a time average,
+\begin{equation}
+  \langle A\rangle
+  =\lim_{\tau\to\infty}\frac{1}{\tau}
+   \int_0^\tau A\bigl(\bm R(t),\bm P(t)\bigr)\,\mathrm dt.
+  \label{eq:ergodic-average}
+\end{equation}
+Finite trajectories contain correlated samples, so their statistical
+precision is controlled by the simulation length relative to the integrated
+autocorrelation time, not simply by the number of saved frames.
+
+The continuous equations are replaced by a finite-timestep integrator. A
+representative symplectic scheme is velocity Verlet,
+\begin{align}
+  \bm P_i^{n+1/2}
+    &=\bm P_i^n+\frac{\Delta t}{2}\bm F_i(\bm R^n),
+  \\
+  \bm R_i^{n+1}
+    &=\bm R_i^n+\Delta t\,\frac{\bm P_i^{n+1/2}}{m_i},
+  \\
+  \bm P_i^{n+1}
+    &=\bm P_i^{n+1/2}
+      +\frac{\Delta t}{2}\bm F_i(\bm R^{n+1}).
+  \label{eq:velocity-verlet}
+\end{align}
+It is time reversible and symplectic, and has global error of order
+$\mathcal O(\Delta t^2)$. It approximately conserves a nearby ``shadow''
+Hamiltonian rather than the exact one. The timestep must resolve the fastest
+vibration; an apparently controlled temperature does not by itself rule out
+integration error.
+
+\subsubsection{Temperature, ensembles and thermostats}
+
+For $g$ unconstrained kinetic degrees of freedom, the instantaneous kinetic
+temperature is conventionally defined through equipartition,
+\begin{equation}
+  T_{\mathrm{kin}}=\frac{2K}{gk_{\mathrm B}},
+  \qquad
+  K=\sum_i\frac{\bm P_i^2}{2m_i}.
+  \label{eq:kinetic-temperature}
+\end{equation}
+Temperature is an ensemble property; $T_{\mathrm{kin}}$ fluctuates along a
+finite canonical trajectory. Constant-energy (NVE) dynamics samples the
+microcanonical ensemble. To sample the canonical ensemble, whose stationary
+phase-space density is
+\begin{equation}
+  \rho_{NVT}(\bm R,\bm P)\propto
+  \exp\bigl[-\beta\mathcal H(\bm R,\bm P)\bigr],
+  \qquad \beta=(k_{\mathrm B}T)^{-1},
+  \label{eq:canonical-density}
+\end{equation}
+the physical variables may be coupled to a thermostat.
+
+For example, Langevin dynamics adds friction and random forces,
+\begin{align}
+  m_i\ddot{\bm R}_i
+    &=\bm F_i-m_i\gamma\dot{\bm R}_i+\bm\eta_i(t),
+  \\
+  \left\langle\eta_{i\alpha}(t)\eta_{j\beta}(t')\right\rangle
+    &=2m_i\gamma k_{\mathrm B}T\,
+      \delta_{ij}\delta_{\alpha\beta}\delta(t-t').
   \label{eq:langevin}
-\end{equation}
-where $\gamma$ is the friction coefficient and $\bm{\eta}_i(t)$ is a random force satisfying the fluctuation--dissipation relation,
+\end{align}
+The second relation is the fluctuation--dissipation condition that makes the
+canonical distribution stationary. Weak friction perturbs the natural
+dynamics less but exchanges heat slowly; strong friction controls temperature
+rapidly but can overdamp motion. Nos\'e--Hoover-chain thermostats instead add
+a sequence of deterministic extended variables and are designed to generate
+the same canonical distribution while improving ergodicity over a single
+Nos\'e--Hoover variable \cite{nhc}. Thermostat choice affects sampling
+efficiency and dynamical correlation functions even when equilibrium averages
+are unchanged.
+
+An isothermal--isobaric simulation additionally evolves the volume or cell so
+that the target density is proportional to
+$\exp[-\beta(\mathcal H+PV)]$. Flexible-cell algorithms must include the
+appropriate cell kinetic variables, Jacobian and virial terms; the
+Martyna--Tobias--Klein scheme is one such extended-system formulation
+\cite{mtk}. Reliable NPT dynamics therefore requires a potential with
+validated cell derivatives or stresses. NVE, NVT and NPT trajectories answer
+different thermodynamic questions and should not be interchanged solely
+because their mean temperatures are similar.
+
+\subsection{Path-integral molecular dynamics}
+\label{sec:pimd-theory}
+
+\subsubsection{Quantum statistical mechanics as a ring polymer}
+
+Classical MD neglects the wave-like character of the nuclei. For
+distinguishable quantum nuclei on a single Born--Oppenheimer surface, the
+Hamiltonian operator and canonical partition function are
 \begin{equation}
-  \left\langle \eta_{i\alpha}(t)\eta_{j\beta}(t') \right\rangle
-  = 2m_i\gamma k_{\mathrm{B}}T\,\delta_{ij}\delta_{\alpha\beta}\delta(t-t').
+  \hat{\mathcal H}=\sum_i\frac{\hat{\bm P}_i^2}{2m_i}
+  +U(\hat{\bm R}),
+  \qquad
+  Z=\operatorname{Tr}\left[e^{-\beta\hat{\mathcal H}}\right].
+  \label{eq:quantum-partition}
 \end{equation}
-The random and frictional terms exchange energy with a heat bath and therefore the instantaneous total energy is not expected to be constant in $NVT$ dynamics.
+The kinetic and potential operators do not commute. Splitting the imaginary
+time $\beta\hbar$ into $P$ slices with a Trotter factorization maps the
+quantum partition function, in the limit $P\to\infty$, onto a classical
+extended system. Its primitive ring-polymer Hamiltonian is
+\begin{align}
+  Z_P&\propto\int\mathrm d\bm R\,\mathrm d\bm P\,
+     e^{-\beta_P H_P},
+  &\beta_P&=\frac{\beta}{P},
+  \\
+  H_P&=\sum_{s=1}^{P}\left[
+    \sum_i\frac{|\bm P_i^{(s)}|^2}{2m_i}
+    +\sum_i\frac{m_i\omega_P^2}{2}
+      |\bm R_i^{(s)}-\bm R_i^{(s+1)}|^2
+    +U(\bm R^{(s)})\right],
+  &\omega_P&=\frac{P}{\beta\hbar},
+  \label{eq:ring-polymer-hamiltonian}
+\end{align}
+with cyclic boundary condition
+$\bm R_i^{(P+1)}=\bm R_i^{(1)}$ \cite{ipi}. Each physical atom is thus
+represented by $P$ replicas, or beads, joined by harmonic springs. The
+physical potential is evaluated independently on every bead, while the
+springs encode the quantum delocalization of the nuclei in imaginary time.
+When $P=1$, Eq.~\eqref{eq:ring-polymer-hamiltonian} reduces to the classical
+configurational distribution. Larger $P$ is required as temperature falls or
+as the maximum physical vibrational frequency increases; convergence must be
+checked for the chosen isotope masses and temperature range.
 
-\subsection{Current simulation settings}
-
-The current smoke-test script initializes velocities from the Maxwell--Boltzmann distribution at the target temperature and removes the net centre-of-mass momentum. It uses a Langevin integrator with a timestep of \SI{0.25}{fs}, target temperature of \SI{300}{K}, friction $\gamma=\SI{0.01}{fs^{-1}}$, and PET-MAD force evaluations on CUDA by default. The trajectory stores the atomic positions and periodic cell at every integration step, while the log records time, total energy, potential energy, kinetic energy, and temperature.
-
-These settings are intentionally lightweight and are not converged production parameters. Before using MD averages, one should test timestep, thermostat coupling, equilibration length, trajectory length, cell size, and statistical correlation times. A gradual temperature drift during a very short trajectory is not by itself evidence of a faulty potential, but it does mean that the trajectory is not yet an equilibrated canonical sample.
-
-\subsection{Trajectory observables}
-
-For a trajectory containing configurations $\bm{R}(t)$, useful diagnostics include the potential energy $E_{\mathrm{ML}}(t)$, kinetic energy, temperature, structural integrity, and force magnitudes. In a sufficiently equilibrated canonical ensemble, the classical fluctuation expression is
+Two useful geometrical quantities are the bead centroid and radius of
+gyration,
 \begin{equation}
-  C_V = \frac{\left\langle E^2 \right\rangle - \left\langle E \right\rangle^2}
-  {k_{\mathrm{B}}T^2}.
+  \bar{\bm R}_i=\frac{1}{P}\sum_{s=1}^{P}\bm R_i^{(s)},
+  \qquad
+  r_{g,i}^2=\frac{1}{P}\sum_{s=1}^{P}
+  |\bm R_i^{(s)}-\bar{\bm R}_i|^2.
+  \label{eq:ring-polymer-centroid}
+\end{equation}
+The centroid describes the mean imaginary-time position, while the spread of
+the beads measures nuclear quantum delocalization. For a position-dependent
+operator $A(\bm R)$, the primitive estimator has the form
+\begin{equation}
+  \langle A\rangle
+  =\lim_{P\to\infty}
+   \left\langle\frac{1}{P}\sum_{s=1}^{P}
+   A(\bm R^{(s)})\right\rangle_{H_P}.
+  \label{eq:path-integral-estimator}
+\end{equation}
+Kinetic energy, pressure and heat capacity require specialized estimators or
+thermodynamic derivatives; they are not obtained by treating the fictitious
+ring-polymer kinetic energy as the physical nuclear kinetic energy.
+
+\subsubsection{Sampling the ring polymer}
+
+PIMD introduces fictitious momenta in order to sample the ring-polymer
+distribution using MD algorithms. A discrete Fourier or normal-mode
+transformation diagonalizes the free ring-polymer spring term. Its mode
+frequencies are
+\begin{equation}
+  \omega_k=2\omega_P\sin\left(\frac{k\pi}{P}\right),
+  \qquad k=0,\ldots,P-1,
+  \label{eq:ring-polymer-modes}
+\end{equation}
+where $k=0$ is the centroid mode. The large separation between the slow
+physical motion and the stiff internal modes makes naive sampling inefficient.
+Normal-mode or staging coordinates, mass preconditioning, multiple time
+steps, and mode-specific thermostats address this stiffness. The PILE
+thermostat applies analytically tuned Langevin friction to the known free
+ring-polymer modes, while the PILE-L variant also thermostats the centroid
+\cite{pile}.
+
+The standard primitive factorization has an asymptotic discretization error
+of order $\mathcal O(P^{-2})$. The fourth-order Suzuki--Chin factorization
+used in the reference work replaces the bead potential by a bead-dependent
+effective potential of the general form
+\begin{equation}
+  \tilde U_s(\bm R;\beta)
+  =w_s U(\bm R)
+   +w_s d_s\left(\frac{\beta\hbar}{P}\right)^2
+    \sum_i\frac{|\bm F_i(\bm R)|^2}{m_i},
+  \label{eq:suzuki-chin}
+\end{equation}
+where $w_s$ and $d_s$ are factorization coefficients that alternate between
+beads. The force-squared correction accounts for the leading non-commutation
+of kinetic and potential operators and gives fourth-order convergence for
+appropriate thermodynamic observables. Direct differentiation would involve
+Hessians; finite-difference implementations make the scheme practical with
+general force providers \cite{highorder}. Ring-polymer contraction can further
+reduce cost by evaluating slowly varying, long-range components of the
+potential on fewer contracted beads, while rapidly varying short-range terms
+remain evaluated on the full polymer.
+
+\subsubsection{What PIMD does and does not predict}
+
+The trajectories generated by ordinary PIMD are a sampling device for static
+quantum equilibrium averages. The bead index represents imaginary time, and
+the artificial bead masses, thermostats and ring-polymer vibrations have no
+general identification with real nuclear motion. Consequently, ordinary PIMD
+does not directly yield quantum time-correlation functions, diffusion
+coefficients or vibrational spectra. Ring-polymer molecular dynamics (RPMD)
+and centroid molecular dynamics are related but additional approximations for
+real-time correlation functions; they should not be conflated with PIMD.
+
+PIMD captures nuclear zero-point fluctuations, tunnelling contributions to
+equilibrium statistics, and anharmonic sampling on the supplied PES, subject
+to convergence in bead count, timestep, sampling length and system size. It
+does not correct errors in that PES, include electronic excited states, or
+automatically change an NVT calculation into a constant-pressure one. For the
+heat capacity in the reference study, the ring polymer was sampled in a
+constant-pressure ensemble and \(\cpheat\) was obtained from converged
+enthalpy derivatives at neighboring temperatures, as discussed below.
+
+\subsection{Thermodynamic definitions}
+
+\subsubsection{Constant-volume and constant-pressure heat capacities}
+
+For a system at equilibrium, the constant-volume and constant-pressure heat
+capacities are
+\begin{align}
+  C_V &= \left(\frac{\partial \langle E\rangle}{\partial T}\right)_{V,N},
+  \\
+  C_P &= \left(\frac{\partial \langle H\rangle}{\partial T}\right)_{P,N},
+  \qquad H=E+PV,
+\end{align}
+where $E$ is the total internal energy and $H$ is the enthalpy. For a stable
+single phase,
+\begin{equation}
+  C_P-C_V = \frac{TV\alpha_V^2}{\kappa_T},
+  \label{eq:cp-cv}
+\end{equation}
+where $\alpha_V=V^{-1}(\partial V/\partial T)_P$ is the volumetric thermal
+expansion coefficient and
+$\kappa_T=-V^{-1}(\partial V/\partial P)_T$ is the isothermal compressibility.
+Equation~\eqref{eq:cp-cv} explains why \cv{} and \cpheat{} need not be
+interchangeable even when their numerical difference is small for a
+particular solid.
+
+In an equilibrated classical canonical ensemble, \cv{} can also be obtained
+from total-energy fluctuations,
+\begin{equation}
+  C_V = \frac{\langle E^2\rangle-\langle E\rangle^2}
+  {k_{\mathrm B}T^2}.
   \label{eq:fluctuation-cv}
 \end{equation}
-Equation~\eqref{eq:fluctuation-cv} requires a long equilibrated trajectory and careful treatment of autocorrelation. It is not the heat-capacity method implemented in the AD/Hessian workflow below.
+The analogous isothermal--isobaric expression uses enthalpy fluctuations.
+These relations require a stationary ensemble, long sampling, and uncertainty
+estimation that accounts for time correlation. Moreover, classical nuclear
+dynamics gives equipartition rather than the quantum freezing of
+high-frequency modes. The current code does not use
+Eq.~\eqref{eq:fluctuation-cv}; it calculates quantum harmonic \cv{} from
+normal-mode frequencies.
 
-\section{Relaxed reference structure}
+\subsubsection{Why classical and quantum predictions differ}
 
-The harmonic approximation requires a reference structure at a local minimum of the chosen MLIP energy. A fixed-cell relaxation optimizes the atomic coordinates while retaining the supplied lattice vectors. The convergence criterion is based primarily on forces,
+In the classical harmonic limit, every quadratic vibrational degree of
+freedom contributes $k_{\mathrm B}$ to \cv, producing the Dulong--Petit limit
+at all temperatures. Quantum mechanically, a mode of angular frequency
+$\omega$ becomes thermally populated only when $\hbar\omega$ is comparable to
+or smaller than $k_{\mathrm B}T$. High-frequency framework and molecular modes
+are therefore partially frozen near room temperature. Classical MD can still
+describe anharmonic structural motion, but it cannot generate the correct
+quantum populations simply by extending the trajectory.
+
+\section{Reference study: Kapil \emph{et al.}}
+
+Kapil \emph{et al.}\ studied empty MOF-5 and cells containing 50, 100, and 150
+methane molecules using classical MD, Suzuki--Chin path-integral molecular
+dynamics (PIMD), and quantum harmonic normal-mode analysis
+\cite{kapil2019}. Their work provides both the physical motivation and an
+important limit on what the present calculation can claim.
+
+\subsection{Force field and starting configurations}
+
+The reference work used analytical QuickFF force fields derived from
+electronic-structure calculations, not PET-MAD \cite{quickff}. Framework
+covalent terms were
+fitted to B3LYP cluster calculations, with MBIS charges obtained from a
+periodic PBE density. Nonbonded interactions combined Gaussian-distributed
+electrostatics with an MM3 Buckingham model and a \SI{15}{\angstrom} cutoff
+with tail corrections. Methane was inserted with RASPA, configurations with
+unrealistic contacts were rejected, and canonical Monte Carlo was used before
+dynamics. Consequently, agreement of timestep and temperature alone would not
+make the present PET-MAD simulations a numerical reproduction of the paper.
+
+\subsection{Published simulation protocols}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}p{0.25\linewidth}p{0.34\linewidth}p{0.34\linewidth}@{}}
+\toprule
+Parameter & Classical MD & Suzuki--Chin PIMD \\
+\midrule
+State points & 100--\SI{500}{K}, \SI{1}{bar} & 100--\SI{500}{K}, \SI{1}{bar} \\
+Cell dynamics & Fully flexible cell, zero deviatoric stress & Fluctuating volume with cubic cell shape retained \\
+Integrator & Verlet, \SI{0.5}{fs} & BAOAB-type multiple-time-step scheme \\
+Thermostat & Three-element Nos\'e--Hoover chain, \SI{100}{fs} relaxation & PILE-L ring-polymer thermostat; \SI{100}{fs} relaxation \\
+Barostat & Martyna--Tobias--Klein, \SI{1000}{fs} relaxation & Bussi--Zykova--Parrinello form adapted to Suzuki--Chin; \SI{1000}{fs} relaxation \\
+Quantum discretization & Not applicable & 64 beads; long-range forces contracted to 8 beads \\
+Force timesteps & \SI{0.5}{fs} & \SI{0.25}{fs} short range; \SI{1}{fs} long range \\
+Empty MOF-5 sampling & One \SI{500}{ps} trajectory & Five independent \SI{125}{ps} trajectories \\
+Loaded sampling & Five independent \SI{500}{ps} trajectories & Thirty independent \SI{50}{ps} trajectories \\
+Discarded equilibration & First \SI{100}{ps} & First \SI{25}{ps} \\
+Heat-capacity estimator & Classical thermodynamic sampling & Centered enthalpy derivative with $\Delta T=\SI{25}{K}$ \\
+\bottomrule
+\end{tabular}
+\caption{Principal simulation parameters reported by Kapil \emph{et al.}\ Numerical random seeds and output strides were not reported.}
+\label{tab:kapil-methods}
+\end{table}
+
+The associated Nos\'e--Hoover-chain, constant-pressure, path-integral, and
+PILE-L methods are described in Refs.~\cite{nhc,mtk,ipi,pile}. Their production
+\cpheat{} curves were evaluated from neighboring enthalpies,
 \begin{equation}
-  \max_i \left\lVert \bm{F}_i \right\rVert < f_{\mathrm{max}},
+  C_P(T) \simeq
+  \frac{\mathcal H(T+\Delta T)-\mathcal H(T-\Delta T)}{2\Delta T},
+  \qquad \Delta T=\SI{25}{K},
+  \label{eq:finite-difference-cp}
 \end{equation}
-with a representative target such as $f_{\mathrm{max}}=\SI{0.005}{eV\per\angstrom}$. The energy should also change negligibly between final optimization steps. A cell-and-position relaxation additionally requires reliable stress predictions and corresponds more closely to a zero-pressure reference.
+rather than from a single short trajectory. Every temperature point therefore
+depends on converged, statistically independent simulations at adjacent
+temperatures.
 
-The relaxed structure is not defined by a constant MD energy. Rather, it is a stationary point of $E_{\mathrm{ML}}$ for which the first derivatives in Eq.~\eqref{eq:forces} vanish to the chosen tolerance.
+For the harmonic comparison, optimized structures were used to construct
+Cartesian Hessians with Yaff and normal modes with TAMkin. Empty MOF-5 was
+tested with both QuickFF and UFF4MOF. The loaded 100-methane calculation used
+five different Monte Carlo configurations, each optimized into a local
+minimum before its harmonic spectrum was evaluated.
 
-\section{Automatic differentiation and the Hessian}
+\subsection{Physical conclusions relevant to this project}
 
-\subsection{Cartesian Hessian}
-
-The Cartesian Hessian is the matrix of second energy derivatives,
-\begin{equation}
-  H_{i\alpha,j\beta} =
-  \frac{\partial^2 E_{\mathrm{ML}}}
-       {\partial R_{i\alpha}\,\partial R_{j\beta}}
-  = -\frac{\partial F_{i\alpha}}{\partial R_{j\beta}},
-  \label{eq:hessian}
-\end{equation}
-where $i,j$ label atoms and $\alpha,\beta\in\{x,y,z\}$ label Cartesian components. For $N$ atoms, $H$ has dimensions $3N\times3N$ and units of \si{eV\per\angstrom\squared}.
-
-Automatic differentiation evaluates Eq.~\eqref{eq:hessian} by differentiating the MLIP computation graph, rather than using finite differences of forces. This avoids selecting a displacement size and can give highly accurate derivatives when the potential and neighbor-selection procedure are differentiable. In practice, the implementation calculates Hessian--vector products (HVPs),
-\begin{equation}
-  \bm{H}\bm{v} = \frac{\mathrm{d}}{\mathrm{d}\epsilon}
-  \nabla E_{\mathrm{ML}}(\bm{R}+\epsilon\bm{v})\bigg|_{\epsilon=0},
-\end{equation}
-using forward-over-reverse AD. Applying HVPs to a basis of coordinate vectors reconstructs the dense Hessian.
-
-For larger systems, the Hessian can be sparse because a local message-passing potential couples only atoms connected through a finite number of neighbor-graph hops. The \texttt{sadmof} workflow uses a graph-derived sparsity pattern and Hessian coloring to reconstruct multiple Hessian columns from fewer HVPs. The sparsity pattern and the number of graph hops must be converged; an overly aggressive truncation can omit physically relevant force constants.
-
-\subsection{Hessians from trajectory frames}
-
-Hessians need not be computed during MD. Since a saved ASE trajectory contains positions, cell, chemical identities, and periodic boundary conditions, the MLIP graph can be rebuilt and the Hessian evaluated afterwards for selected frames. This is preferable because one Hessian calculation is much more expensive than one MD force evaluation. A practical workflow is to select decorrelated frames from an equilibrated trajectory and process them independently.
-
-For the conventional harmonic heat capacity, the preferred first calculation is a single Hessian at the relaxed reference structure. Hessians evaluated at thermally displaced trajectory frames can instead be used to study the variation of local curvature or to construct an approximate temperature-dependent effective spectrum. They are not automatically equivalent to a rigorously anharmonic heat capacity.
-
-\section{From Hessian to vibrational frequencies}
-
-The Hessian must be mass weighted before diagonalization. Define the dynamical matrix
-\begin{equation}
-  D_{i\alpha,j\beta} =
-  \frac{H_{i\alpha,j\beta}}{\sqrt{m_i m_j}}.
-  \label{eq:dynamical-matrix}
-\end{equation}
-Its eigenvalue problem is
-\begin{equation}
-  \bm{D}\bm{e}_k = \omega_k^2\bm{e}_k,
-\end{equation}
-where $\omega_k$ is the angular frequency of mode $k$. The eigenvalues are converted from the internal units of Eq.~\eqref{eq:hessian} to frequencies $\nu_k$ in \si{cm^{-1}}.
-
-At a stable minimum, all non-translational modes should have non-negative $\omega_k^2$. Negative eigenvalues yield imaginary frequencies and may indicate an unconverged structure, a structural instability, numerical error, or an MLIP artifact. The three rigid translations of a periodic structure should be zero-frequency acoustic modes. A force-constant acoustic sum rule can be imposed to reduce small numerical violations of translational invariance,
-\begin{equation}
-  \sum_j H_{i\alpha,j\beta} = 0.
-\end{equation}
-
-\section{Harmonic heat capacity}
-
-Within the quantum harmonic approximation, each vibrational mode is an independent quantum harmonic oscillator. For temperature $T$, define
-\begin{equation}
-  x_k = \frac{h c \nu_k}{k_{\mathrm{B}}T},
-\end{equation}
-where $h$ is Planck's constant and $c$ is the speed of light. The molar constant-volume contribution of mode $k$ is
-\begin{equation}
-  C_{V,k} = R\left(\frac{x_k/2}{\sinh(x_k/2)}\right)^2,
-  \label{eq:qho-cv}
-\end{equation}
-and the total heat capacity is
-\begin{equation}
-  C_V(T) = \sum_{k\in\mathcal{V}} C_{V,k}.
-\end{equation}
-The set $\mathcal{V}$ excludes translational zero modes and, by convention, imaginary or near-zero modes below a specified frequency threshold. For comparison between cells of different sizes, the result can be reported gravimetrically as
-\begin{equation}
-  C_V^{\mathrm{grav}}(T) = \frac{C_V(T)}{M},
-\end{equation}
-where $M$ is the molar mass in \si{g\per mol}; the resulting unit is \si{J\per g\per K}.
-
-At high temperature, each retained harmonic mode approaches the classical limit $R$. At low temperature, high-frequency modes are quantum mechanically frozen out. This quantum treatment is a key difference from a purely classical MD fluctuation estimate.
-
-\section{Convergence and limitations}
-
-The calculated heat capacity is meaningful only after several sources of error have been assessed:
+The main findings of the reference study are:
 
 \begin{itemize}
-  \item \textbf{MLIP validity:} PET-MAD must provide reliable energies and curvatures for MOF-5 configurations.
-  \item \textbf{Relaxation:} forces, energy changes, and residual stress should be converged before calculating a reference Hessian.
-  \item \textbf{Finite size:} a primitive or conventional cell samples only selected phonon wavevectors. Supercell size or reciprocal-space sampling must be converged for bulk thermodynamic predictions.
-  \item \textbf{AD settings:} floating-point precision, HVP batching, rematerialization, sparse coloring, and graph-hop cutoff require verification against a dense reference where possible.
-  \item \textbf{Mode treatment:} inspect imaginary modes and report the acoustic-sum-rule and frequency-threshold choices.
-  \item \textbf{Harmonic approximation:} Eq.~\eqref{eq:qho-cv} omits anharmonicity, thermal expansion, phase changes, and the difference between $C_V$ and constant-pressure heat capacity $C_P$.
+  \item Empty MOF-5 is quantum mechanical but nearly harmonic over the studied
+        range. Its quantum harmonic \cv{} is close to the PIMD \cpheat{}, with
+        a room-temperature gravimetric value of approximately
+        \SI{0.7}{J\per g\per K}.
+  \item Classical MD overestimates the empty-framework heat capacity because
+        it populates all vibrational modes according to equipartition.
+  \item Methane loading introduces strongly anharmonic host--guest motion. The
+        PIMD curves develop a loading-dependent minimum around \SI{200}{K},
+        caused mainly by changes in attractive host--guest interactions as
+        confined methane becomes more mobile.
+  \item A harmonic calculation cannot represent diffusion, cage-to-cage
+        motion, or the temperature-dependent localization of methane. Nuclear
+        quantum effects and anharmonic sampling are both needed for a
+        quantitative loaded-system \cpheat{}.
+  \item The approximate combination
+        \begin{equation}
+          C \approx C_{\mathrm{qn}}^{\mathrm{har}}
+          - C_{\mathrm{cl}}^{\mathrm{har}}
+          + C_{\mathrm{cl}}^{\mathrm{anh}}
+          \label{eq:quantum-correction}
+        \end{equation}
+        qualitatively recovers the loaded minimum and becomes useful above
+        roughly \SI{200}{K} in their 100-methane test. This correction is not
+        implemented in the current repository.
 \end{itemize}
 
-\section{Reproducibility information to report}
+\section{Present computational methodology}
 
-Each result should record the structure source and atom count, MLIP checkpoint and conversion, model device and precision, relaxation criterion, cell treatment, MD timestep and thermostat settings, trajectory length and frame-selection rule, Hessian method (dense or sparse), graph-hop cutoff, acoustic-sum-rule choice, frequency threshold, temperature grid, and statistical or convergence uncertainty.
+\subsection{Structure preparation and methane insertion}
 
-\begin{thebibliography}{9}
+The repository host structure is the conventional cubic MOF-5 cell with 424
+atoms and a cell parameter of approximately \SI{25.866}{\angstrom}. The loaded
+structure is generated by \texttt{utils/insert\_methane.py}. Each methane
+molecule is centered, uniformly randomly rotated using a quaternion, and
+placed at a uniformly sampled fractional coordinate. Periodic atom--atom
+distances are checked against all previously placed atoms. The current
+100-methane structure used seed 2025, up to 20,000 attempts per molecule, and a
+minimum distance of \SI{1.5}{\angstrom}. The structure was validated to contain
+924 atoms.
+
+This procedure prevents severe initial overlaps, but it is not an adsorption
+equilibrium calculation. In particular, it does not reproduce the RASPA
+insertion and Monte Carlo equilibration used by Kapil \emph{et al.} Several
+independent insertion seeds and adequate subsequent equilibration are required
+before drawing conclusions about loading-dependent thermodynamics.
+
+\subsection{PET-MAD energy model}
+
+The general construction of a local MLIP and the PET architecture are given in
+Section~\ref{sec:theory}. For the checkpoint used in this project, the model
+metadata specifies an \SI{8}{\angstrom} cutoff, three GNN layers, and an
+adaptive maximum of 40 neighbors. At inference, the learned parameters
+$\theta$ are fixed and Eqs.~\eqref{eq:mlip-energy} and
+\eqref{eq:mlip-force} are evaluated for each MD configuration.
+
+MD loads the metatomic export
+\texttt{pet-mad-1.5-s\_40nn\_nostress.pt} through
+\texttt{metatomic-ase}. Harmonic analysis converts the matching checkpoint to
+a PET-JAX representation. Using the same learned parameters in both paths is
+essential: a trajectory from one potential must not be differentiated with a
+different potential. The checkpoint is marked \texttt{nostress}; the current
+workflow therefore keeps the cell fixed and does not assume reliable
+pressure or cell derivatives. PET-MAD is a universal model rather than a
+MOF-5-specific fit, so energy, force, and especially curvature accuracy for
+the relevant structures must be validated \cite{petmad}.
+
+\subsection{Classical NVT molecular dynamics}
+
+The statistical and dynamical foundations of classical MD are summarized in
+Section~\ref{sec:classical-md-theory}. In the present workflow, initial
+velocities are sampled from a Maxwell--Boltzmann distribution at the target
+temperature and the center-of-mass momentum is removed. The current code does
+not expose or record a velocity seed, so exact dynamical replicas are not yet
+reproducible.
+
+Temperature is controlled with ASE's Langevin integrator \cite{ase}, using
+$\gamma=\SI{0.01}{fs^{-1}}$ in Eq.~\eqref{eq:langevin}. The friction time
+$\gamma^{-1}=\SI{100}{fs}$ happens to equal the thermostat relaxation time
+used in the reference study, although Langevin and Nos\'e--Hoover-chain
+dynamics are not equivalent.
+
+The completed loaded validation configurations use 4,000 steps with a
+\SI{0.5}{fs} timestep, for \SI{2}{ps} at each of 100, 200, 300, 400, and
+\SI{500}{K}. Positions, cell, energies, and momenta are written every step,
+giving 4,001 trajectory frames including the initial configuration. The fixed
+cell and NVT thermostat mean that pressure, thermal expansion, and \cpheat{}
+are outside the present MD model.
+
+\subsection{Harmonic approximation and Cartesian Hessian}
+
+Let $\bm R_0$ be a stationary reference structure and
+$\bm u=\bm R-\bm R_0$. Expanding the potential energy gives
+\begin{equation}
+  U(\bm R_0+\bm u)=U(\bm R_0)
+  +\underbrace{\nabla U(\bm R_0)\cdot\bm u}_{=0\ \mathrm{at\ a\ minimum}}
+  +\frac{1}{2}\bm u^{\mathrm T}\bm H\bm u+\mathcal O(u^3),
+  \label{eq:taylor}
+\end{equation}
+with Cartesian Hessian
+\begin{equation}
+  H_{i\alpha,j\beta}
+  =\frac{\partial^2 U}{\partial R_{i\alpha}\partial R_{j\beta}}
+  =-\frac{\partial F_{i\alpha}}{\partial R_{j\beta}}.
+  \label{eq:hessian}
+\end{equation}
+For $N$ atoms, $\bm H$ has dimensions $3N\times3N$; for the 100-methane cell
+this is $2772\times2772$.
+
+PET-JAX differentiates the model computation graph rather than using displaced
+finite differences. The implementation uses forward-over-reverse
+Hessian--vector products,
+\begin{equation}
+  \bm H\bm v=
+  \left.\frac{\mathrm d}{\mathrm d\epsilon}
+  \nabla U(\bm R+\epsilon\bm v)\right|_{\epsilon=0}.
+\end{equation}
+Because a local message-passing model couples only graph-connected atoms, the
+Hessian has a block-sparse structure. SADMOF \cite{sadMof} constructs a
+graph-derived sparsity pattern and ASDEX colors its columns so that several independent
+columns can be reconstructed from one differentiated evaluation. The current
+settings are single precision, graph depth \texttt{hops=3}, HVP chunk size 1,
+and rematerialization enabled. These are computational choices, not established
+convergence values. In particular, the graph-hop pattern must be enlarged
+until frequencies and \cv{} stop changing, and should be checked against a
+dense or less aggressively truncated reference where feasible.
+
+\subsection{Normal modes and quantum harmonic heat capacity}
+
+The Hessian is symmetrized and mass weighted to obtain
+\begin{equation}
+  D_{i\alpha,j\beta}
+  =\frac{H_{i\alpha,j\beta}}{\sqrt{m_i m_j}},
+  \qquad
+  \bm D\bm e_k=\omega_k^2\bm e_k.
+\end{equation}
+The code enforces the force-constant acoustic sum rule before diagonalization,
+\begin{equation}
+  \sum_j H_{i\alpha,j\beta}=0,
+\end{equation}
+so that uniform translations have zero restoring force. The current SADMOF
+observable maps negative eigenvalues to zero frequency and excludes modes below
+$10^{-3}\ \si{cm^{-1}}$. Consequently, the stored frequency array does not
+retain the sign or magnitude of imaginary frequencies. Stability must instead
+be checked from a signed-eigenvalue analysis or an independently validated
+normal-mode tool before interpreting a thermally displaced or unrelaxed frame.
+
+For each retained mode, define
+\begin{equation}
+  x_k=\frac{\hbar\omega_k}{k_{\mathrm B}T}
+      =\frac{hc\tilde\nu_k}{k_{\mathrm B}T},
+\end{equation}
+where $\tilde\nu_k$ is the wavenumber. The quantum harmonic contribution is
+\begin{equation}
+  C_{V,k}=k_{\mathrm B}
+  \left[\frac{x_k/2}{\sinh(x_k/2)}\right]^2,
+\end{equation}
+and the gravimetric result is
+\begin{equation}
+  c_V(T)=\frac{N_{\mathrm A}}{M_{\mathrm{cell}}}
+  \sum_{k\in\mathcal V} C_{V,k},
+  \label{eq:harmonic-cv}
+\end{equation}
+in \si{J\per g\per K}. The mass $M_{\mathrm{cell}}$ includes methane for a
+loaded system, so both the spectrum and the normalization change with loading.
+
+One Hessian produces the entire configured 100--\SI{500}{K} curve in
+\SI{10}{K} increments. The temperature appearing in
+Eq.~\eqref{eq:harmonic-cv} controls oscillator populations; it does not require
+a separate MD trajectory at every analysis temperature when the force
+constants are assumed temperature independent.
+
+\subsection{Role of trajectory frames and averaging}
+
+The program reads saved ASE trajectories only to obtain geometries. It computes
+one Hessian for each explicitly selected frame, serially on one JAX device, and
+stores a separate \cv{} curve for every frame. It does not compute a Hessian at
+every MD step unless every frame is explicitly requested.
+
+For a conventional harmonic calculation, the scientifically preferred
+reference is an energy-minimized geometry and one Hessian is sufficient. For a
+loaded system with several local minima, multiple independently initialized
+and optimized configurations can characterize basin-to-basin sensitivity, as
+in the reference paper. Hessians evaluated directly at finite-temperature MD
+frames describe instantaneous local curvature. If $N_f$ equilibrated,
+well-separated frames are used, their diagnostic mean is
+\begin{equation}
+  \overline{c_V}(T)=\frac{1}{N_f}\sum_{s=1}^{N_f}c_V^{(s)}(T),
+  \label{eq:frame-average}
+\end{equation}
+with sample variance
+\begin{equation}
+  s_{c_V}^2(T)=\frac{1}{N_f-1}
+  \sum_{s=1}^{N_f}\left[c_V^{(s)}(T)-\overline{c_V}(T)\right]^2.
+\end{equation}
+Adjacent frames are correlated. A standard error should therefore use an
+effective sample count, approximately
+\begin{equation}
+  N_{\mathrm{eff}}\simeq
+  \frac{N_f}{2\tau_{\mathrm{int}}/\Delta t_{\mathrm{sample}}},
+  \qquad
+  \mathrm{SE}[\overline{c_V}]\simeq
+  \sqrt{\frac{s_{c_V}^2}{N_{\mathrm{eff}}}},
+\end{equation}
+or a block/bootstrap analysis over independent trajectories.
+
+Equation~\eqref{eq:frame-average} is an ensemble average of local harmonic
+models, not a formally exact anharmonic partition function. It may reveal
+temperature-dependent softening and configurational variability, but it does
+not include barrier crossing, methane diffusion, or the correct free-energy
+weights of vibrational basins automatically. It must therefore be labelled a
+local-harmonic or effective-spectrum diagnostic, especially for loaded MOF-5.
+
+\section{Completed validation campaign}
+
+Five independent Slurm jobs were run for the same 100-methane starting
+structure. The log files show that all jobs reached their requested 4,000 MD
+steps and produced 4,001 frames. Table~\ref{tab:completed-md} reports only
+directly observed endpoint information; it is not an equilibration analysis.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+Target $T$ (K) & Initial $T$ (K) & Final $T$ (K) & Duration (ps) & Frames \\
+\midrule
+100 & 95.4  & 99.2  & 2.0 & 4001 \\
+200 & 215.7 & 207.0 & 2.0 & 4001 \\
+300 & 296.3 & 300.7 & 2.0 & 4001 \\
+400 & 400.3 & 399.4 & 2.0 & 4001 \\
+500 & 484.2 & 495.5 & 2.0 & 4001 \\
+\bottomrule
+\end{tabular}
+\caption{Completed short NVT validation trajectories for MOF-5 plus 100 methane molecules. Temperatures are instantaneous values from the first and final log records.}
+\label{tab:completed-md}
+\end{table}
+
+The final temperatures are close to their targets, and successful completion
+shows that the structure, model export, CUDA calculator, neighbor-list backend,
+thermostat, and trajectory output operate together for 924 atoms. However,
+\SI{2}{ps} is only 20 thermostat relaxation times and is far shorter than the
+25--\SI{100}{ps} discarded equilibration intervals in the reference work.
+Endpoint agreement with the thermostat does not demonstrate stationary
+potential energy, equilibrated methane positions, structural stability, or
+decorrelated sampling.
+
+The heat-capacity submission script currently selects final frame 4000 and
+writes a unique NPZ result for each MD temperature. This is an appropriate
+resource and integration diagnostic. At the time of writing, no
+\texttt{heat-capacity*.npz} files are present in the workspace, so no numerical
+PET-MAD \cv{} values are reported here.
+
+\section{Recommended production and analysis protocol}
+
+\subsection{Pristine MOF-5: primary quantitative target}
+
+The strongest first scientific calculation is the pristine-framework quantum
+harmonic \cv{}, because this is the regime in which Kapil \emph{et al.} found
+close agreement between harmonic and path-integral results.
+
+\begin{enumerate}
+  \item Relax the atomic coordinates with the same PET-MAD checkpoint used for
+        the Hessian. Report maximum residual force and do not relax the cell
+        unless a stress-capable, validated model is adopted.
+  \item Check stability using signed eigenvalues and inspect low-frequency
+        modes. A large number of unstable modes invalidates the harmonic
+        interpretation.
+  \item Converge float32 against float64, graph hops, HVP chunking, acoustic
+        sum-rule treatment, and frequency threshold.
+  \item Converge the conventional-cell result with respect to supercell size or
+        phonon wave-vector sampling. A single periodic cell Hessian samples
+        only the corresponding finite set of modes.
+  \item Compare the curve and the room-temperature value with the approximately
+        \SI{0.7}{J\per g\per K} reference scale, while stating that PET-MAD
+        replaces QuickFF and that model error remains to be quantified.
+\end{enumerate}
+
+\subsection{Loaded MOF-5: staged diagnostic programme}
+
+For the 100-methane system, a sensible progression is:
+
+\begin{enumerate}
+  \item Use the completed final-frame Hessian only to benchmark runtime,
+        memory, and numerical stability.
+  \item Extend MD until temperature, potential energy, framework descriptors,
+        and methane distributions are stationary. Discard equilibration before
+        selecting frames.
+  \item Estimate autocorrelation times for energy and representative
+        host--guest observables, then select well-separated production frames.
+  \item Prefer separate Hessian jobs for independent frames because the current
+        implementation is serial and single-GPU. Start with a small number,
+        increase it until the mean curve and uncertainty stabilize, and retain
+        every individual curve.
+  \item Repeat the whole workflow for multiple methane insertion and velocity
+        seeds. Basin-to-basin variation cannot be measured from one initial
+        structure.
+  \item Label the average as a trajectory-frame harmonic diagnostic. Do not
+        identify a minimum near \SI{200}{K} as the paper's physical \cpheat{}
+        minimum without an anharmonic, quantum, constant-pressure method.
+\end{enumerate}
+
+An exact reproduction of the loaded reference calculation would additionally
+require a validated pressure/stress model, cell dynamics, the published or an
+equivalently validated host--guest potential, Suzuki--Chin PIMD, ring-polymer
+contraction, multiple timesteps, controlled replicas and seeds, enthalpy
+finite differences at $T\pm\SI{25}{K}$, restart support, and uncertainty
+propagation across neighboring temperatures.
+
+\subsection{Equilibration and convergence criteria}
+
+Production decisions should be based on observables, not a fixed waiting time
+alone. At minimum, inspect:
+
+\begin{itemize}
+  \item running and block averages of temperature, potential energy, and total
+        energy;
+  \item maximum and distribution of force magnitudes;
+  \item framework bond integrity, pore geometry, and cell consistency;
+  \item methane center-of-mass distributions, host--guest distances, and
+        mean-squared displacements;
+  \item sensitivity to timestep and thermostat friction;
+  \item agreement among independent seeds; and
+  \item convergence of \cv{} with frame count, frame spacing, precision,
+        sparsity depth, cell size, and mode treatment.
+\end{itemize}
+
+The timestep should first be validated in short NVE tests by checking energy
+drift. Thermostat convergence should then be tested separately, because a
+thermostat can conceal an integration error while maintaining the desired
+kinetic temperature.
+
+\section{Implementation, outputs, and reproducibility}
+
+The active MD path is \texttt{run.py} with TOML configuration files. Methane
+insertion is handled by \texttt{utils/insert\_methane.py}; harmonic analysis is
+handled by \texttt{utils/heat\_capacity.py}. The latter stores the run name,
+structure, trajectory, PET-JAX checkpoint, selected frame indices, temperature
+grid, frequency arrays, gravimetric \cv{} curves, precision, graph hops, HVP
+chunk size, and rematerialization choice in an NPZ file.
+
+Cluster calculations use one node, one task, and one GPU because neither the MD
+nor Hessian code is MPI or multi-GPU parallel. Independent temperature,
+replica, or Hessian-frame jobs are the available level of parallelism. Slurm
+job identifiers and resource use should be retained; elapsed time and peak
+memory can be recovered with, for example,
+\begin{verbatim}
+sacct -j JOB_ID --format=JobID,State,Elapsed,MaxRSS,AllocTRES
+\end{verbatim}
+Wall time and memory requests should be based on representative jobs rather
+than extrapolated from the short MD runtime. Separate output directories and
+prefixes are required for every loading, temperature, seed, and replica.
+
+A reproducible result should record:
+
+\begin{itemize}
+  \item source structure, cell, atom count, chemical composition, loading, and
+        methane-insertion seed and rejection criteria;
+  \item PET-MAD checkpoint hash, metatomic export, PET-JAX conversion, software
+        environment, device, and numerical precision;
+  \item ensemble, target temperature, timestep, thermostat and friction,
+        number of steps, output stride, velocity seed, equilibration interval,
+        production interval, and restart history;
+  \item Hessian frame indices, relaxation state, residual forces, graph hops,
+        HVP chunk size, rematerialization, acoustic sum rule, frequency
+        threshold, and temperature grid; and
+  \item independent-replica count, autocorrelation or block length,
+        uncertainty estimator, and all convergence tests.
+\end{itemize}
+
+\section{Limitations and interpretation}
+
+The principal limitations of the current results are:
+
+\begin{itemize}
+  \item PET-MAD and QuickFF describe different potential-energy surfaces;
+        agreement with the paper cannot be assumed.
+  \item The \texttt{nostress} checkpoint and fixed cell preclude the paper's
+        constant-pressure cell fluctuations and thermal expansion.
+  \item Classical nuclei are used in MD; nuclear quantum effects enter only
+        through the harmonic oscillator formula.
+  \item The 2-ps loaded trajectories are validation runs, not equilibrated
+        production samples.
+  \item The random insertion is not an adsorption or Monte Carlo equilibrium
+        distribution, and MD velocity seeds are not controlled.
+  \item A Hessian at a thermally displaced frame is not necessarily evaluated
+        at a minimum. Imaginary directions and basin crossing complicate its
+        physical interpretation.
+  \item Averaging local harmonic frame curves is not an exact anharmonic \cv{}
+        and cannot recover the published loaded-system \cpheat{} minimum by
+        construction.
+  \item Finite-size, sparse-Hessian, precision, model-validity, and statistical
+        errors have not yet been quantified.
+\end{itemize}
+
+These qualifications do not make the current calculations uninformative. The
+workflow is valuable for checking model stability, measuring computational
+cost, comparing local spectra, and establishing whether a converged pristine
+harmonic calculation is feasible. They define the boundary between a useful
+diagnostic and a thermodynamic claim.
+
+\section{Conclusions}
+
+The repository now implements a complete technical path from periodic MOF-5
+structures and methane insertion to GPU NVT trajectories and sparse-AD
+harmonic \cv{} curves. The completed 100--\SI{500}{K} loaded trajectories
+confirm that the 924-atom workflow executes successfully, but their
+\SI{2}{ps} duration supports validation only. The most defensible first
+quantitative target is a relaxed and converged harmonic \cv{} for pristine
+MOF-5. Multiple optimized configurations or equilibrated trajectory frames can
+then be used to assess variability in loaded MOF-5, with an explicit
+local-harmonic label and statistical uncertainty. Quantitative reproduction of
+Kapil \emph{et al.}'s loaded \cpheat{} requires a separate anharmonic,
+constant-pressure, nuclear-quantum implementation.
+
+\begin{thebibliography}{11}
+
+\bibitem{kapil2019}
+V. Kapil \emph{et al.},
+\emph{Modeling the Structural and Thermal Properties of Loaded
+Metal--Organic Frameworks: An Interplay of Quantum and Anharmonic
+Fluctuations}, Journal of Chemical Theory and Computation \textbf{15},
+3237--3249 (2019),
+\href{https://doi.org/10.1021/acs.jctc.8b01297}{doi:10.1021/acs.jctc.8b01297}.
 
 \bibitem{ase}
-A. H. Larsen et al., \emph{The Atomic Simulation Environment---a Python library for working with atoms}, Journal of Physics: Condensed Matter \textbf{29}, 273002 (2017).
+A. H. Larsen \emph{et al.},
+\emph{The Atomic Simulation Environment---a Python Library for Working with
+Atoms}, Journal of Physics: Condensed Matter \textbf{29}, 273002 (2017),
+\href{https://doi.org/10.1088/1361-648X/aa680e}{doi:10.1088/1361-648X/aa680e}.
 
-\bibitem{langevin}
-T. Sch"afer, A. S. R. S. de Wijn, and R. K. P. Zia, \emph{Langevin dynamics and the canonical ensemble}, placeholder reference to be replaced by the thermostat reference used in the final report.
+\bibitem{petmad}
+A. Mazitov \emph{et al.},
+\emph{PET-MAD as a Lightweight Universal Interatomic Potential for Advanced
+Materials Modeling}, Nature Communications \textbf{16}, 10653 (2025),
+\href{https://doi.org/10.1038/s41467-025-65662-7}{doi:10.1038/s41467-025-65662-7}.
+
+\bibitem{pet}
+S. N. Pozdnyakov and M. Ceriotti,
+\emph{Smooth, Exact Rotational Symmetrization for Deep Learning on Point
+Clouds}, Advances in Neural Information Processing Systems \textbf{36}
+(2023),
+\href{https://proceedings.neurips.cc/paper_files/paper/2023/hash/fb4a7e3522363907b26a86cc5be627ac-Abstract-Conference.html}{conference paper}.
+
+\bibitem{quickff}
+L. Vanduyfhuys \emph{et al.},
+\emph{QuickFF: A Program for a Quick and Easy Derivation of Force Fields for
+Metal--Organic Frameworks from Ab Initio Input}, Journal of Computational
+Chemistry \textbf{36}, 1015--1027 (2015).
+
+\bibitem{ipi}
+M. Ceriotti, J. More, and D. E. Manolopoulos,
+\emph{i-PI: A Python Interface for Ab Initio Path Integral Molecular Dynamics
+Simulations}, Computer Physics Communications \textbf{185}, 1019--1026 (2014).
+
+\bibitem{mtk}
+G. J. Martyna, D. J. Tobias, and M. L. Klein,
+\emph{Constant Pressure Molecular Dynamics Algorithms}, Journal of Chemical
+Physics \textbf{101}, 4177--4189 (1994).
+
+\bibitem{nhc}
+G. J. Martyna, M. L. Klein, and M. Tuckerman,
+\emph{Nos\'e--Hoover Chains: The Canonical Ensemble via Continuous Dynamics},
+Journal of Chemical Physics \textbf{97}, 2635--2643 (1992).
+
+\bibitem{pile}
+M. Ceriotti, M. Parrinello, T. E. Markland, and D. E. Manolopoulos,
+\emph{Efficient Stochastic Thermostatting of Path Integral Molecular
+Dynamics}, Journal of Chemical Physics \textbf{133}, 124104 (2010).
+
+\bibitem{highorder}
+V. Kapil, J. Behler, and M. Ceriotti,
+\emph{High Order Path Integrals Made Easy}, Journal of Chemical Physics
+\textbf{145}, 234103 (2016),
+\href{https://doi.org/10.1063/1.4971438}{doi:10.1063/1.4971438}.
 
 \bibitem{sadMof}
-SADMof development repository, \emph{Sparse automatic differentiation for heat capacity of metal--organic frameworks}, project software documentation (accessed 2026).
+M. F. Langer, M. Ceriotti, and collaborators,
+\emph{SADMOF: Sparse Automatic Differentiation for Heat Capacity of
+Metal--Organic Frameworks}, project software and methodology under
+development (version used by this repository, 2026).
 
 \end{thebibliography}
 
