@@ -124,6 +124,36 @@ selects trajectory frame 10 exactly. The analysis output is written to the
 configured output directory. Use `--help` on either script to see all available
 overrides.
 
+For the completed MOF-5 + 100 CH4 validation trajectories, first preview and
+submit the 300 K final-frame Hessian as a resource-sizing test:
+
+```bash
+./scripts/submit_mof5_100ch4_heat_capacity.sh --temperatures 300 --dry-run
+./scripts/submit_mof5_100ch4_heat_capacity.sh --temperatures 300
+```
+
+If that succeeds and the Slurm accounting data supports the chosen resources,
+submit the remaining independent jobs (the existing 300 K result is protected
+from accidental replacement):
+
+```bash
+./scripts/submit_mof5_100ch4_heat_capacity.sh --temperatures 100,200,400,500
+```
+
+Each job analyzes explicit trajectory frame 4000 and writes a unique
+`heat-capacity-frame-4000.npz` below its MD output directory. After all jobs
+finish, print the heat capacity from each MD frame at its matching temperature:
+
+```bash
+python scripts/summarize_mof5_100ch4_heat_capacity.py
+```
+
+Use `--analysis-temperature 300` to compare all five local Hessians at the
+same analysis temperature. These are harmonic constant-volume results from
+individual thermally displaced structures. For methane-loaded MOF-5 they are
+diagnostics, not a reproduction of the paper's anharmonic, quantum-mechanical
+constant-pressure heat capacity.
+
 ## 5. Inspect results
 
 Open the trajectory notebook from this directory:
