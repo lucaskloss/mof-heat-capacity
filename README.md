@@ -102,6 +102,21 @@ The submission script defaults to the `gpu` partition, `normal` QOS, one GPU,
 four CPUs, and two hours per job. Use `--help` to override those values after
 checking Izar's live QOS and partition configuration.
 
+To repeat the same five MD simulations with the
+`pet_sol-s-best_nostress.ckpt` potential, reuse the prepared methane-loaded
+structure and run:
+
+```bash
+./scripts/submit_mof5_100ch4_pet_sol_tests.sh --dry-run
+./scripts/submit_mof5_100ch4_pet_sol_tests.sh
+```
+
+These runs use PET-SOL-specific configuration names, trajectory prefixes, and
+`output/mof5-100ch4-<temperature>K-pet-sol-s-best-nostress-test/`
+directories. The portable `.pt` model is exported automatically from the
+checkpoint on its first run. For harmonic analysis, the matching PET-JAX model
+is likewise converted automatically from the same checkpoint on first use.
+
 ## 4. Calculate harmonic heat capacity
 
 After generating a trajectory, run the analysis using the matching TOML file:
@@ -147,6 +162,20 @@ finish, print the heat capacity from each MD frame at its matching temperature:
 ```bash
 python scripts/summarize_mof5_100ch4_heat_capacity.py
 ```
+
+For the PET-SOL trajectories, use the separate submission script so the
+PET-SOL configs, trajectories, and output directories are selected:
+
+```bash
+./scripts/submit_mof5_100ch4_pet_sol_heat_capacity.sh --temperatures 300 --dry-run
+./scripts/submit_mof5_100ch4_pet_sol_heat_capacity.sh --temperatures 300
+./scripts/submit_mof5_100ch4_pet_sol_heat_capacity.sh --temperatures 100,200,400,500
+```
+
+Each PET-SOL result is written as
+`heat-capacity-pet-sol-s-best-nostress-frame-4000.npz` inside its matching
+PET-SOL output directory, so neither its directory nor filename overlaps the
+PET-MAD results.
 
 Use `--analysis-temperature 300` to compare all five local Hessians at the
 same analysis temperature. These are harmonic constant-volume results from

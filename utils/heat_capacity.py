@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 from pathlib import Path
 
@@ -115,19 +116,23 @@ def ensure_jax_checkpoint(checkpoint: Path | None, jax_checkpoint: Path | None) 
         raise FileNotFoundError(f"PET checkpoint not found: {checkpoint}")
     if jax_checkpoint is None:
         raise ValueError("model.jax_checkpoint is required for a PET checkpoint conversion")
-    metadata_path = jax_checkpoint / "metadata.yaml"
-    if (jax_checkpoint / "model.msgpack").is_file() and metadata_path.is_file() and (
-        "energy_scale:" in metadata_path.read_text()
-        and "species_to_index:" in metadata_path.read_text()
-    ):
-        return jax_checkpoint
-
-    if jax_checkpoint.exists():
-        print(f"Regenerating incomplete PET-JAX conversion: {jax_checkpoint}")
 
     jax_checkpoint.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Converting PET checkpoint to PET-JAX: {jax_checkpoint}")
-    convert_pet_checkpoint(checkpoint, jax_checkpoint)
+    lock_path = jax_checkpoint.with_name(f".{jax_checkpoint.name}.lock")
+    with lock_path.open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        metadata_path = jax_checkpoint / "metadata.yaml"
+        if (jax_checkpoint / "model.msgpack").is_file() and metadata_path.is_file() and (
+            "energy_scale:" in metadata_path.read_text()
+            and "species_to_index:" in metadata_path.read_text()
+        ):
+            return jax_checkpoint
+
+        if jax_checkpoint.exists():
+            print(f"Regenerating incomplete PET-JAX conversion: {jax_checkpoint}")
+
+        print(f"Converting PET checkpoint to PET-JAX: {jax_checkpoint}")
+        convert_pet_checkpoint(checkpoint, jax_checkpoint)
     return jax_checkpoint
 
 

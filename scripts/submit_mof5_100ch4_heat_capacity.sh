@@ -8,6 +8,14 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 JOB_SCRIPT="${PROJECT_DIR}/scripts/izar_job.sh"
+COMMAND_NAME="${MOF_CV_COMMAND_NAME:-submit_mof5_100ch4_heat_capacity.sh}"
+RUN_LABEL="${MOF_CV_RUN_LABEL:-MOF-5 + 100 CH4}"
+MODEL_LABEL="${MOF_CV_MODEL_LABEL:-PET-MAD}"
+CONFIG_PATTERN="${MOF_CV_CONFIG_PATTERN:-configs/mof5_100ch4_%sK_test.toml}"
+OUTPUT_PATTERN="${MOF_CV_OUTPUT_PATTERN:-output/mof5-100ch4-%sK-test}"
+PREFIX_PATTERN="${MOF_CV_PREFIX_PATTERN:-mof5-100ch4-%sK-test}"
+JOB_PATTERN="${MOF_CV_JOB_PATTERN:-mof5-cv-%sK}"
+RESULT_PATTERN="${MOF_CV_RESULT_PATTERN:-heat-capacity-frame-%s.npz}"
 DEFAULT_TEMPERATURES=(100 200 300 400 500)
 TEMPERATURES=("${DEFAULT_TEMPERATURES[@]}")
 FRAME_INDEX="${MOF_CV_FRAME:-4000}"
@@ -20,11 +28,11 @@ FORCE=0
 
 
 usage() {
-    cat <<'EOF'
-Usage: scripts/submit_mof5_100ch4_heat_capacity.sh [options]
+    cat <<EOF
+Usage: scripts/${COMMAND_NAME} [options]
 
 Submit one PET-JAX/SADMOF harmonic C_V job for the final frame of each
-completed MOF-5 + 100 CH4 test trajectory. Each output contains a C_V curve
+completed ${RUN_LABEL} test trajectory. Each output contains a C_V curve
 from 100 to 500 K in 10 K increments, as configured in the matching TOML file.
 
 Options:
@@ -41,11 +49,11 @@ Options:
 
 Examples:
   # Recommended first diagnostic: one Hessian from the 300 K trajectory
-  ./scripts/submit_mof5_100ch4_heat_capacity.sh --temperatures 300 --dry-run
-  ./scripts/submit_mof5_100ch4_heat_capacity.sh --temperatures 300
+  ./scripts/${COMMAND_NAME} --temperatures 300 --dry-run
+  ./scripts/${COMMAND_NAME} --temperatures 300
 
   # Submit all five independent Hessians after sizing resources
-  ./scripts/submit_mof5_100ch4_heat_capacity.sh
+  ./scripts/${COMMAND_NAME}
 
 Defaults can also be set with MOF_CV_FRAME, MOF_CV_PARTITION, MOF_CV_QOS,
 MOF_CV_TIME, and MOF_CV_CPUS.
@@ -147,7 +155,8 @@ if ((!DRY_RUN)) && ! command -v sbatch >/dev/null 2>&1; then
     exit 2
 fi
 
-echo "MOF-5 + 100 CH4 harmonic C_V submission"
+echo "${RUN_LABEL} harmonic C_V submission"
+echo "Potential: ${MODEL_LABEL}"
 echo "MD temperatures: ${TEMPERATURES[*]} K"
 echo "Trajectory frame: ${FRAME_INDEX}"
 echo "C_V grid: 100:500:10 K"
@@ -155,10 +164,13 @@ echo "Resources: partition=${PARTITION}, qos=${QOS}, cpus=${CPUS_PER_TASK}, gpu=
 echo "Method: one PET-JAX/SADMOF Hessian per selected trajectory"
 
 for temperature in "${TEMPERATURES[@]}"; do
-    config="configs/mof5_100ch4_${temperature}K_test.toml"
-    output_dir="output/mof5-100ch4-${temperature}K-test"
-    trajectory="${output_dir}/mof5-100ch4-${temperature}K-test.traj"
-    result="${output_dir}/heat-capacity-frame-${FRAME_INDEX}.npz"
+    printf -v config "${CONFIG_PATTERN}" "${temperature}"
+    printf -v output_dir "${OUTPUT_PATTERN}" "${temperature}"
+    printf -v prefix "${PREFIX_PATTERN}" "${temperature}"
+    printf -v job_name "${JOB_PATTERN}" "${temperature}"
+    printf -v result_name "${RESULT_PATTERN}" "${FRAME_INDEX}"
+    trajectory="${output_dir}/${prefix}.traj"
+    result="${output_dir}/${result_name}"
 
     if [[ ! -f "${config}" ]]; then
         echo "error: configuration not found: ${config}" >&2
@@ -176,10 +188,12 @@ for temperature in "${TEMPERATURES[@]}"; do
         exit 2
     fi
 
+    echo "${temperature} K output: ${result}"
+
     command=(
         sbatch
         --parsable
-        --job-name="mof5-cv-${temperature}K"
+        --job-name="${job_name}"
         --partition="${PARTITION}"
         --qos="${QOS}"
         --nodes=1
@@ -201,4 +215,3 @@ for temperature in "${TEMPERATURES[@]}"; do
         echo "Submitted ${temperature} K frame ${FRAME_INDEX}: job ${job_id}"
     fi
 done
-
