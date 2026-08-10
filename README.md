@@ -156,12 +156,9 @@ from accidental replacement):
 ```
 
 Each job analyzes explicit trajectory frame 4000 and writes a unique
-`heat-capacity-frame-4000.npz` below its MD output directory. After all jobs
-finish, print the heat capacity from each MD frame at its matching temperature:
-
-```bash
-python scripts/summarize_mof5_100ch4_heat_capacity.py
-```
+`heat-capacity-frame-4000.npz` below its MD output directory. The complete
+analysis command in the next section collects these files, reports each value
+at its matching MD temperature, and preserves the full temperature curves.
 
 For the PET-SOL trajectories, use the separate submission script so the
 PET-SOL configs, trajectories, and output directories are selected:
@@ -177,22 +174,52 @@ Each PET-SOL result is written as
 PET-SOL output directory, so neither its directory nor filename overlaps the
 PET-MAD results.
 
-Use `--analysis-temperature 300` to compare all five local Hessians at the
-same analysis temperature. These are harmonic constant-volume results from
-individual thermally displaced structures. For methane-loaded MOF-5 they are
-diagnostics, not a reproduction of the paper's anharmonic, quantum-mechanical
-constant-pressure heat capacity.
+The generated per-run `harmonic_heat_capacity.npz` files retain the complete
+100--500 K curves for comparisons at a common analysis temperature. These are
+harmonic constant-volume results from individual thermally displaced
+structures. For methane-loaded MOF-5 they are diagnostics, not a reproduction
+of the paper's anharmonic, quantum-mechanical constant-pressure heat capacity.
 
 ## 5. Inspect results
 
-Open the trajectory notebook from this directory:
+Run the complete analysis for every completed trajectory described by a TOML
+file:
 
 ```bash
-jupyter lab
+python scripts/analyze_all_results.py
 ```
 
-Then open `utils/visualize.ipynb`. Inspect the structure, forces, temperature,
-energy, and trajectory stability before interpreting heat-capacity results.
+To analyze only one run, or to choose an explicit equilibration interval:
+
+```bash
+python scripts/analyze_all_results.py \
+  --runs 'mof5-100ch4-300K-test' \
+  --discard-ps 1.0
+```
+
+Results are written under `output/analysis/`. Each run gets framewise
+thermodynamic and structural CSV files, autocorrelation/RDF/MSD and harmonic
+heat-capacity NPZ files, a JSON convergence summary, and diagnostic plots.
+The top-level `runs.csv`, `temperature_sweep.png`, and
+`paper_requirements.json` compare runs and identify calculations that the
+current data cannot support. By default, the first half of each trajectory is
+treated as equilibration; choose this cutoff from observed stationarity for
+production calculations. Use `--runs 'mof5-100ch4-300K-*'` or another glob to
+limit the analysis, and `--no-plots` for machine-only output.
+
+Density convergence is included in the same command. Inspect
+`timeseries.csv`, `summary.json`, and `timeseries.png` in each run's analysis
+directory for density, volume, running means, drift, autocorrelation-aware
+uncertainty, and fixed-volume detection. The current ASE runs are fixed-cell
+NVT calculations, so their density is constant by construction; meaningful
+density convergence requires variable-cell NPT trajectories with a
+stress-trained and validated potential.
+
+The generated PNG files provide the standard visual diagnostics without a
+notebook. The CSV, JSON, and NPZ products can also be loaded directly by
+plotting or manuscript scripts. Inspect the structure, forces, temperature,
+energy, autocorrelation times, effective sample counts, methane distributions,
+and trajectory stability before interpreting heat-capacity results.
 
 Use a separate output directory and prefix for each structure, model, and
 loading so that trajectories cannot be confused with one another.
