@@ -18,13 +18,6 @@ CUDA/JAX choice, and all resource measurements in this guide.
 
 ## Izar resources relevant to this workflow
 
-Izar is the academic GPU cluster for courses, student projects, and Master's
-work. Connect through the EPFL network or VPN:
-
-```bash
-ssh <gaspar-username>@izar.hpc.epfl.ch
-```
-
 The ordinary `gpu` partition contains nodes with two NVIDIA Tesla V100 GPUs
 (32 GB per GPU). The `gpu-xl` subset contains two larger-memory nodes with four
 V100 GPUs each. A one-GPU calculation should normally use `--partition=gpu`;
@@ -80,11 +73,12 @@ exist after staging. The default configuration expects the checkpoint below
 Izar's V100 is a Volta GPU with compute capability 7.0. CUDA 13 dropped Volta
 library and offline-compilation support, and its drivers require release 580 or
 newer. Izar job 3099805 instead reported driver 535.154.5. The repository's
-`environment.yml` therefore selects JAX 0.11.0 with its matching CUDA 12
-plugin/PJRT packages, and pins PyTorch 2.5.1's
-CUDA 12.1 wheel, which includes V100 (sm_70) kernels. Do not remove that
-PyTorch pin: newer wheels can omit V100 kernels or select CUDA 13 and fail on
-Izar.
+`environment.yml` therefore keeps every GPU runtime in the CUDA 12 family:
+JAX 0.11.0 and its matching plugin/PJRT packages, PyTorch 2.5.1's CUDA 12.1
+wheel, and LAMMPS's independently linked C++ libtorch 2.12.1 CUDA 12.9 build.
+The LAMMPS and libtorch versions are also pinned to matching ABIs. Do not
+remove these pins: Conda can otherwise select a CUDA 13 C++ libtorch even when
+Python reports the correct CUDA 12.1 PyTorch wheel.
 
 Create the environment under `/home` or `/work`, not under scratch. Package
 installation can be run in Izar's GPU-free `build` QOS rather than consuming a
@@ -96,7 +90,10 @@ salloc --partition=gpu --qos=build --nodes=1 --ntasks=1 \
   --cpus-per-task=8 --time=04:00:00
 srun --pty bash -l
 
-conda env create \
+# CUDA 12 minor-version compatibility allows this CUDA 12.9 user-space
+# runtime to run with Izar's 535-series driver. The override is needed because
+# this build allocation has no GPU and Conda cannot detect the driver.
+CONDA_OVERRIDE_CUDA=12.9 conda env create \
   --prefix "$HOME/.conda/envs/mof-heat-capacity-izar" \
   --file "$HOME/project/mof-heat-capacity/environment.yml"
 conda activate "$HOME/.conda/envs/mof-heat-capacity-izar"
@@ -127,17 +124,32 @@ wheels bring their CUDA user-space libraries, and an incompatible
 `LD_LIBRARY_PATH` can override them. The NVIDIA driver remains supplied by the
 cluster.
 
-Do not repair an existing environment only by changing JAX. Confirm the Torch
-build without initializing a GPU:
+Do not repair an existing environment only by changing JAX or pip Torch.
+LAMMPS loads Conda's C++ libtorch, not the pip wheel imported by Python. To
+correct an existing prefix, explicitly replace the complete C++ CUDA stack:
+
+```bash
+CONDA_OVERRIDE_CUDA=12.9 conda install --yes \
+  --prefix "$HOME/.conda/envs/mof-heat-capacity-izar" \
+  --override-channels -c metatensor -c conda-forge \
+  'lammps-metatomic=2026.07.04.mta1=*cpu*mpi_openmpi*' \
+  'libtorch=2.12.1=cuda129_mkl_*' \
+  'cuda-version=12.9' 'mkl>=2026,<2027'
+```
+
+Then confirm both Torch stacks:
 
 ```bash
 python -c 'import torch; print(torch.__version__, torch.version.cuda)'
+conda list | awk '$1 == "cuda-version" || $1 == "libtorch" || $1 == "lammps-metatomic"'
+ldd "$(command -v lmp)" | grep libcudart
 ```
 
-For this environment it must report `2.5.1+cu121` and CUDA `12.1`, not a newer
-build without `sm_70` support. Creating the fresh prefix above is safer than modifying the
-failed environment in place because pip may leave CUDA 13 runtime packages
-behind.
+Python must report `2.5.1+cu121` and CUDA `12.1`; Conda must report libtorch
+2.12.1 with a `cuda129` build and `cuda-version` 12.9; and `ldd` must resolve
+`libcudart.so.12`, never `.so.13`. If the explicit replacement does not produce those
+exact results, create a fresh prefix using the preceding recipe rather than
+submitting another GPU job.
 
 The environment pins Vesin to 0.6.1 because `metatomic-ase` 0.1.2 requires
 that API, and pins `nvalchemi-toolkit-ops` to 0.3.1 for compatibility with
@@ -301,12 +313,13 @@ precision, and frame geometry can all change cost. Measure one frame, then two
 or three frames, before extrapolating. `chunk_size=1` and `remat=true` in the
 bundled configuration are already conservative memory choices.
 
-A job is killed when it reaches `--time`. The current `run.py` does not resume
-an interrupted trajectory: it either reuses an existing trajectory without
-continuing it or overwrites it with `--rerun`. Keep MD within a safe wall-time
-limit, or add and test restart support before relying on multi-day segmented
-runs. Jobs longer than seven days require a different workflow or prior SCITAS
-coordination; merely requesting a larger value will not bypass the QOS limit.
+A job is killed when it reaches `--time`. The classical LAMMPS production
+driver writes periodic numeric restart files and supports `--resume`; the ASE
+smoke-test driver does not provide equivalent continuation. Keep each segment
+within a safe wall-time limit and verify that a numeric restart exists before
+resuming. Jobs longer than seven days require a different workflow or prior
+SCITAS coordination; merely requesting a larger value will not bypass the QOS
+limit.
 
 ### Size host and GPU memory
 
@@ -384,6 +397,225 @@ as `Priority`, `Resources`, or a QOS limit. SCITAS scheduling is not FIFO:
 requested job size and wall time, QOS, age, and fair-share all affect priority.
 Canceling and resubmitting a correctly configured pending job usually loses
 age without making it start sooner.
+
+## Run the MOF-5 paper-protocol campaign
+
+Run every command in this section from the repository root on an Izar login
+node unless an allocation is stated explicitly:
+
+```bash
+cd "$HOME/project/mof-heat-capacity"
+```
+
+If the runnable tree is staged on scratch, use its repository root instead.
+Keep the Conda environment and irreplaceable models outside scratch, and copy
+completed results to persistent storage promptly.
+
+### Verify the runtime before submitting
+
+The submission script uses
+`$HOME/.conda/envs/mof-heat-capacity-izar` by default. Confirm that Python and
+LAMMPS use the two intended, independent Torch runtimes:
+
+```bash
+"$HOME/.conda/envs/mof-heat-capacity-izar/bin/python" -c \
+  'import torch; print(torch.__version__, torch.version.cuda)'
+conda list --prefix "$HOME/.conda/envs/mof-heat-capacity-izar" | \
+  awk '$1 == "cuda-version" || $1 == "libtorch" || $1 == "lammps-metatomic"'
+ldd "$HOME/.conda/envs/mof-heat-capacity-izar/bin/lmp" | grep libcudart
+```
+
+The expected results are Python PyTorch `2.5.1+cu121`/CUDA 12.1, Conda
+libtorch 2.12.1 with a `cuda129` build, `cuda-version` 12.9, and
+`libcudart.so.12`. Do not submit if LAMMPS resolves `libcudart.so.13`.
+
+### Prepare structures and configurations
+
+The classical defaults are five temperatures (100, 200, 300, 400, and 500 K)
+and five independent replicas at each temperature. Generate the loaded
+structures once with the first model, then reuse them when generating the
+second model's configurations:
+
+```bash
+./scripts/prepare_paper_protocol.py --model pet-mad --method classical
+./scripts/prepare_paper_protocol.py --model pet-sol --method classical \
+  --configs-only
+```
+
+Preparation refuses to overwrite existing files. Do not use `--force` unless
+regenerating those exact structures and configurations is intentional. The
+important preparation options are:
+
+| Option | Meaning |
+| --- | --- |
+| `--model pet-mad\|pet-sol` | Select the checkpoint, exported model, JAX conversion, and name prefix. |
+| `--method classical\|pimd` | Select flexible-cell classical NPT or 64-bead Suzuki–Chin PIMD. |
+| `--temperatures 100,200,...` | Generate only the comma-separated temperatures listed. |
+| `--replicas N` | Generate replicas numbered 1 through `N`; classical defaults to 5. |
+| `--loading N` | Set the methane count; the present campaign uses 100. |
+| `--configs-only` | Generate TOML files while reusing structures already prepared by the other model. |
+| `--dry-run` | Print planned paths without writing anything. |
+
+### Run the debug and calibration jobs
+
+First validate one 300 K replica for each model. Always preview submissions:
+
+```bash
+./scripts/submit_paper_protocol.sh --model pet-mad --debug --dry-run
+./scripts/submit_paper_protocol.sh --model pet-sol --debug --dry-run
+
+./scripts/submit_paper_protocol.sh --model pet-mad --debug
+./scripts/submit_paper_protocol.sh --model pet-sol --debug
+```
+
+`--debug` enforces ten steps, four CPUs, one V100, 30 minutes, the `debug`
+QOS, 300 K, and replica 1 unless temperature or replica options are explicitly
+given. It writes disposable results below `output/debug/`.
+
+After both debug jobs finish, measure a representative 1,000-step run:
+
+```bash
+./scripts/submit_paper_protocol.sh --model pet-mad --calibration
+./scripts/submit_paper_protocol.sh --model pet-sol --calibration
+```
+
+Calibration results are isolated below `output/calibration/`. Obtain the
+measured rates with:
+
+```bash
+rg 'Loop time|Performance:|Total wall time' output/calibration/*/*.lammps.log
+```
+
+The August 2026 measurements for the 924-atom system on one V100 and four CPUs
+were 3.31 steps/s for PET-MAD and 3.67 steps/s for PET-SOL. Recalibrate after
+changing the model, system, GPU type, software environment, or important MD
+settings.
+
+### Equilibrate one replica at every temperature
+
+The classical configuration uses a 0.5 fs timestep. Thus 200,000 steps are
+100 ps, including the configured equilibration interval. Submit five jobs per
+model—one replica at each temperature—with a 24-hour limit:
+
+```bash
+./scripts/submit_paper_protocol.sh --model pet-mad --replicas 1 \
+  --steps 200000 --cpus 4 --time 24:00:00 --qos normal --dry-run
+./scripts/submit_paper_protocol.sh --model pet-sol --replicas 1 \
+  --steps 200000 --cpus 4 --time 24:00:00 --qos normal --dry-run
+
+./scripts/submit_paper_protocol.sh --model pet-mad --replicas 1 \
+  --steps 200000 --cpus 4 --time 24:00:00 --qos normal
+./scripts/submit_paper_protocol.sh --model pet-sol --replicas 1 \
+  --steps 200000 --cpus 4 --time 24:00:00 --qos normal
+```
+
+Confirm `normal` is the live ordinary QOS name with `sacctmgr show qos`. Inspect
+temperature, energy, volume, density, cell lengths/tilts, and structural
+stability before continuing. Instantaneous pressure in this small flexible
+cell can fluctuate by thousands of bar and can be negative; assess its mean
+with 5--10 ps blocks. In the completed 100 ps pilot runs, final-50-ps mean
+pressures were -12 to +17 bar with block uncertainties of roughly 3--17 bar,
+consistent with the 1 bar target.
+
+### Continue replica 1 to 500 ps
+
+Once the 100 ps pilot is stable, continue from its latest numeric restart to
+the configured final target of 1,000,000 steps (500 ps):
+
+```bash
+./scripts/submit_paper_protocol.sh --model pet-mad --replicas 1 \
+  --steps 1000000 --resume --cpus 4 --time 96:00:00 --qos long --dry-run
+./scripts/submit_paper_protocol.sh --model pet-sol --replicas 1 \
+  --steps 1000000 --resume --cpus 4 --time 96:00:00 --qos long --dry-run
+
+./scripts/submit_paper_protocol.sh --model pet-mad --replicas 1 \
+  --steps 1000000 --resume --cpus 4 --time 96:00:00 --qos long
+./scripts/submit_paper_protocol.sh --model pet-sol --replicas 1 \
+  --steps 1000000 --resume --cpus 4 --time 96:00:00 --qos long
+```
+
+For LAMMPS, `--steps` is the absolute final timestep because the generated
+input uses `run ... upto`. It is not a number of additional steps: resuming a
+200,000-step run with `--steps 1000000` advances it by 800,000 steps. The
+`--resume` option appends to the existing trajectory and thermodynamic log.
+Never combine `--resume` with `--debug` or `--calibration`.
+
+At the measured rates, complete 500 ps runs take approximately 84 hours for
+PET-MAD and 76 hours for PET-SOL, before margin. This is why the continuation
+uses the `long` QOS and a 96-hour limit. Verify the live `long` limit before
+submission.
+
+### Expand to replicas 2 through 5
+
+After replica 1 is stable across all temperatures, start the 100 ps stage for
+all five replicas:
+
+```bash
+./scripts/submit_paper_protocol.sh --model pet-mad --replicas 5 \
+  --steps 200000 --cpus 4 --time 24:00:00 --qos normal --dry-run
+./scripts/submit_paper_protocol.sh --model pet-sol --replicas 5 \
+  --steps 200000 --cpus 4 --time 24:00:00 --qos normal --dry-run
+```
+
+The script interprets `--replicas 5` as replicas 1 through 5. If replica 1
+already has a trajectory, its submitted job detects and reuses it without
+overwriting it; replicas 2--5 begin normally. Remove `--dry-run` after checking
+all commands. Once these runs are stable, continue all replicas:
+
+```bash
+./scripts/submit_paper_protocol.sh --model pet-mad --replicas 5 \
+  --steps 1000000 --resume --cpus 4 --time 96:00:00 --qos long --dry-run
+./scripts/submit_paper_protocol.sh --model pet-sol --replicas 5 \
+  --steps 1000000 --resume --cpus 4 --time 96:00:00 --qos long --dry-run
+```
+
+Remove `--dry-run` only after every selected replica has a numeric restart.
+The full two-model classical campaign contains 50 one-GPU trajectories and is
+approximately 4,000 GPU-hours at the measured rate. Check fair-share and job
+count policies before submitting all of them simultaneously. The existing
+100 ps trajectories occupy approximately 295--336 MB each; at the same output
+stride, 50 complete 500 ps trajectories will occupy roughly 75--85 GB before
+restarts, logs, analysis, and models. This is too close to a default 100 GB
+home quota, so place production output on scratch or project storage and copy
+the results that must be retained to persistent storage.
+
+### Submission options and output locations
+
+| Option | Operational meaning |
+| --- | --- |
+| `--model pet-mad\|pet-sol` | Required model selection; output names remain model-specific. |
+| `--method classical\|pimd` | Defaults to classical. Do not extrapolate classical timing to 64-bead PIMD. |
+| `--loading N` | Select configurations for this methane loading; defaults to 100. |
+| `--temperatures LIST` | Defaults to `100,200,300,400,500`. |
+| `--replicas N` | Submit replicas 1 through `N`; defaults to 5 for classical and 30 for PIMD. |
+| `--steps N` | Override the TOML final step target. With classical `--resume`, this remains an absolute target. |
+| `--partition NAME` | Defaults to `gpu`; keep one node and one GPU per job. |
+| `--qos NAME` | Use `debug` only for smoke tests, the live ordinary QOS for short runs, and `long` only when measured time requires it. |
+| `--time HH:MM:SS` | Hard wall-clock limit for each independent job. |
+| `--cpus N` | CPUs for one LAMMPS/Python process; four is the measured classical setting. |
+| `--debug` | Force an isolated ten-step, 30-minute debug-QOS run. |
+| `--calibration` | Force an isolated 1,000-step timing run unless `--steps` overrides it. |
+| `--resume` | Read the latest numeric restart and append output. It fails when no numeric restart exists. |
+| `--dry-run` | Validate files/models and print exact `sbatch` commands without submitting. |
+
+Normal production files are written under the `output_dir` in each generated
+TOML file. Each directory contains the trajectory, `.lammps.log`, periodic
+`.restart.<step>` files, `.restart.final`, `.final.data`, generated LAMMPS
+input, and initial data. Debug and calibration files are kept in their own
+subdirectories and are never used as production restarts.
+
+Monitor and account for jobs with:
+
+```bash
+squeue -u "$USER"
+sacct -j <job-id> --format=JobID,State,ExitCode,Elapsed,Timelimit,AllocCPUS,MaxRSS
+tail -f slurm-<job-name>-<job-id>.out
+```
+
+A usable completion has Slurm state `COMPLETED`, exit code `0:0`, a LAMMPS
+`Total wall time` line, the expected final restart/data files, and a trajectory
+ending at the requested timestep. Do not infer success only from the presence
+of an output directory.
 
 ## Submit the molecular-dynamics job
 

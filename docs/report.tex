@@ -688,16 +688,16 @@ adaptive maximum of 40 neighbors. At inference, the learned parameters
 $\theta$ are fixed and Eqs.~\eqref{eq:mlip-energy} and
 \eqref{eq:mlip-force} are evaluated for each MD configuration.
 
-MD loads the metatomic export
-\texttt{pet-mad-1.5-s\_40nn\_nostress.pt} through
-\texttt{metatomic-ase}. Harmonic analysis converts the matching checkpoint to
-a PET-JAX representation. Using the same learned parameters in both paths is
-essential: a trajectory from one potential must not be differentiated with a
-different potential. The checkpoint is marked \texttt{nostress}; the current
-workflow therefore keeps the cell fixed and does not assume reliable
-pressure or cell derivatives. PET-MAD is a universal model rather than a
-MOF-5-specific fit, so energy, force, and especially curvature accuracy for
-the relevant structures must be validated \cite{petmad}.
+MD loads a metatomic PET-MAD or PET-SOL export. Harmonic analysis converts the
+matching checkpoint to a PET-JAX representation. Using the same learned
+parameters in both paths is essential: a trajectory from one potential must
+not be differentiated with a different potential. The updated exports expose
+an explicit stress output, and paper-protocol configurations record stress
+validation explicitly rather than inferring capability from the historical
+\texttt{nostress} filename suffix. PET is a universal model rather than a
+MOF-5-specific fit, so energy, force, stress, and especially curvature
+accuracy for the relevant structures must still be documented and validated
+\cite{petmad}.
 
 \subsection{Classical NVT molecular dynamics}
 
@@ -1008,8 +1008,9 @@ The principal limitations of the current results are:
 \begin{itemize}
   \item PET-MAD and QuickFF describe different potential-energy surfaces;
         agreement with the paper cannot be assumed.
-  \item The \texttt{nostress} checkpoint and fixed cell preclude the paper's
-        constant-pressure cell fluctuations and thermal expansion.
+  \item The original fixed-cell trajectories preclude the paper's
+        constant-pressure cell fluctuations and thermal expansion; the new NPT
+        campaign must be converged and analyzed separately.
   \item Classical nuclei are used in MD; nuclear quantum effects enter only
         through the harmonic oscillator formula.
   \item The 2-ps loaded trajectories are validation runs, not equilibrated

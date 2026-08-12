@@ -367,10 +367,7 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
         np.ptp(series["volume_A3"])
         <= max(1.0, abs(float(series["volume_A3"].mean()))) * 1e-10
     )
-    model_text = " ".join(
-        str(item) for item in (config.checkpoint, config.exported_model) if item
-    ).lower()
-    stress_validated = "nostress" not in model_text
+    stress_validated = config.stress_validated
     target_temperature_std = config.temperature_K * math.sqrt(
         2.0 / (3.0 * extracted["metadata"]["atom_count"])
     )
@@ -384,8 +381,8 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
         )
     if not stress_validated:
         warnings.append(
-            "The model name contains 'nostress'; pressure is only a stored-stress diagnostic "
-            "and must not be used for NPT conclusions."
+            "The configuration does not record stress validation; pressure must not be "
+            "used for NPT conclusions."
         )
     for name, item in statistics.items():
         if abs(float(item["split_stationarity_z"])) > 2.0:
@@ -420,7 +417,7 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
         "configured_duration_ps": duration_ps,
         "actual_duration_ps": float(series["time_ps"][-1]),
         "production_start_ps": start_ps,
-        "ensemble": "NVT (ASE Langevin)",
+        "ensemble": config.md_ensemble,
         "fixed_volume": fixed_volume,
         "stress_model_validated": stress_validated,
         "simulation_provenance": {

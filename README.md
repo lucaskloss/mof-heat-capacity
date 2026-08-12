@@ -8,10 +8,10 @@ parameters, current-project compatibility, and an Izar execution path, is in
 [KAPIL_2019.md](docs/KAPIL_2019.md).
 
 For CUDA jobs submitted with Slurm on EPFL's SCITAS Izar cluster, follow
-[IZAR.md](docs/IZAR.md). The environment pins both JAX and PyTorch to CUDA 12 builds
-that can target Izar's V100 GPUs; allowing pip to select the current default
-PyTorch wheel installs CUDA 13 and fails on Izar's 535-series driver. A reusable
-submission template is provided in [izar_job.sh](scripts/izar_job.sh).
+[IZAR.md](docs/IZAR.md). The environment pins JAX, Python PyTorch, and LAMMPS's
+separate C++ libtorch runtime to CUDA 12 builds that can run with Izar's V100
+GPUs and 535-series driver. A reusable submission template is provided in
+[izar_job.sh](scripts/izar_job.sh).
 
 ## 1. Create the environment
 
@@ -88,34 +88,44 @@ path = "../output/mof5-pet-mad/mof5-md.pdb"
 Set model paths, output directory, temperature, timestep, and trajectory prefix
 in the same file before running `run.py`.
 
-For the short MOF-5 + 100 CH4 Izar validation sweep at 100, 200, 300, 400,
-and 500 K, prepare the shared loaded structure and five 2 ps configurations,
-preview the Slurm commands, and submit them with:
+The paper-protocol workflow requires a stress/virial-validated MLIP because it
+runs constant-pressure dynamics. The two updated PET checkpoints advertise an
+explicit stress output and are recorded as stress-validated in generated paper
+configurations. Their filenames retain the historical `nostress` suffix, which
+is not used as a capability test. Prepare an independent structure and
+configuration for each temperature, replica, and MLIP. For the first classical
+300 K debug tests, activate the environment described below and run:
 
 ```bash
-./scripts/prepare_mof5_100ch4_tests.sh
-./scripts/submit_mof5_100ch4_tests.sh --dry-run
-./scripts/submit_mof5_100ch4_tests.sh
+./scripts/prepare_paper_protocol.py --model pet-mad \
+  --method classical --temperatures 300 --replicas 1 --configs-only
+./scripts/prepare_paper_protocol.py --model pet-sol \
+  --method classical --temperatures 300 --replicas 1 --configs-only
+
+./scripts/submit_paper_protocol.sh --model pet-mad --debug --dry-run
+./scripts/submit_paper_protocol.sh --model pet-sol --debug --dry-run
+./scripts/submit_paper_protocol.sh --model pet-mad --debug
+./scripts/submit_paper_protocol.sh --model pet-sol --debug
 ```
 
-The submission script defaults to the `gpu` partition, `normal` QOS, one GPU,
-four CPUs, and two hours per job. Use `--help` to override those values after
-checking Izar's live QOS and partition configuration.
+`--debug` fixes the request at the `debug` QOS, 30 minutes, four CPUs, one GPU,
+and ten MD steps. Unless explicitly overridden, it selects only the 300 K,
+replica-01 configuration and writes under `output/debug/`, separate from the
+production output directory. The dry run validates the generated structure,
+model paths, NPT stress-validation flag, and TOML schema before printing the
+exact `sbatch` command. Confirm the live Izar partition/QOS configuration before
+submitting. Use `--help` for loading, temperature, replica, and resource
+overrides.
 
-To repeat the same five MD simulations with the
-`pet_sol-s-best_nostress.ckpt` potential, reuse the prepared methane-loaded
-structure and run:
+After debug succeeds, use `--calibration` for timing. It defaults to 1,000
+steps and writes under `output/calibration/`, so a shortened trajectory cannot
+be reused accidentally as production output.
 
-```bash
-./scripts/submit_mof5_100ch4_pet_sol_tests.sh --dry-run
-./scripts/submit_mof5_100ch4_pet_sol_tests.sh
-```
-
-These runs use PET-SOL-specific configuration names, trajectory prefixes, and
-`output/mof5-100ch4-<temperature>K-pet-sol-s-best-nostress-test/`
-directories. The portable `.pt` model is exported automatically from the
-checkpoint on its first run. For harmonic analysis, the matching PET-JAX model
-is likewise converted automatically from the same checkpoint on first use.
+The complete Izar runbook—including environment checks, preparation options,
+debug and calibration commands, staged 100 ps equilibration, restart-to-500 ps
+production, replica expansion, measured resource estimates, storage sizing,
+monitoring, and completion checks—is in
+[Run the MOF-5 paper-protocol campaign](docs/IZAR.md#run-the-mof-5-paper-protocol-campaign).
 
 ## 4. Calculate harmonic heat capacity
 

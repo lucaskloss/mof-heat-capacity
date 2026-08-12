@@ -27,6 +27,11 @@ def parse_args() -> argparse.Namespace:
         help="Explicit comma-separated trajectory indices (a single index is allowed)",
     )
     parser.add_argument("--stride", type=int)
+    parser.add_argument(
+        "--start-frame",
+        type=int,
+        help="First frame eligible for count/all/stride selection",
+    )
     parser.add_argument("--temperatures", help="Inclusive start:stop:step range in K")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--dtype", choices=("float32", "float64"))
@@ -37,21 +42,28 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def select_indices(spec: str, n_frames: int, stride: int | None) -> list[int]:
+def select_indices(
+    spec: str, n_frames: int, stride: int | None, start_frame: int = 0
+) -> list[int]:
     """Select trajectory indices from a count, list, or ``all``."""
+    if start_frame < 0 or start_frame >= n_frames:
+        raise IndexError(f"start frame outside 0..{n_frames - 1}")
     if stride is not None:
         if stride < 1:
             raise ValueError("stride must be positive")
-        return list(range(0, n_frames, stride))
+        return list(range(start_frame, n_frames, stride))
     if spec == "all":
-        return list(range(n_frames))
+        return list(range(start_frame, n_frames))
     if "," in spec:
         indices = [int(item.strip()) for item in spec.split(",")]
     else:
         count = int(spec)
         if count < 1:
             raise ValueError("frames must be positive")
-        indices = np.linspace(0, n_frames - 1, min(count, n_frames), dtype=int).tolist()
+        available = n_frames - start_frame
+        indices = np.linspace(
+            start_frame, n_frames - 1, min(count, available), dtype=int
+        ).tolist()
     if any(index < 0 or index >= n_frames for index in indices):
         raise IndexError(f"frame index outside 0..{n_frames - 1}")
     return list(dict.fromkeys(indices))
@@ -189,7 +201,9 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
             "shadow derivatives require a dense PET Hessian path, not this sparse workflow"
         )
 
-    trajectory_path = (args.trajectory or config.output_dir / f"{config.md_prefix}.traj")
+    trajectory_path = (
+        args.trajectory or config.output_dir / config.md_trajectory_file
+    )
     trajectory_path = trajectory_path.expanduser().resolve()
     if not trajectory_path.is_file():
         raise FileNotFoundError(f"trajectory not found: {trajectory_path}")
@@ -218,7 +232,10 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
             raise ValueError("--frame-indices cannot be combined with --frames or --stride")
         indices = select_explicit_indices(args.frame_indices, len(frames))
     else:
-        indices = select_indices(frame_spec, len(frames), args.stride)
+        start_frame = (
+            config.heat_start_frame if args.start_frame is None else args.start_frame
+        )
+        indices = select_indices(frame_spec, len(frames), args.stride, start_frame)
     temperatures = parse_temperatures(temperature_spec)
     jax_checkpoint = ensure_jax_checkpoint(config.checkpoint, config.jax_checkpoint)
     model, params, metadata = load_pet(jax_checkpoint, dtype=dtype)

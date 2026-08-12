@@ -1,8 +1,9 @@
-"""Run configuration-driven ASE molecular dynamics with a metatomic MLIP."""
+"""Run configuration-driven ASE, LAMMPS-NPT, or i-PI PIMD with an MLIP."""
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import os
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from ase.md import Langevin, MDLogger
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary
 
 from utils.model_utils import ensure_exported_model
+from utils.production_runner import run_classical_npt, run_pimd
 from utils.workflow_config import RunConfig, load_run_config
 from utils.workflow_io import load_structure
 
@@ -31,6 +33,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--rerun", action="store_true", help="Overwrite an existing trajectory"
     )
+    parser.add_argument(
+        "--resume", action="store_true", help="Continue from the latest restart"
+    )
     parser.add_argument("--print-config", action="store_true")
     return parser.parse_args()
 
@@ -43,8 +48,32 @@ def run_md(
     output_dir: Path | None = None,
     prefix: str | None = None,
     rerun: bool = False,
+    resume: bool = False,
 ) -> Path:
-    """Run one NVT trajectory described by ``config`` and return its path."""
+    """Run the configured dynamics backend and return its trajectory path."""
+    if device is not None:
+        config = replace(config, device=device)
+    if config.md_driver == "lammps":
+        return run_classical_npt(
+            config,
+            steps=steps,
+            output_dir=output_dir,
+            prefix=prefix,
+            rerun=rerun,
+            resume=resume,
+        )
+    if config.md_driver == "ipi-lammps":
+        return run_pimd(
+            config,
+            steps=steps,
+            output_dir=output_dir,
+            prefix=prefix,
+            rerun=rerun,
+            resume=resume,
+        )
+    if resume:
+        raise ValueError("the ASE smoke-test driver does not support --resume")
+
     from metatomic_ase import MetatomicCalculator
     import metatomic_ase._neighbors as metatomic_neighbors
 
@@ -58,7 +87,7 @@ def run_md(
         raise ValueError("steps must be positive")
 
     active_output.mkdir(parents=True, exist_ok=True)
-    trajectory_path = active_output / f"{active_prefix}.traj"
+    trajectory_path = active_output / config.md_trajectory_file
     log_path = active_output / f"{active_prefix}.log"
     if trajectory_path.exists() and not rerun:
         print(f"Reusing existing trajectory: {trajectory_path}")
@@ -89,13 +118,13 @@ def run_md(
         atoms,
         timestep=config.timestep_fs * units.fs,
         temperature_K=config.temperature_K,
-        friction=0.01 / units.fs,
+        friction=1.0 / (config.thermostat_tau_fs * units.fs),
     )
     trajectory = Trajectory(trajectory_path, "w", atoms)
-    dynamics.attach(trajectory.write, interval=1)
+    dynamics.attach(trajectory.write, interval=config.output_stride)
     dynamics.attach(
         MDLogger(dynamics, atoms, log_path, header=True, stress=False, peratom=False),
-        interval=1,
+        interval=config.output_stride,
     )
     dynamics.run(active_steps)
     trajectory.close()
@@ -153,6 +182,7 @@ def main() -> None:
         output_dir=args.output_dir,
         prefix=args.prefix,
         rerun=args.rerun,
+        resume=args.resume,
     )
 
 

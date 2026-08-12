@@ -9,7 +9,12 @@ channels:
 dependencies:
   - python=3.12
   - jupyterlab
-  - lammps-metatomic
+  # LAMMPS links to Conda's C++ libtorch, independently of the pip Torch wheel
+  # below. Pin both sides of that ABI and keep the C++ runtime in CUDA 12:
+  # Izar's 535 driver cannot initialize the otherwise-selected CUDA 13 build.
+  - "lammps-metatomic=2026.07.04.mta1=*cpu*mpi_openmpi*"
+  - "libtorch=2.12.1=cuda129_mkl_*"
+  - cuda-version=12.9
   - mkl>=2026,<2027
   - pip
   - pip:

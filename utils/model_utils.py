@@ -5,11 +5,15 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-import upet
-
-
 def ensure_exported_model(checkpoint_path: Path, exported_path: Path) -> Path:
     """Export a PET checkpoint to metatomic's portable format once."""
+    try:
+        import upet
+    except ImportError as error:
+        raise RuntimeError(
+            "exporting a PET checkpoint requires the 'upet' package; activate "
+            "the project environment or provide an existing exported model"
+        ) from error
     checkpoint_path = checkpoint_path.expanduser().resolve()
     exported_path = exported_path.expanduser().resolve()
     if not checkpoint_path.is_file():

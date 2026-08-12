@@ -56,6 +56,8 @@ def run_lammps_socket(
     workdir = (runtime_dir or xml_file.parent).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
     socket_path = Path("/tmp") / f"ipi_{socket_name}"
+    if len(str(socket_path).encode()) >= 100:
+        raise ValueError(f"i-PI Unix socket name is too long: {socket_path}")
     processes: list[subprocess.Popen[object]] = []
     if socket_path.exists():
         raise FileExistsError(f"Socket path already exists: {socket_path}")
@@ -65,8 +67,17 @@ def run_lammps_socket(
         processes.append(server)
         _wait_for_socket(socket_path, server)
         client_processes = [
-            subprocess.Popen([lammps_executable, "-in", str(lammps_input.resolve())], cwd=workdir)
-            for _ in range(clients)
+            subprocess.Popen(
+                [
+                    lammps_executable,
+                    "-in",
+                    str(lammps_input.resolve()),
+                    "-log",
+                    str(workdir / f"lammps-client-{index:03d}.log"),
+                ],
+                cwd=workdir,
+            )
+            for index in range(clients)
         ]
         processes.extend(client_processes)
         server_returncode = server.wait()
@@ -78,3 +89,6 @@ def run_lammps_socket(
     except BaseException:
         _stop_processes(processes)
         raise
+    finally:
+        if socket_path.exists():
+            socket_path.unlink()

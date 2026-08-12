@@ -20,11 +20,36 @@ class RunConfig:
     exported_model: Path
     jax_checkpoint: Path | None
     device: str
+    stress_validated: bool
+    md_driver: str
+    md_ensemble: str
     temperature_K: float
     md_steps: int
     timestep_fs: float
     md_prefix: str
+    md_trajectory_file: str
+    equilibration_steps: int
+    output_stride: int
+    restart_stride: int
+    random_seed: int
+    thermostat: str
+    thermostat_tau_fs: float
+    thermostat_chain_length: int
+    pressure_bar: float
+    barostat: str
+    barostat_tau_fs: float
+    cell_thermostat: str
+    cell_thermostat_tau_fs: float
+    pimd_beads: int
+    pimd_factorization: str
+    pimd_splitting: str
+    pimd_force_beads: int
+    pimd_fd_epsilon_bohr: float
+    force_clients: int
+    ipi_command: str
+    lammps_command: str
     heat_frames: str
+    heat_start_frame: int
     heat_temperatures: str
     heat_dtype: str
     heat_chunk_size: int
@@ -48,7 +73,21 @@ def load_run_config(path: Path) -> RunConfig:
     structure = _table(data, "structure")
     model = _table(data, "model")
     md = _table(data, "md")
+    pimd = _table(data, "pimd")
+    execution = _table(data, "execution")
     heat = _table(data, "heat_capacity")
+
+    md_driver = str(md.get("driver", "ase"))
+    md_prefix = str(md.get("prefix", config_path.stem))
+    default_trajectory = (
+        f"{md_prefix}.traj"
+        if md_driver == "ase"
+        else (
+            f"{md_prefix}.lammpstrj"
+            if md_driver == "lammps"
+            else f"{md_prefix}.centroid.extxyz"
+        )
+    )
 
     required = structure.get("required_elements")
     required_elements = frozenset(str(item) for item in required) if required else None
@@ -62,11 +101,40 @@ def load_run_config(path: Path) -> RunConfig:
         exported_model=_resolve(base, model["exported_model"]),
         jax_checkpoint=_optional_resolve(base, model.get("jax_checkpoint")),
         device=str(model.get("device", "cuda")),
+        stress_validated=bool(model.get("stress_validated", False)),
+        md_driver=md_driver,
+        md_ensemble=str(md.get("ensemble", "nvt")),
         temperature_K=float(md.get("temperature_K", 300.0)),
         md_steps=int(md.get("steps", 10)),
         timestep_fs=float(md.get("timestep_fs", 0.25)),
-        md_prefix=str(md.get("prefix", config_path.stem)),
+        md_prefix=md_prefix,
+        md_trajectory_file=Path(
+            str(md.get("trajectory_file", default_trajectory))
+        ).name,
+        equilibration_steps=int(md.get("equilibration_steps", 0)),
+        output_stride=int(md.get("output_stride", 1)),
+        restart_stride=int(md.get("restart_stride", 10000)),
+        random_seed=int(md.get("seed", 2025)),
+        thermostat=str(md.get("thermostat", "langevin")),
+        thermostat_tau_fs=float(md.get("thermostat_tau_fs", 100.0)),
+        thermostat_chain_length=int(md.get("thermostat_chain_length", 3)),
+        pressure_bar=float(md.get("pressure_bar", 1.0)),
+        barostat=str(md.get("barostat", "none")),
+        barostat_tau_fs=float(md.get("barostat_tau_fs", 1000.0)),
+        cell_thermostat=str(md.get("cell_thermostat", "langevin")),
+        cell_thermostat_tau_fs=float(
+            md.get("cell_thermostat_tau_fs", 100.0)
+        ),
+        pimd_beads=int(pimd.get("beads", 1)),
+        pimd_factorization=str(pimd.get("factorization", "none")),
+        pimd_splitting=str(pimd.get("splitting", "baoab")),
+        pimd_force_beads=int(pimd.get("force_beads", pimd.get("beads", 1))),
+        pimd_fd_epsilon_bohr=float(pimd.get("fd_epsilon_bohr", -0.001)),
+        force_clients=int(execution.get("force_clients", 1)),
+        ipi_command=str(execution.get("ipi_command", "i-pi")),
+        lammps_command=str(execution.get("lammps_command", "lmp")),
         heat_frames=str(heat.get("frames", "1")),
+        heat_start_frame=int(heat.get("start_frame", 0)),
         heat_temperatures=str(heat.get("temperatures_K", "100:500:10")),
         heat_dtype=str(heat.get("dtype", "float32")),
         heat_chunk_size=int(heat.get("chunk_size", 1)),
@@ -103,8 +171,41 @@ def _validate(config: RunConfig) -> None:
         raise ValueError("pet-jax AD requires model.checkpoint and model.jax_checkpoint")
     if config.ad_backend not in {"pet-jax", "none"}:
         raise ValueError("unsupported AD backend; choose 'pet-jax' or 'none'")
+    if config.md_driver not in {"ase", "lammps", "ipi-lammps"}:
+        raise ValueError("md.driver must be 'ase', 'lammps', or 'ipi-lammps'")
     if config.temperature_K <= 0.0 or config.md_steps < 1 or config.timestep_fs <= 0.0:
         raise ValueError("MD temperature, steps, and timestep must be positive")
+    if not 0 <= config.equilibration_steps < config.md_steps:
+        raise ValueError("md.equilibration_steps must be in [0, md.steps)")
+    if config.output_stride < 1 or config.restart_stride < 1:
+        raise ValueError("MD output and restart strides must be positive")
+    if config.random_seed <= 0:
+        raise ValueError("md.seed must be positive")
+    if config.thermostat_tau_fs <= 0.0 or config.thermostat_chain_length < 1:
+        raise ValueError("thermostat time and chain length must be positive")
+    if config.md_ensemble in {"npt-flexible", "sc-npt"} and (
+        config.pressure_bar <= 0.0 or config.barostat_tau_fs <= 0.0
+    ):
+        raise ValueError("NPT pressure and barostat time must be positive")
+    if config.md_driver == "lammps" and config.md_ensemble != "npt-flexible":
+        raise ValueError("the LAMMPS production driver requires ensemble='npt-flexible'")
+    if config.md_driver == "ipi-lammps":
+        if config.md_ensemble != "sc-npt":
+            raise ValueError("the i-PI/LAMMPS driver requires ensemble='sc-npt'")
+        if config.pimd_factorization != "suzuki-chin":
+            raise ValueError("the PIMD production driver requires Suzuki-Chin")
+        if config.pimd_beads < 2 or config.pimd_beads % 2:
+            raise ValueError("Suzuki-Chin PIMD requires a positive even bead count")
+        if config.pimd_force_beads != config.pimd_beads:
+            raise ValueError(
+                "a single MLIP force component must be evaluated on every PIMD bead"
+            )
+        if config.pimd_splitting != "baoab":
+            raise ValueError("paper-matched PIMD requires pimd.splitting='baoab'")
+    if config.force_clients < 1:
+        raise ValueError("execution.force_clients must be positive")
+    if config.heat_start_frame < 0:
+        raise ValueError("heat_capacity.start_frame must be non-negative")
     if config.heat_dtype not in {"float32", "float64"}:
         raise ValueError("heat_capacity.dtype must be 'float32' or 'float64'")
     if config.heat_chunk_size < 1 or config.heat_hops < 0:

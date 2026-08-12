@@ -219,19 +219,19 @@ project does not implement this combination.
 
 | Feature | Kapil et al. | Current project | Consequence |
 | --- | --- | --- | --- |
-| Potential | QuickFF analytical force field | PET-MAD 1.5 MLIP | Results test a different potential-energy surface |
-| Host cell | Variable cell at 1 bar | Fixed supplied cell | No pressure, volume, or thermal-expansion sampling |
-| Classical ensemble | Flexible-cell NPT | ASE Langevin NVT | Classical paper trajectories are not reproduced |
-| MD timestep | 0.5 fs | 0.25 fs | Keep the smaller PET-MAD value until timestep convergence is demonstrated |
-| Thermostat | Three-element Nosé–Hoover chain | Langevin, friction 0.01 fs\(^{-1}\) | Both target temperature but have different dynamics |
-| Initial velocities/seeds | Independent reported runs, numeric seeds omitted | Maxwell–Boltzmann velocities; no exposed seed | Exact replicas are not currently controlled |
-| Default duration | 50–500 ps production trajectories | 10 steps = 2.5 fs | Bundled run is only an integration smoke test |
-| Quantum nuclei | 64-bead Suzuki–Chin PIMD | Not implemented | Nuclear quantum/anharmonic \(C_P\) is unavailable |
-| Heat capacity | Enthalpy derivative for \(C_P\), plus harmonic comparison | PET-JAX/SADMOF Hessian for harmonic \(C_V\) | Suitable first approximation for pristine MOF-5 only |
+| Potential | QuickFF analytical force field | MLIP | Results test a different potential-energy surface |
+| Host cell | Variable cell at 1 bar | Fixed-cell ASE smoke test; flexible-cell 1-bar NPT backend for production templates, gated on stress/virial validation | Production volume and thermal-expansion sampling is available only with a validated stress-trained model |
+| Classical ensemble | Flexible-cell NPT | ASE Langevin NVT by default; LAMMPS MTTK/Nosé–Hoover flexible NPT backend | The production backend is configured for the paper ensemble, but the bundled smoke test is not a paper trajectory |
+| MD timestep | 0.5 fs | Configurable: 0.25 fs default, 0.5 fs in the classical paper template, and 0.25 fs in the PIMD template | Timestep convergence remains necessary for each backend/model |
+| Thermostat | Three-element Nosé–Hoover chain | Configurable: LAMMPS NHC with three thermostats and 100 fs relaxation; PIMD PILE-L with 100 fs relaxation | Paper-matched controls are represented in the production templates |
+| Initial velocities/seeds | Independent reported runs, numeric seeds omitted | Positive numeric seeds are configurable and exposed to the MD/PIMD drivers | Independent generated replicas can be reproduced from their recorded seeds and structures |
+| Default duration | 50–500 ps production trajectories | 10 steps = 2.5 fs in the bundled smoke test; paper templates specify 500 ps classical and 50 ps PIMD runs with equilibration | Bundled output is still only an integration smoke test |
+| Quantum nuclei | 64-bead Suzuki–Chin PIMD | 64-bead Suzuki–Chin i-PI/LAMMPS backend, with one MLIP force evaluation per bead | The backend omits the paper's 64-to-8 ring-polymer contraction and separate long-range force component |
+| Heat capacity | Enthalpy derivative for \(C_P\), plus harmonic comparison | PET-JAX/SADMOF Hessian for harmonic \(C_V\), with configurable post-equilibration frame selection | Suitable first approximation for pristine MOF-5 only; it does not yet compute the paper's enthalpy-derivative (C_P) |
 | Hessian geometry | Optimized reference structures | Selected MD trajectory frames | Frame 0 is not automatically an optimized minimum |
 | Hessian implementation | Yaff/TAMkin dense normal modes | Sparse colored PET-JAX Hessian, ASR enforced | `hops`, precision, and sparsity require convergence |
-| Parallelism | Many independent runs and path-integral replicas | One Python process and one GPU | Extra GPUs in one Slurm job do not accelerate the current code |
-| Restarts/output | Production workflow not fully specified | No MD continuation; every step is written | Long trajectories need restart and output-stride support before a large campaign |
+| Parallelism | Many independent runs and path-integral replicas | One Slurm task/GPU per run; PIMD force clients are configurable and default to one | Scale replicas across jobs; extra GPUs do not accelerate a single run by default |
+| Restarts/output | Production workflow not fully specified | Configurable output stride plus LAMMPS/i-PI checkpoints and `--resume` support | Benchmark restart behavior and output volume before a large campaign |
 
 The current workspace's `output/mof5-pet-mad/mof5-md.traj` contains the initial
 frame plus ten MD steps. Its `output/heat-capacity-frame-0.npz` contains a
@@ -247,11 +247,12 @@ fresh checkout.
 This is the closest match between the paper's conclusions and the current
 implementation.
 
-1. Relax atomic coordinates with the same PET-MAD checkpoint that will be used
+1. Relax atomic coordinates with the same PET checkpoint that will be used
    for the Hessian. The repository does not yet expose a relaxation command, so
    a frame-zero Hessian from the supplied CIF remains diagnostic until a
-   relaxed structure is provided. Because the bundled checkpoint is marked
-   `nostress`, do not assume it supports a reliable cell relaxation.
+   relaxed structure is provided. The updated PET-MAD and PET-SOL exports both
+   advertise stress outputs; generated NPT configurations record the external
+   validation status explicitly instead of inferring it from filenames.
 2. Check residual forces and imaginary modes before interpreting \(C_V\).
 3. Converge PET-JAX precision, graph `hops`, sparse reconstruction, acoustic
    sum-rule handling, cell/supercell size, and frequency treatment.

@@ -21,7 +21,10 @@ MOF_STAGE="${MOF_STAGE:-md}"
 MOF_CONFIG="${MOF_CONFIG:-configs/mof5_pet_mad.toml}"
 MOF_ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
 MOF_STEPS="${MOF_STEPS:-}"
+MOF_OUTPUT_DIR="${MOF_OUTPUT_DIR:-}"
+MOF_PREFIX="${MOF_PREFIX:-}"
 MOF_RERUN="${MOF_RERUN:-0}"
+MOF_RESUME="${MOF_RESUME:-0}"
 MOF_HEAT_FRAMES="${MOF_HEAT_FRAMES:-}"
 MOF_HEAT_FRAME_INDICES="${MOF_HEAT_FRAME_INDICES:-}"
 MOF_HEAT_OUTPUT="${MOF_HEAT_OUTPUT:-}"
@@ -112,6 +115,55 @@ PY
 }
 
 
+check_lammps_cuda() {
+    local -a lammps_config=()
+    local lammps_command
+    local lammps_executable
+    local lammps_path
+    local cuda_runtime
+
+    mapfile -t lammps_config < <(python - "${MOF_CONFIG}" <<'PY'
+from pathlib import Path
+import shlex
+import sys
+
+from utils.workflow_config import load_run_config
+
+config = load_run_config(Path(sys.argv[1]))
+print(config.md_driver)
+print(shlex.split(config.lammps_command)[0])
+PY
+    )
+
+    if ((${#lammps_config[@]} != 2)); then
+        echo "error: could not read the MD driver and LAMMPS command from ${MOF_CONFIG}" >&2
+        exit 2
+    fi
+
+    if [[ "${lammps_config[0]}" == "ase" ]]; then
+        return
+    fi
+
+    lammps_command="${lammps_config[1]}"
+    if ! lammps_executable=$(command -v "${lammps_command}"); then
+        echo "error: LAMMPS executable is unavailable: ${lammps_command}" >&2
+        exit 2
+    fi
+    lammps_path=$(readlink -f "${lammps_executable}")
+    cuda_runtime=$(ldd "${lammps_path}" 2>/dev/null \
+        | awk '$1 ~ /^libcudart\.so/ {print $1; exit}')
+
+    if [[ "${cuda_runtime}" != libcudart.so.12* ]]; then
+        echo "error: ${lammps_path} links to ${cuda_runtime:-no CUDA runtime}" >&2
+        echo "Izar requires the CUDA 12 C++ libtorch pinned in environment.yml; recreate the environment" >&2
+        conda list 2>/dev/null | awk '$1 == "cuda-version" || $1 == "libtorch" || $1 == "lammps-metatomic"'
+        exit 2
+    fi
+
+    echo "LAMMPS:        ${lammps_path}; C++ CUDA runtime: ${cuda_runtime}"
+}
+
+
 check_jax_cuda() {
     python - <<'PY'
 import jax
@@ -131,6 +183,14 @@ run_md() {
         command+=(--steps "${MOF_STEPS}")
     fi
 
+    if [[ -n "${MOF_OUTPUT_DIR}" ]]; then
+        command+=(--output-dir "${MOF_OUTPUT_DIR}")
+    fi
+
+    if [[ -n "${MOF_PREFIX}" ]]; then
+        command+=(--prefix "${MOF_PREFIX}")
+    fi
+
     case "${MOF_RERUN,,}" in
         1|true|yes)
             command+=(--rerun)
@@ -142,6 +202,23 @@ run_md() {
             exit 2
             ;;
     esac
+
+    case "${MOF_RESUME,,}" in
+        1|true|yes)
+            command+=(--resume)
+            ;;
+        0|false|no)
+            ;;
+        *)
+            echo "error: MOF_RESUME must be 0/1, false/true, or no/yes" >&2
+            exit 2
+            ;;
+    esac
+
+    if [[ "${MOF_RERUN,,}" =~ ^(1|true|yes)$ && "${MOF_RESUME,,}" =~ ^(1|true|yes)$ ]]; then
+        echo "error: MOF_RERUN and MOF_RESUME cannot both be enabled" >&2
+        exit 2
+    fi
 
     srun --ntasks=1 "${command[@]}"
 }
@@ -169,6 +246,7 @@ run_heat_capacity() {
 case "${MOF_STAGE}" in
     md)
         check_pytorch_cuda
+        check_lammps_cuda
         run_md
         ;;
     heat-capacity)
@@ -177,6 +255,7 @@ case "${MOF_STAGE}" in
         ;;
     all)
         check_pytorch_cuda
+        check_lammps_cuda
         check_jax_cuda
         run_md
         run_heat_capacity
