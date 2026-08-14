@@ -79,7 +79,9 @@ export PYTHONUNBUFFERED=1
 
 cd "${SLURM_SUBMIT_DIR}"
 
-if [[ ! -f run.py || ! -f utils/heat_capacity.py || ! -f "${MOF_CONFIG}" ]]; then
+if [[ ! -f mof_heat_capacity/simulation/md.py \
+    || ! -f mof_heat_capacity/analysis/harmonic.py \
+    || ! -f "${MOF_CONFIG}" ]]; then
     echo "error: submit from mof-heat-capacity and check MOF_CONFIG=${MOF_CONFIG}" >&2
     exit 2
 fi
@@ -127,7 +129,7 @@ from pathlib import Path
 import shlex
 import sys
 
-from utils.workflow_config import load_run_config
+from mof_heat_capacity.config import load_run_config
 
 config = load_run_config(Path(sys.argv[1]))
 print(config.md_driver)
@@ -177,7 +179,8 @@ PY
 
 
 run_md() {
-    local command=(python run.py --config "${MOF_CONFIG}" --device cuda)
+    local command=(python -m mof_heat_capacity.simulation.md
+        --config "${MOF_CONFIG}" --device cuda)
 
     if [[ -n "${MOF_STEPS}" ]]; then
         command+=(--steps "${MOF_STEPS}")
@@ -225,7 +228,8 @@ run_md() {
 
 
 run_heat_capacity() {
-    local command=(python utils/heat_capacity.py --config "${MOF_CONFIG}")
+    local command=(python -m mof_heat_capacity.analysis.harmonic
+        --config "${MOF_CONFIG}")
 
     if [[ -n "${MOF_HEAT_FRAMES}" ]]; then
         command+=(--frames "${MOF_HEAT_FRAMES}")

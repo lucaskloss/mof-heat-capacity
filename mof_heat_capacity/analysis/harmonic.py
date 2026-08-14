@@ -9,11 +9,11 @@ from pathlib import Path
 
 import numpy as np
 
-from workflow_config import RunConfig, load_run_config
+from ..config import RunConfig, load_run_config
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_CONFIG = SCRIPT_DIR.parent / "configs" / "mof5_pet_mad.toml"
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+DEFAULT_CONFIG = PROJECT_DIR / "configs" / "mof5_pet_mad.toml"
 
 
 def parse_args() -> argparse.Namespace:

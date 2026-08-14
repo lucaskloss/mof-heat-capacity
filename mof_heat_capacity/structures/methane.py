@@ -9,9 +9,10 @@ import numpy as np
 from ase import Atoms, io
 from ase.geometry import get_distances
 
+from ..io import write_lammps_data, write_structure_pdb
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = SCRIPT_DIR.parent
+
+PROJECT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_HOST = PROJECT_DIR / "input" / "mof5.pdb"
 DEFAULT_METHANE = PROJECT_DIR / "input" / "ch4.gro"
 DEFAULT_OUTPUT = PROJECT_DIR / "output" / "mof5-pet-mad" / "mof5-md.pdb"
@@ -117,8 +118,6 @@ def main() -> None:
     print(f"Prepared {len(combined)} atoms ({args.nmol} methane molecules) in "
           f"{combined.cell.volume:.3f} A^3")
     if not args.dry_run:
-        from workflow_io import write_lammps_data, write_structure_pdb
-
         args.output.parent.mkdir(parents=True, exist_ok=True)
         write_structure_pdb(args.output, combined)
         write_lammps_data(args.data_output, combined)

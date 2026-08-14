@@ -2,7 +2,8 @@
 
 This guide adapts the desktop CUDA instructions in [README.md](../README.md) to
 EPFL's SCITAS Izar cluster. It covers a single-GPU run of `run.py` followed by
-`utils/heat_capacity.py`. Both programs are single-process Python programs; requesting
+`python -m mof_heat_capacity.analysis.harmonic`. Both programs are
+single-process Python programs; requesting
 more GPUs will not make the current implementation faster.
 
 The commands and limits below were checked against the SCITAS documentation on
@@ -368,7 +369,7 @@ jobs; SCITAS recommends job arrays or contacting support for very large
 campaigns.
 
 Selected heat-capacity frames are independent scientifically, although the
-current `utils/heat_capacity.py` processes them serially. The template supports a
+current harmonic-analysis module processes them serially. The template supports a
 Slurm array that maps each array index to one frame and one unique NPZ file:
 
 ```bash
@@ -579,13 +580,83 @@ restarts, logs, analysis, and models. This is too close to a default 100 GB
 home quota, so place production output on scratch or project storage and copy
 the results that must be retained to persistent storage.
 
+### Run pristine MOF-5 without methane
+
+Use `--loading 0` consistently during both preparation and submission. This
+mode copies only the 424-atom periodic MOF-5 host and creates names containing
+`0ch4`, keeping pristine and methane-loaded results separate. Prepare the
+structures with the first MLIP and reuse them for the second MLIP's configs:
+
+```bash
+./scripts/prepare_paper_protocol.py --model pet-mad --method classical \
+  --loading 0 --replicas 1
+./scripts/prepare_paper_protocol.py --model pet-sol --method classical \
+  --loading 0 --replicas 1 --configs-only
+```
+
+Changing the atom count can change both stability and performance, so run a
+pristine-system debug and calibration even if the loaded system already
+passed:
+
+```bash
+./scripts/submit_paper_protocol.sh --model pet-mad --loading 0 \
+  --debug --dry-run
+./scripts/submit_paper_protocol.sh --model pet-sol --loading 0 \
+  --debug --dry-run
+./scripts/submit_paper_protocol.sh --model pet-mad --loading 0 --debug
+./scripts/submit_paper_protocol.sh --model pet-sol --loading 0 --debug
+
+./scripts/submit_paper_protocol.sh --model pet-mad --loading 0 --calibration
+./scripts/submit_paper_protocol.sh --model pet-sol --loading 0 --calibration
+```
+
+Use the pristine calibration rate to choose the wall time. The campaign that
+matches the loaded-system workflow uses one trajectory at each of five
+temperatures for each MLIP: ten trajectories total. Preview both five-job,
+500 ps submissions first:
+
+```bash
+./scripts/submit_paper_protocol.sh --model pet-mad --loading 0 \
+  --steps 1000000 --replicas 1 --cpus 4 \
+  --time 96:00:00 --qos long --dry-run
+./scripts/submit_paper_protocol.sh --model pet-sol --loading 0 \
+  --steps 1000000 --replicas 1 --cpus 4 \
+  --time 96:00:00 --qos long --dry-run
+```
+
+If the measured pristine runtime plus margin fits within the ordinary QOS,
+reduce `--time` and use its live QOS name instead. Otherwise, after checking
+the previews and the cluster's job-count policy, submit by removing
+`--dry-run`:
+
+```bash
+./scripts/submit_paper_protocol.sh --model pet-mad --loading 0 \
+  --steps 1000000 --replicas 1 --cpus 4 \
+  --time 96:00:00 --qos long
+./scripts/submit_paper_protocol.sh --model pet-sol --loading 0 \
+  --steps 1000000 --replicas 1 --cpus 4 \
+  --time 96:00:00 --qos long
+```
+
+These are fresh runs, so do not add `--resume`. The template's 0.5 fs
+timestep makes 1,000,000 steps equal to 500 ps, with the first 200,000 steps
+(100 ps) marked as equilibration. For a safer staged campaign, first submit
+`--steps 200000` with the ordinary QOS, inspect equilibration, and then submit
+the same selections with `--steps 1000000 --resume` and the measured long-job
+resources.
+
+Additional replicas are optional and should be submitted only if independent
+sampling and uncertainty estimates are required. For only one 300 K, 500 ps
+trajectory per MLIP instead of the five-temperature sweep, add
+`--temperatures 300` to the two production commands.
+
 ### Submission options and output locations
 
 | Option | Operational meaning |
 | --- | --- |
 | `--model pet-mad\|pet-sol` | Required model selection; output names remain model-specific. |
 | `--method classical\|pimd` | Defaults to classical. Do not extrapolate classical timing to 64-bead PIMD. |
-| `--loading N` | Select configurations for this methane loading; defaults to 100. |
+| `--loading N` | Select configurations for this methane count; `0` means pristine MOF-5 and the default is 100. |
 | `--temperatures LIST` | Defaults to `100,200,300,400,500`. |
 | `--replicas N` | Submit replicas 1 through `N`; defaults to 5 for classical and 30 for PIMD. |
 | `--steps N` | Override the TOML final step target. With classical `--resume`, this remains an absolute target. |
@@ -593,6 +664,7 @@ the results that must be retained to persistent storage.
 | `--qos NAME` | Use `debug` only for smoke tests, the live ordinary QOS for short runs, and `long` only when measured time requires it. |
 | `--time HH:MM:SS` | Hard wall-clock limit for each independent job. |
 | `--cpus N` | CPUs for one LAMMPS/Python process; four is the measured classical setting. |
+| `--slurm-output-dir PATH` | Directory for Slurm stdout/stderr; defaults to `output/slurm`. Set it to scratch or project storage to move its disk usage off home. |
 | `--debug` | Force an isolated ten-step, 30-minute debug-QOS run. |
 | `--calibration` | Force an isolated 1,000-step timing run unless `--steps` overrides it. |
 | `--resume` | Read the latest numeric restart and append output. It fails when no numeric restart exists. |
@@ -604,12 +676,33 @@ TOML file. Each directory contains the trajectory, `.lammps.log`, periodic
 input, and initial data. Debug and calibration files are kept in their own
 subdirectories and are never used as production restarts.
 
+Paper-protocol submissions write scheduler stdout/stderr as
+`output/slurm/slurm-<job-name>-<job-id>.out` by default instead of placing
+these files in the repository root. Override the location for an individual
+submission with, for example:
+
+```bash
+./scripts/submit_paper_protocol.sh --model pet-mad --loading 0 \
+  --slurm-output-dir "$SCRATCH/mof-heat-capacity/slurm" --dry-run
+```
+
+The equivalent persistent default override is
+`MOF_SLURM_OUTPUT_DIR=/path/to/logs`. Moving logs into another directory on the
+same filesystem only reduces root-directory clutter; it does not reduce quota
+usage. Do not move Slurm files belonging to currently running jobs. Once no
+jobs are writing the old root-level files, they can be organized with:
+
+```bash
+mkdir -p output/slurm
+mv slurm-*.out output/slurm/
+```
+
 Monitor and account for jobs with:
 
 ```bash
 squeue -u "$USER"
 sacct -j <job-id> --format=JobID,State,ExitCode,Elapsed,Timelimit,AllocCPUS,MaxRSS
-tail -f slurm-<job-name>-<job-id>.out
+tail -f output/slurm/slurm-<job-name>-<job-id>.out
 ```
 
 A usable completion has Slurm state `COMPLETED`, exit code `0:0`, a LAMMPS
@@ -724,7 +817,7 @@ export MKL_NUM_THREADS="$SLURM_CPUS_PER_TASK"
 
 cd "$SLURM_SUBMIT_DIR"
 nvidia-smi -L
-srun python utils/heat_capacity.py \
+srun python -m mof_heat_capacity.analysis.harmonic \
   --config configs/mof5_pet_mad.toml \
   --frame-indices 0 \
   --hops 3
@@ -772,7 +865,10 @@ also enforces a maximum memory allocation per CPU, so if a larger memory request
 is rejected, either request more CPU cores or reduce memory; do not inflate
 resources without measuring `MaxRSS`.
 
-Inspect every `slurm-<name>-<job-id>.out`, the MD log, and the trajectory.
+Inspect every paper-protocol Slurm log under
+`output/slurm/slurm-<name>-<job-id>.out`, together with the MD log and the
+trajectory. If you selected `--slurm-output-dir`, inspect that directory
+instead.
 Verify physical stability before interpreting heat capacity. Then copy results
 from scratch to persistent storage, for example:
 

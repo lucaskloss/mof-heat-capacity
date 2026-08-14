@@ -7,9 +7,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from .model_utils import ensure_exported_model
-from .workflow_config import RunConfig
-from .workflow_io import (
+from ..config import RunConfig
+from ..io import (
     build_ipi_pimd_xml,
     load_structure,
     write_classical_npt_lammps_input,
@@ -17,7 +16,8 @@ from .workflow_io import (
     write_lammps_input,
     write_structure_pdb,
 )
-from .lammps_runner import run_lammps_socket
+from ..models import ensure_exported_model
+from .lammps import run_lammps_socket
 
 
 def _model_path(config: RunConfig) -> Path:

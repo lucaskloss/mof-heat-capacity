@@ -7,6 +7,28 @@ simulation-focused summary of Kapil et al. (2019), including the published
 parameters, current-project compatibility, and an Izar execution path, is in
 [KAPIL_2019.md](docs/KAPIL_2019.md).
 
+## Repository organization
+
+The code is divided by responsibility:
+
+```text
+mof_heat_capacity/
+├── simulation/   MD drivers and LAMMPS/i-PI execution backends
+├── analysis/     harmonic, statistical, and trajectory analysis
+├── structures/   structure-building operations
+├── protocols/    high-level paper-protocol preparation
+├── config.py     TOML loading and validation
+├── io.py         structure and engine-input writers
+└── models.py     MLIP export helpers
+scripts/          user-facing setup, preparation, Slurm, and analysis commands
+configs/          reusable TOML run specifications
+input/            source structures and legacy engine inputs
+docs/             scientific documentation and cluster runbooks
+```
+
+The root `run.py` and `scripts/*.py` commands are small user-facing entry
+points. All reusable Python code is imported from `mof_heat_capacity`.
+
 For CUDA jobs submitted with Slurm on EPFL's SCITAS Izar cluster, follow
 [IZAR.md](docs/IZAR.md). The environment pins JAX, Python PyTorch, and LAMMPS's
 separate C++ libtorch runtime to CUDA 12 builds that can run with Izar's V100
@@ -22,7 +44,8 @@ conda env create --file environment.yml
 conda activate mof-heat-capacity
 ```
 
-Install SADMOF and the compatible dependencies used by `utils/heat_capacity.py`:
+Install SADMOF and the compatible dependencies used by the harmonic-analysis
+command:
 
 ```bash
 ./scripts/install_sadmof.sh
@@ -60,7 +83,7 @@ places randomly oriented methane molecules, checks minimum atom distances, and
 writes a combined structure.
 
 ```bash
-python utils/insert_methane.py --nmol 1 --seed 2025
+python -m mof_heat_capacity.structures.methane --nmol 1 --seed 2025
 ```
 
 The default outputs are `output/mof5-pet-mad/mof5-md.pdb` and
@@ -68,8 +91,9 @@ The default outputs are `output/mof5-pet-mad/mof5-md.pdb` and
 and prefix. Useful options are:
 
 ```bash
-python utils/insert_methane.py --nmol 4 --try 5000 --min-distance 1.5
-python utils/insert_methane.py --nmol 1 --dry-run
+python -m mof_heat_capacity.structures.methane \
+  --nmol 4 --try 5000 --min-distance 1.5
+python -m mof_heat_capacity.structures.methane --nmol 1 --dry-run
 ```
 
 Use the generated structure in a copied TOML configuration:
@@ -126,19 +150,25 @@ debug and calibration commands, staged 100 ps equilibration, restart-to-500 ps
 production, replica expansion, measured resource estimates, storage sizing,
 monitoring, and completion checks—is in
 [Run the MOF-5 paper-protocol campaign](docs/IZAR.md#run-the-mof-5-paper-protocol-campaign).
+It also documents the pristine-MOF workflow: pass `--loading 0` to both the
+preparation and submission scripts to run without methane while keeping those
+outputs isolated from loaded-system results.
+Paper-protocol Slurm stdout/stderr is stored under `output/slurm/` by default;
+use `--slurm-output-dir PATH` to place it on scratch or project storage.
 
 ## 4. Calculate harmonic heat capacity
 
 After generating a trajectory, run the analysis using the matching TOML file:
 
 ```bash
-python utils/heat_capacity.py --config configs/mof5_pet_mad.toml
+python -m mof_heat_capacity.analysis.harmonic \
+  --config configs/mof5_pet_mad.toml
 ```
 
 For a small diagnostic run:
 
 ```bash
-python utils/heat_capacity.py \
+python -m mof_heat_capacity.analysis.harmonic \
   --config configs/mof5_pet_mad.toml \
   --frame-indices 0 \
   --hops 3

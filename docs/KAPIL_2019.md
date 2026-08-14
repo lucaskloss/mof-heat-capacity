@@ -261,7 +261,8 @@ implementation.
 
 ### 2. Treat methane-loaded harmonic calculations as diagnostics
 
-`utils/insert_methane.py` can create loaded structures, and the MD calculator
+`python -m mof_heat_capacity.structures.methane` can create loaded structures,
+and the MD calculator
 accepts C/H/O/Zn systems. Nevertheless, random non-overlapping insertion is
 not equivalent to the paper's RASPA insertion plus Monte Carlo equilibration.
 For each loading, use several independent initial configurations and unique
@@ -429,7 +430,8 @@ For methane, first create a uniquely named structure rather than accepting the
 default output path:
 
 ```bash
-python utils/insert_methane.py --nmol 50 --seed 2025 --try 5000 \
+python -m mof_heat_capacity.structures.methane \
+  --nmol 50 --seed 2025 --try 5000 \
   --output output/structures/mof5-50ch4-seed2025.pdb \
   --data-output output/structures/mof5-50ch4-seed2025.data
 ```

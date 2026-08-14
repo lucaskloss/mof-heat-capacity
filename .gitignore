@@ -6,4 +6,5 @@ models/
 output/
 external/
 slurm-*.out
+/slurm
 configs/
