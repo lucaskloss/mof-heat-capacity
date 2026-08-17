@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from ..config import RunConfig, load_run_config
+from .lammps import read_lammps_thermo
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
@@ -26,6 +27,13 @@ def parse_args() -> argparse.Namespace:
         "--frame-indices",
         help="Explicit comma-separated trajectory indices (a single index is allowed)",
     )
+    parser.add_argument(
+        "--frame-times-ps",
+        help=(
+            "Comma-separated physical trajectory times in ps. For resumed LAMMPS "
+            "runs, these are mapped through the thermo log to the correct raw frames."
+        ),
+    )
     parser.add_argument("--stride", type=int)
     parser.add_argument(
         "--start-frame",
@@ -39,6 +47,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hops", type=int)
     parser.add_argument("--remat", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--shadow", action="store_true")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing output archive instead of failing safely",
+    )
     return parser.parse_args()
 
 
@@ -77,12 +90,79 @@ def select_explicit_indices(spec: str, n_frames: int) -> list[int]:
     return list(dict.fromkeys(indices))
 
 
+def select_time_indices(
+    spec: str,
+    times_ps: np.ndarray,
+    *,
+    production_start_ps: float,
+) -> tuple[list[int], np.ndarray]:
+    """Map requested physical times to unique saved-frame indices."""
+    requested = [float(item.strip()) for item in spec.split(",") if item.strip()]
+    if not requested:
+        raise ValueError("--frame-times-ps must contain at least one time")
+    if len(set(requested)) != len(requested):
+        raise ValueError("--frame-times-ps must not contain duplicate times")
+    if any(time < production_start_ps for time in requested):
+        raise ValueError(
+            "--frame-times-ps contains a time before the configured production "
+            f"start ({production_start_ps:g} ps)"
+        )
+
+    times = np.asarray(times_ps, dtype=float)
+    if times.ndim != 1 or not len(times) or np.any(np.diff(times) < 0.0):
+        raise ValueError("saved trajectory times must be a non-empty ordered series")
+    positive_spacing = np.diff(np.unique(times))
+    tolerance = (
+        max(1e-9, 0.1 * float(np.median(positive_spacing)))
+        if len(positive_spacing)
+        else 1e-9
+    )
+    indices = []
+    selected_times = []
+    for requested_time in requested:
+        difference = np.abs(times - requested_time)
+        minimum = float(difference.min())
+        if minimum > tolerance:
+            raise ValueError(
+                f"requested time {requested_time:g} ps is not a saved trajectory "
+                f"time (nearest difference {minimum:g} ps)"
+            )
+        # At a resume boundary, prefer the later copy of an otherwise identical time.
+        matches = np.flatnonzero(np.isclose(difference, minimum, rtol=0.0, atol=1e-12))
+        index = int(matches[-1])
+        indices.append(index)
+        selected_times.append(float(times[index]))
+    if len(set(indices)) != len(indices):
+        raise ValueError("requested times map to duplicate trajectory frames")
+    return indices, np.asarray(selected_times, dtype=float)
+
+
 def parse_temperatures(spec: str) -> np.ndarray:
     """Parse an inclusive ``start:stop:step`` temperature range."""
     start, stop, step = (float(value) for value in spec.split(":"))
     if step <= 0.0 or stop < start:
         raise ValueError("temperatures must be start:stop:positive_step")
     return np.arange(start, stop + 0.5 * step, step, dtype=float)
+
+
+def read_selected_frames(trajectory_path: Path, indices: list[int]):
+    """Stream a trajectory once and retain only requested frame indices."""
+    from ase.io import iread
+
+    requested = set(indices)
+    selected = {}
+    for index, atoms in enumerate(iread(str(trajectory_path), index=":")):
+        if index in requested:
+            selected[index] = atoms
+            if len(selected) == len(requested):
+                break
+    missing = [index for index in indices if index not in selected]
+    if missing:
+        raise IndexError(
+            "trajectory does not contain requested frame index/indices: "
+            + ", ".join(str(index) for index in missing)
+        )
+    return [selected[index] for index in indices]
 
 
 def convert_pet_checkpoint(checkpoint: Path, output_dir: Path) -> None:
@@ -214,8 +294,23 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
     remat = config.heat_remat if args.remat is None else args.remat
     frame_spec = args.frames or config.heat_frames
     temperature_spec = args.temperatures or config.heat_temperatures
-    output_path = args.output or config.output_dir / "heat-capacity.npz"
+    if args.output is not None:
+        output_path = args.output
+    elif args.frame_times_ps is not None:
+        time_tag = "-".join(
+            f"{float(item.strip()):g}ps"
+            for item in args.frame_times_ps.split(",")
+            if item.strip()
+        )
+        output_path = config.output_dir / f"heat-capacity-times-{time_tag}.npz"
+    else:
+        output_path = config.output_dir / "heat-capacity.npz"
     output_path = output_path.expanduser().resolve()
+    if output_path.exists() and not args.overwrite:
+        raise FileExistsError(
+            f"heat-capacity output already exists: {output_path}; "
+            "use --overwrite only for an intentional replacement"
+        )
     if hops < 0 or chunk_size < 1:
         raise ValueError("hops must be non-negative and chunk-size must be positive")
 
@@ -226,24 +321,54 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
 
     if dtype == "float64":
         jax.config.update("jax_enable_x64", True)
-    frames = read(str(trajectory_path), index=":")
-    if args.frame_indices is not None:
-        if args.frames is not None or args.stride is not None:
-            raise ValueError("--frame-indices cannot be combined with --frames or --stride")
-        indices = select_explicit_indices(args.frame_indices, len(frames))
-    else:
-        start_frame = (
-            config.heat_start_frame if args.start_frame is None else args.start_frame
+    selected_times_ps = np.empty(0, dtype=float)
+    if args.frame_times_ps is not None:
+        if any(
+            value is not None
+            for value in (
+                args.frames,
+                args.frame_indices,
+                args.stride,
+                args.start_frame,
+            )
+        ):
+            raise ValueError(
+                "--frame-times-ps cannot be combined with frame index/count options"
+            )
+        if config.md_driver != "lammps":
+            raise ValueError("--frame-times-ps currently requires a LAMMPS trajectory")
+        thermo_log = config.output_dir / f"{config.md_prefix}.lammps.log"
+        thermo = read_lammps_thermo(thermo_log)
+        indices, selected_times_ps = select_time_indices(
+            args.frame_times_ps,
+            thermo["time_ps"],
+            production_start_ps=(
+                config.equilibration_steps * config.timestep_fs / 1000.0
+            ),
         )
-        indices = select_indices(frame_spec, len(frames), args.stride, start_frame)
+        selected_frames = read_selected_frames(trajectory_path, indices)
+    else:
+        frames = read(str(trajectory_path), index=":")
+        if args.frame_indices is not None:
+            if args.frames is not None or args.stride is not None:
+                raise ValueError(
+                    "--frame-indices cannot be combined with --frames or --stride"
+                )
+            indices = select_explicit_indices(args.frame_indices, len(frames))
+        else:
+            start_frame = (
+                config.heat_start_frame if args.start_frame is None else args.start_frame
+            )
+            indices = select_indices(frame_spec, len(frames), args.stride, start_frame)
+        selected_frames = [frames[index] for index in indices]
     temperatures = parse_temperatures(temperature_spec)
     jax_checkpoint = ensure_jax_checkpoint(config.checkpoint, config.jax_checkpoint)
     model, params, metadata = load_pet(jax_checkpoint, dtype=dtype)
 
     frequencies = []
     heat_capacities = []
-    for index in indices:
-        atoms = frames[index].copy()
+    for index, selected_frame in zip(indices, selected_frames, strict=True):
+        atoms = selected_frame.copy()
         atoms.calc = None
         print(f"Computing Hessian for frame {index} ({len(atoms)} atoms)")
         hessian = compute_frame_hessian(
@@ -256,7 +381,9 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
             chunk_size=chunk_size,
             remat=remat,
         )
-        freqs, cv = cv_from_hessian(hessian, atoms.get_masses(), temperatures, enforce_asr=True)
+        freqs, cv = cv_from_hessian(
+            hessian, atoms.get_masses(), temperatures, enforce_asr=True
+        )
         frequencies.append(freqs)
         heat_capacities.append([cv[temperature] for temperature in temperatures])
         print(f"  C_v(300 K) = {cv.get(300.0, float('nan')):.6f} J/(g K)")
@@ -269,6 +396,7 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
         trajectory=str(trajectory_path),
         checkpoint=str(jax_checkpoint),
         frame_indices=np.asarray(indices, dtype=int),
+        frame_times_ps=selected_times_ps,
         temperatures_K=temperatures,
         frequencies_cm1=np.asarray(frequencies),
         cv_J_per_gK=np.asarray(heat_capacities),

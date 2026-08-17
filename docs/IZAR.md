@@ -249,8 +249,8 @@ These are calibration starting points, not production guarantees:
 | CUDA and ten-step MD smoke test | 1 | 1 | 4 | 1 | `00:30:00`, `debug` |
 | Short or calibration MD | 1 | 1 | 4 | 1 | `00:30:00` to `02:00:00` |
 | Production MD | 1 | 1 | 4 initially | 1 | Scale from a representative trajectory segment |
-| One-frame Hessian diagnostic | 1 | 1 | 8 | 1 | Start at `04:00:00`; use `debug` only if proven below one hour |
-| Several heat-capacity frames | 1 | 1 | 8 initially | 1 | Measure first and later frames; split independent frames if needed |
+| One-frame Hessian diagnostic | 1 | 1 | 8 | 1 | Measured near 10 minutes; request `00:30:00`, `debug` |
+| Three-frame heat capacity | 1 | 1 | 8 | 1 | Request `00:45:00` per trajectory from the measured one-frame cost |
 | Both stages in one job | 1 | 1 | 8 initially | 1 | Sum both measured times plus startup margin |
 
 The MD stage is a serial ASE integration loop with one GPU calculator. Extra
@@ -368,22 +368,19 @@ nodes, tasks, or GPUs inside one job. Avoid submitting thousands of individual
 jobs; SCITAS recommends job arrays or contacting support for very large
 campaigns.
 
-Selected heat-capacity frames are independent scientifically, although the
-current harmonic-analysis module processes them serially. The template supports a
-Slurm array that maps each array index to one frame and one unique NPZ file:
+Selected trajectories are independent. The heat-capacity submission wrapper
+uses one array element per trajectory and evaluates that trajectory's selected
+frames serially, avoiding repeated JAX compilation for every frame:
 
 ```bash
-sbatch --array=0,10,20%2 \
-  --export=ALL,MOF_STAGE=heat-capacity,MOF_HEAT_FRAMES=array \
-  scripts/izar_job.sh
+./scripts/submit_heat_capacity.sh --dry-run
+./scripts/submit_heat_capacity.sh
 ```
 
-This runs frames 0, 10, and 20, with at most two jobs active at once. Results
-are written as `output/heat-capacity-frame-<index>.npz`. Confirm those indices
-exist, wait for MD to finish, and combine or analyze the files explicitly;
-automatic NPZ merging is not implemented. Each array element repeats JAX
-startup/compilation, so an array is useful for wall-time or throughput limits,
-not automatically more resource-efficient than several frames in one job.
+The defaults create 20 tasks for two MLIPs, loadings 0 and 100, five MD
+temperatures, and replica 1, with at most four tasks active. Each task evaluates
+200, 350, and 500 ps and writes one archive in its run directory. Use
+`--max-concurrent` to lower concurrency if fair-share or job limits require it.
 
 ### Read the accounting results
 
@@ -650,6 +647,56 @@ sampling and uncertainty estimates are required. For only one 300 K, 500 ps
 trajectory per MLIP instead of the five-temperature sweep, add
 `--temperatures 300` to the two production commands.
 
+### Analyze completed classical trajectories
+
+Run the thermodynamic and structural extraction as a CPU-based Slurm job rather
+than on the login node. The defaults select the ten pristine replica-01 runs,
+discard the first 100 ps, and request four CPUs for 1 hour 15 minutes. Izar's `normal`
+QOS enforces a minimum GRES allocation, so the job requests one GPU even though
+the analysis code does not use it:
+
+```bash
+./scripts/submit_analysis.sh --dry-run
+./scripts/submit_analysis.sh
+```
+
+The default is both potentials, pristine MOF-5 (`--loading 0`), replica 1,
+and 100--500 K. Analyze another loading or combine loadings with:
+
+```bash
+./scripts/submit_analysis.sh --model both --loading 100 --time 01:15:00 \
+  --analysis-dir output/analysis-100ch4 --dry-run
+./scripts/submit_analysis.sh --model both --loading 100 --time 01:15:00 \
+  --analysis-dir output/analysis-100ch4
+
+./scripts/submit_analysis.sh --model both --loading 0,100 --time 01:30:00 \
+  --analysis-dir output/analysis-0ch4-100ch4 --dry-run
+./scripts/submit_analysis.sh --model both --loading 0,100 --time 01:30:00 \
+  --analysis-dir output/analysis-0ch4-100ch4
+```
+
+For trajectory analysis, `--model` accepts `pet-mad`, `pet-sol`, or `both`;
+`--loading`, `--temperatures`, and `--replicas` accept comma-separated lists.
+The wrapper validates every requested combination and refuses to submit a
+partial selection. Repeated restart-boundary frames are removed automatically.
+
+Scheduler output is written below `output/slurm/`, while analysis products are
+written below `output/analysis/`. The submission fails before `sbatch` if no
+completed trajectories match or a selected LAMMPS log is absent. Compare a
+more conservative equilibration cutoff without overwriting the first analysis
+with:
+
+```bash
+./scripts/submit_analysis.sh --discard-ps 250 \
+  --analysis-dir output/analysis-cutoff250 --dry-run
+./scripts/submit_analysis.sh --discard-ps 250 \
+  --analysis-dir output/analysis-cutoff250
+```
+
+This stage does not calculate Hessians. Inspect its stationarity, uncertainty,
+autocorrelation, force, cell, and framework results before selecting frames
+for harmonic heat-capacity calculations.
+
 ### Submission options and output locations
 
 | Option | Operational meaning |
@@ -790,62 +837,45 @@ and analysis parameters. Choose the wall time from a measured short run.
 
 ## Submit heat-capacity analysis after MD
 
-The sparse Hessian can require substantially more GPU memory, host memory, and
-time than the short MD test. Start with one frame and the existing
-`chunk_size = 1`, then use the observed resource usage to size the production
-job. Create `heat-capacity.slurm`:
+Do not load trajectories, initialize JAX, or run SADMOF on a login node. The
+wrapper performs only lightweight file checks and submits all scientific work
+to GPU compute nodes. First preview and submit the isolated one-frame test:
 
 ```bash
-#!/bin/bash -l
-#SBATCH --job-name=mof5-cv
-#SBATCH --partition=gpu
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:1
-#SBATCH --time=04:00:00
-#SBATCH --output=slurm-%x-%j.out
-
-set -euo pipefail
-
-module purge
-source <conda-base>/etc/profile.d/conda.sh
-conda activate "$HOME/.conda/envs/mof-heat-capacity-izar"
-
-export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
-export MKL_NUM_THREADS="$SLURM_CPUS_PER_TASK"
-
-cd "$SLURM_SUBMIT_DIR"
-nvidia-smi -L
-srun python -m mof_heat_capacity.analysis.harmonic \
-  --config configs/mof5_pet_mad.toml \
-  --frame-indices 0 \
-  --hops 3
+./scripts/submit_heat_capacity.sh --debug --dry-run
+./scripts/submit_heat_capacity.sh --debug
 ```
 
-Submit it only after a successful MD job, or create a Slurm dependency:
+The debug task uses PET-MAD MOF-5 + 100 CH4 at 300 K and the equilibrated
+275 ps frame, testing the larger system. At the measured ten-minute frame cost,
+the 30-minute debug allocation has adequate margin. Check its log and accounting
+record; its NPZ is isolated below `output/debug/`. Then preview and submit the
+full array:
 
 ```bash
-md_job=$(sbatch --parsable --export=ALL,MOF_STAGE=md scripts/izar_job.sh)
-md_job=${md_job%%;*}
-sbatch --dependency="afterok:${md_job}" \
-  --export=ALL,MOF_STAGE=heat-capacity scripts/izar_job.sh
+./scripts/submit_heat_capacity.sh --dry-run
+./scripts/submit_heat_capacity.sh
 ```
 
-`afterok` prevents analysis from starting if MD fails. For production, remove
-the diagnostic overrides only after checking convergence and GPU memory use.
-This analysis writes one output file, so simultaneous jobs must use distinct
-`--output` paths or distinct TOML output directories.
+The production defaults select 200, 350, and 500 ps. These times are after the
+100 ps equilibration cutoff and separated by much more than the measured
+autocorrelation times. Physical times are mapped using each LAMMPS thermo log,
+so the repeated 100 ps continuation frame does not shift selection. Each task
+writes `heat-capacity-times-200ps-350ps-500ps.npz` in its unique MD output
+directory and refuses to replace an existing archive unless `--overwrite` is
+explicitly supplied. This collision check happens before `sbatch`, as does
+rejection of duplicate loading, temperature, or replica selectors.
 
-To run both stages sequentially inside one allocation, use:
+To restrict the calculation, combine selectors:
 
 ```bash
-sbatch --export=ALL,MOF_STAGE=all scripts/izar_job.sh
+./scripts/submit_heat_capacity.sh --model pet-sol --loading 100 \
+  --md-temperatures 300 --frame-times-ps 200,350,500 --dry-run
 ```
 
-Separate dependent jobs are normally preferable because MD and Hessian
-analysis can need different wall times and CPU allocations. The combined mode
-is convenient for a short end-to-end validation.
+After all tasks finish, rerun the trajectory-analysis jobs. They collect every
+compatible NPZ in each run directory and produce the frame-convergence tables,
+curves, and uncertainty summaries.
 
 ## Monitor, diagnose, and retrieve results
 

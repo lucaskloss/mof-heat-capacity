@@ -146,6 +146,7 @@ def read_trajectory_observables(
     rdf_bins: int,
     rdf_cutoff_A: float | None = None,
     framework_bond_cutoff_A: float = 2.2,
+    thermodynamic_series: dict[str, np.ndarray] | None = None,
 ) -> dict:
     """Stream an ASE trajectory and return thermodynamic/structural arrays."""
     from ase.io import iread
@@ -159,6 +160,7 @@ def read_trajectory_observables(
 
     series_names = (
         "frame",
+        "md_step",
         "time_ps",
         "temperature_K",
         "total_energy_eV",
@@ -175,6 +177,18 @@ def read_trajectory_observables(
         "cell_alpha_deg",
         "cell_beta_deg",
         "cell_gamma_deg",
+        "pressure_xx_bar",
+        "pressure_yy_bar",
+        "pressure_zz_bar",
+        "pressure_xy_bar",
+        "pressure_xz_bar",
+        "pressure_yz_bar",
+        "cell_lx_A",
+        "cell_ly_A",
+        "cell_lz_A",
+        "cell_xy_A",
+        "cell_xz_A",
+        "cell_yz_A",
     )
     series_lists = {name: [] for name in series_names}
     structural_lists = {
@@ -206,8 +220,11 @@ def read_trajectory_observables(
     rdf_host_guest_ideal = None
     rdf_guest_guest_ideal = None
     rdf_frames = 0
+    raw_frame_count = 0
+    duplicate_thermo_frames = 0
 
-    for frame_index, atoms in enumerate(iread(str(trajectory_path), index=":")):
+    for raw_frame_index, atoms in enumerate(iread(str(trajectory_path), index=":")):
+        raw_frame_count = raw_frame_index + 1
         if atom_count is None:
             atom_count = len(atoms)
             if host_atoms < 1 or host_atoms > atom_count:
@@ -235,37 +252,94 @@ def read_trajectory_observables(
         ):
             raise ValueError("atom count or total mass changes along the trajectory")
 
+        if thermodynamic_series is not None:
+            if raw_frame_index >= len(thermodynamic_series["time_ps"]):
+                raise ValueError(
+                    "trajectory has more frames than the LAMMPS thermo log"
+                )
+            if raw_frame_index > 0:
+                repeated_step = (
+                    thermodynamic_series["md_step"][raw_frame_index]
+                    == thermodynamic_series["md_step"][raw_frame_index - 1]
+                )
+                repeated_time = np.isclose(
+                    thermodynamic_series["time_ps"][raw_frame_index],
+                    thermodynamic_series["time_ps"][raw_frame_index - 1],
+                    rtol=0.0,
+                    atol=1e-12,
+                )
+                if repeated_step != repeated_time:
+                    raise ValueError(
+                        "LAMMPS thermo contains an inconsistent repeated step/time"
+                    )
+                if repeated_step:
+                    duplicate_thermo_frames += 1
+                    continue
+
+        frame_index = len(series_lists["frame"])
         time_ps = frame_index * frame_spacing_fs / 1000.0
         volume = float(atoms.get_volume())
-        potential = float(atoms.get_potential_energy())
-        kinetic = float(atoms.get_kinetic_energy())
         forces = np.asarray(atoms.get_forces(), dtype=float)
-        stress = np.asarray(atoms.get_stress(voigt=False), dtype=float)
-        pressure = -float(np.trace(stress)) / 3.0 * EV_PER_ANGSTROM3_TO_BAR
         cell = atoms.cell.cellpar()
         force_norms = np.linalg.norm(forces, axis=1)
 
-        frame_values = {
-            "frame": frame_index,
-            "time_ps": time_ps,
-            "temperature_K": float(atoms.get_temperature()),
-            "total_energy_eV": potential + kinetic,
-            "potential_energy_eV": potential,
-            "kinetic_energy_eV": kinetic,
-            "volume_A3": volume,
-            "density_g_cm3": (
-                float(total_mass_amu) / volume * AMU_PER_ANGSTROM3_TO_G_PER_CM3
-            ),
-            "pressure_bar": pressure,
-            "max_force_eV_A": float(force_norms.max()),
-            "rms_force_eV_A": float(np.sqrt(np.mean(force_norms**2))),
-            "cell_a_A": float(cell[0]),
-            "cell_b_A": float(cell[1]),
-            "cell_c_A": float(cell[2]),
-            "cell_alpha_deg": float(cell[3]),
-            "cell_beta_deg": float(cell[4]),
-            "cell_gamma_deg": float(cell[5]),
-        }
+        if thermodynamic_series is not None:
+            frame_values = {
+                name: values[raw_frame_index]
+                for name, values in thermodynamic_series.items()
+            }
+            frame_values.update({
+                "frame": frame_index,
+                "max_force_eV_A": float(force_norms.max()),
+                "rms_force_eV_A": float(np.sqrt(np.mean(force_norms**2))),
+                "cell_a_A": float(cell[0]),
+                "cell_b_A": float(cell[1]),
+                "cell_c_A": float(cell[2]),
+                "cell_alpha_deg": float(cell[3]),
+                "cell_beta_deg": float(cell[4]),
+                "cell_gamma_deg": float(cell[5]),
+            })
+            time_ps = float(frame_values["time_ps"])
+        else:
+            potential = float(atoms.get_potential_energy())
+            kinetic = float(atoms.get_kinetic_energy())
+            stress = np.asarray(atoms.get_stress(voigt=False), dtype=float)
+            pressure_tensor = -stress * EV_PER_ANGSTROM3_TO_BAR
+            frame_values = {
+                "frame": frame_index,
+                "md_step": frame_index,
+                "time_ps": time_ps,
+                "temperature_K": float(atoms.get_temperature()),
+                "total_energy_eV": potential + kinetic,
+                "potential_energy_eV": potential,
+                "kinetic_energy_eV": kinetic,
+                "volume_A3": volume,
+                "density_g_cm3": (
+                    float(total_mass_amu) / volume
+                    * AMU_PER_ANGSTROM3_TO_G_PER_CM3
+                ),
+                "pressure_bar": float(np.trace(pressure_tensor)) / 3.0,
+                "max_force_eV_A": float(force_norms.max()),
+                "rms_force_eV_A": float(np.sqrt(np.mean(force_norms**2))),
+                "cell_a_A": float(cell[0]),
+                "cell_b_A": float(cell[1]),
+                "cell_c_A": float(cell[2]),
+                "cell_alpha_deg": float(cell[3]),
+                "cell_beta_deg": float(cell[4]),
+                "cell_gamma_deg": float(cell[5]),
+                "pressure_xx_bar": float(pressure_tensor[0, 0]),
+                "pressure_yy_bar": float(pressure_tensor[1, 1]),
+                "pressure_zz_bar": float(pressure_tensor[2, 2]),
+                "pressure_xy_bar": float(pressure_tensor[0, 1]),
+                "pressure_xz_bar": float(pressure_tensor[0, 2]),
+                "pressure_yz_bar": float(pressure_tensor[1, 2]),
+                "cell_lx_A": float(atoms.cell[0, 0]),
+                "cell_ly_A": float(atoms.cell[1, 1]),
+                "cell_lz_A": float(atoms.cell[2, 2]),
+                "cell_xy_A": float(atoms.cell[1, 0]),
+                "cell_xz_A": float(atoms.cell[2, 0]),
+                "cell_yz_A": float(atoms.cell[2, 1]),
+            }
         for name, value in frame_values.items():
             series_lists[name].append(value)
 
@@ -330,6 +404,12 @@ def read_trajectory_observables(
 
     if atom_count is None or total_mass_amu is None:
         raise ValueError(f"trajectory contains no frames: {trajectory_path}")
+    if thermodynamic_series is not None and raw_frame_count != len(
+        thermodynamic_series["time_ps"]
+    ):
+        raise ValueError(
+            "trajectory and LAMMPS thermo log contain different frame counts"
+        )
 
     rdf_centers = 0.5 * (rdf_edges[:-1] + rdf_edges[1:])
     host_guest_rdf = np.divide(
@@ -353,6 +433,8 @@ def read_trajectory_observables(
             "total_mass_amu": total_mass_amu,
             "chemical_formula": chemical_formula,
             "frames": len(series_lists["frame"]),
+            "raw_frames": raw_frame_count,
+            "duplicate_restart_frames_removed": duplicate_thermo_frames,
             "frame_spacing_fs": frame_spacing_fs,
             "structural_stride": structural_stride,
             "rdf_stride": rdf_stride,

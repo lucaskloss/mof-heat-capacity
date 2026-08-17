@@ -27,7 +27,29 @@ MOF_RERUN="${MOF_RERUN:-0}"
 MOF_RESUME="${MOF_RESUME:-0}"
 MOF_HEAT_FRAMES="${MOF_HEAT_FRAMES:-}"
 MOF_HEAT_FRAME_INDICES="${MOF_HEAT_FRAME_INDICES:-}"
+MOF_HEAT_FRAME_TIMES_PS="${MOF_HEAT_FRAME_TIMES_PS:-}"
+MOF_HEAT_TEMPERATURES="${MOF_HEAT_TEMPERATURES:-}"
 MOF_HEAT_OUTPUT="${MOF_HEAT_OUTPUT:-}"
+MOF_HEAT_CONFIGS="${MOF_HEAT_CONFIGS:-}"
+MOF_HEAT_OVERWRITE="${MOF_HEAT_OVERWRITE:-0}"
+
+
+if [[ -n "${MOF_HEAT_CONFIGS}" ]]; then
+    if [[ "${MOF_STAGE}" != "heat-capacity" ]]; then
+        echo "error: MOF_HEAT_CONFIGS requires MOF_STAGE=heat-capacity" >&2
+        exit 2
+    fi
+    if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+        echo "error: MOF_HEAT_CONFIGS requires a Slurm array allocation" >&2
+        exit 2
+    fi
+    IFS=':' read -r -a heat_configs <<< "${MOF_HEAT_CONFIGS}"
+    if ((SLURM_ARRAY_TASK_ID < 0 || SLURM_ARRAY_TASK_ID >= ${#heat_configs[@]})); then
+        echo "error: array index ${SLURM_ARRAY_TASK_ID} is outside the config list" >&2
+        exit 2
+    fi
+    MOF_CONFIG="${heat_configs[SLURM_ARRAY_TASK_ID]}"
+fi
 
 
 if [[ "${MOF_HEAT_FRAMES}" == "array" ]]; then
@@ -239,9 +261,29 @@ run_heat_capacity() {
         command+=(--frame-indices "${MOF_HEAT_FRAME_INDICES}")
     fi
 
+    if [[ -n "${MOF_HEAT_FRAME_TIMES_PS}" ]]; then
+        command+=(--frame-times-ps "${MOF_HEAT_FRAME_TIMES_PS}")
+    fi
+
+    if [[ -n "${MOF_HEAT_TEMPERATURES}" ]]; then
+        command+=(--temperatures "${MOF_HEAT_TEMPERATURES}")
+    fi
+
     if [[ -n "${MOF_HEAT_OUTPUT}" ]]; then
         command+=(--output "${MOF_HEAT_OUTPUT}")
     fi
+
+    case "${MOF_HEAT_OVERWRITE,,}" in
+        1|true|yes)
+            command+=(--overwrite)
+            ;;
+        0|false|no)
+            ;;
+        *)
+            echo "error: MOF_HEAT_OVERWRITE must be 0/1, false/true, or no/yes" >&2
+            exit 2
+            ;;
+    esac
 
     srun --ntasks=1 "${command[@]}"
 }

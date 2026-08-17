@@ -158,102 +158,118 @@ use `--slurm-output-dir PATH` to place it on scratch or project storage.
 
 ## 4. Calculate harmonic heat capacity
 
-After generating a trajectory, run the analysis using the matching TOML file:
+Run SADMOF only inside a GPU allocation. The submission wrapper defaults to
+both MLIPs, pristine and 100-CH4 MOF-5, all five MD temperatures, and replica
+1. It selects three physical times—200, 350, and 500 ps—from each trajectory:
 
 ```bash
-python -m mof_heat_capacity.analysis.harmonic \
-  --config configs/mof5_pet_mad.toml
+./scripts/submit_heat_capacity.sh --dry-run
+./scripts/submit_heat_capacity.sh
 ```
 
-For a small diagnostic run:
+This is one Slurm array with 20 tasks and at most four running simultaneously.
+Each task uses one GPU and processes the three frames from one trajectory
+serially. With a measured cost near ten minutes per frame, the default
+45-minute limit includes compilation and shutdown margin. The requested times
+are past the 100 ps equilibration interval and separated by 150 ps, much longer
+than the measured autocorrelation times. Three frames are the minimum needed
+for a frame-to-frame standard deviation and standard error.
+
+Before the full array, run the isolated one-frame debug test on the larger
+100-CH4 system at 275 ps:
 
 ```bash
-python -m mof_heat_capacity.analysis.harmonic \
-  --config configs/mof5_pet_mad.toml \
-  --frame-indices 0 \
-  --hops 3
+./scripts/submit_heat_capacity.sh --debug --dry-run
+./scripts/submit_heat_capacity.sh --debug
 ```
 
-`--frames 1` also selects one evenly spaced frame, while `--frame-indices 10`
-selects trajectory frame 10 exactly. The analysis output is written to the
-configured output directory. Use `--help` on either script to see all available
-overrides.
-
-For the completed MOF-5 + 100 CH4 validation trajectories, first preview and
-submit the 300 K final-frame Hessian as a resource-sizing test:
+The debug output is isolated at
+`output/debug/heat-capacity-pet-mad-100ch4-300K-275ps.npz`, so it is not
+collected with the three production frames. To select a subset, use for example:
 
 ```bash
-./scripts/submit_mof5_100ch4_heat_capacity.sh --temperatures 300 --dry-run
-./scripts/submit_mof5_100ch4_heat_capacity.sh --temperatures 300
+./scripts/submit_heat_capacity.sh --model pet-sol --loading 100 \
+  --md-temperatures 300 --frame-times-ps 200,350,500 --dry-run
 ```
 
-If that succeeds and the Slurm accounting data supports the chosen resources,
-submit the remaining independent jobs (the existing 300 K result is protected
-from accidental replacement):
+Physical times are mapped through each LAMMPS thermo log, so the duplicated
+100 ps restart boundary cannot shift frame selection. Output names record the
+times, for example `heat-capacity-times-200ps-350ps-500ps.npz`, inside each
+run directory. Duplicate selectors and existing outputs are rejected before
+submission; pass `--overwrite` only when replacement is intentional.
 
-```bash
-./scripts/submit_mof5_100ch4_heat_capacity.sh --temperatures 100,200,400,500
-```
-
-Each job analyzes explicit trajectory frame 4000 and writes a unique
-`heat-capacity-frame-4000.npz` below its MD output directory. The complete
-analysis command in the next section collects these files, reports each value
-at its matching MD temperature, and preserves the full temperature curves.
-
-For the PET-SOL trajectories, use the separate submission script so the
-PET-SOL configs, trajectories, and output directories are selected:
-
-```bash
-./scripts/submit_mof5_100ch4_pet_sol_heat_capacity.sh --temperatures 300 --dry-run
-./scripts/submit_mof5_100ch4_pet_sol_heat_capacity.sh --temperatures 300
-./scripts/submit_mof5_100ch4_pet_sol_heat_capacity.sh --temperatures 100,200,400,500
-```
-
-Each PET-SOL result is written as
-`heat-capacity-pet-sol-s-best-nostress-frame-4000.npz` inside its matching
-PET-SOL output directory, so neither its directory nor filename overlaps the
-PET-MAD results.
-
-The generated per-run `harmonic_heat_capacity.npz` files retain the complete
-100--500 K curves for comparisons at a common analysis temperature. These are
-harmonic constant-volume results from individual thermally displaced
-structures. For methane-loaded MOF-5 they are diagnostics, not a reproduction
-of the paper's anharmonic, quantum-mechanical constant-pressure heat capacity.
+After every array task succeeds, rerun `submit_analysis.sh` for each loading.
+It collects the NPZ archives, reports the value at the matching MD temperature,
+and retains the complete 100--500 K harmonic curves. These are harmonic
+constant-volume results from individual thermally displaced structures. For
+methane-loaded MOF-5 they are diagnostics, not a reproduction of the paper's
+anharmonic, quantum-mechanical constant-pressure heat capacity.
 
 ## 5. Inspect results
 
-Run the complete analysis for every completed trajectory described by a TOML
-file:
+On Izar, submit trajectory analysis as a CPU-based Slurm job that allocates
+the one GPU required by the `normal` QOS. Preview the validated selection and
+scheduler command first, then submit it:
 
 ```bash
-python scripts/analyze_all_results.py
+./scripts/submit_analysis.sh --dry-run
+./scripts/submit_analysis.sh
+```
+
+The defaults select the pristine MOF-5 classical replica-01 trajectories from
+both MLIPs at all five temperatures, discard the first 100 ps, request four
+CPUs for 1 hour 15 minutes, allocate the one GPU required by Izar's `normal` QOS, and
+write scheduler output below `output/slurm/`. The analysis remains CPU-based.
+Select both potentials and multiple methane loadings explicitly with:
+
+```bash
+./scripts/submit_analysis.sh --model both --loading 0,100 --time 01:30:00 \
+  --analysis-dir output/analysis-0ch4-100ch4 --dry-run
+./scripts/submit_analysis.sh --model both --loading 0,100 --time 01:30:00 \
+  --analysis-dir output/analysis-0ch4-100ch4
+```
+
+Use `--model pet-mad` or `--model pet-sol` for one potential, and combine
+`--loading`, `--temperatures`, and `--replicas` comma-separated lists as
+needed. Every requested combination must have a completed trajectory and
+thermodynamic log or submission stops before `sbatch`.
+To run the same analysis outside Slurm, use:
+
+```bash
+python -m mof_heat_capacity.analysis.results \
+  --runs 'mof5-0ch4-paper-*-classical-*-rep01' \
+  --discard-ps 100
 ```
 
 To analyze only one run, or to choose an explicit equilibration interval:
 
 ```bash
-python scripts/analyze_all_results.py \
-  --runs 'mof5-100ch4-300K-test' \
-  --discard-ps 1.0
+./scripts/submit_analysis.sh \
+  --runs 'mof5-0ch4-paper-pet-mad-1.5-s-40nn-classical-300K-rep01' \
+  --discard-ps 250 --analysis-dir output/analysis-cutoff250 --dry-run
 ```
 
 Results are written under `output/analysis/`. Each run gets framewise
 thermodynamic and structural CSV files, autocorrelation/RDF/MSD and harmonic
 heat-capacity NPZ files, a JSON convergence summary, and diagnostic plots.
+For LAMMPS runs, global thermodynamic quantities are read from the matching
+`.lammps.log` and aligned with positions, velocities, forces, and cells from
+the dump trajectory. Resumed thermo blocks are retained in order, while a
+repeated restart-boundary step/frame is removed before calculating statistics.
 The top-level `runs.csv`, `temperature_sweep.png`, and
 `paper_requirements.json` compare runs and identify calculations that the
-current data cannot support. By default, the first half of each trajectory is
-treated as equilibration; choose this cutoff from observed stationarity for
-production calculations. Use `--runs 'mof5-100ch4-300K-*'` or another glob to
-limit the analysis, and `--no-plots` for machine-only output.
+current data cannot support. The cluster wrapper discards the first 100 ps by
+default; choose this cutoff from observed stationarity for production
+calculations. Use `--runs` for advanced custom globs, and `--no-plots` for
+machine-only output.
 
 Density convergence is included in the same command. Inspect
-`timeseries.csv`, `summary.json`, and `timeseries.png` in each run's analysis
-directory for density, volume, running means, drift, autocorrelation-aware
-uncertainty, and fixed-volume detection. The current ASE runs are fixed-cell
-NVT calculations, so their density is constant by construction; meaningful
-density convergence requires variable-cell NPT trajectories with a
-stress-trained and validated potential.
+`timeseries.csv`, `summary.json`, `timeseries.png`, and `cell.png` in each
+run's analysis directory for density, volume, cell lengths/angles/tilts,
+pressure components, running means, drift, autocorrelation-aware uncertainty,
+and fixed-volume detection. Flexible-cell NPT results include equilibrium
+density and cell-response diagnostics when the selected model records validated
+stress support; fixed-cell NVT density is constant by construction.
 
 The generated PNG files provide the standard visual diagnostics without a
 notebook. The CSV, JSON, and NPZ products can also be loaded directly by

@@ -14,6 +14,7 @@ import numpy as np
 
 from ..config import load_run_config
 from .heat_capacity_results import collect_heat_capacity_results
+from .lammps import read_lammps_thermo
 from .statistics import (
     autocorrelation,
     classical_fluctuation_heat_capacity,
@@ -127,7 +128,7 @@ def discover_runs(config_dir: Path, patterns: list[str]):
             continue
         if not any(fnmatch.fnmatch(config.name, pattern) for pattern in patterns):
             continue
-        trajectory = config.output_dir / f"{config.md_prefix}.traj"
+        trajectory = config.output_dir / config.md_trajectory_file
         if trajectory.is_file():
             selected.append((path, config, trajectory))
         else:
@@ -164,6 +165,12 @@ def plot_run(
     msd_time_ps: np.ndarray,
     msd_A2: np.ndarray,
 ) -> None:
+    import os
+
+    matplotlib_cache = output_dir.parent / ".matplotlib"
+    matplotlib_cache.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("MPLCONFIGDIR", str(matplotlib_cache))
+
     import matplotlib
 
     matplotlib.use("Agg")
@@ -206,6 +213,35 @@ def plot_run(
     figure.savefig(output_dir / "timeseries.png", dpi=180)
     plt.close(figure)
 
+    figure, axes = plt.subplots(3, 2, figsize=(12, 10), sharex=True)
+    cell_panels = (
+        (("volume_A3",), r"Volume ($\AA^3$)"),
+        (("density_g_cm3",), r"Density (g cm$^{-3}$)"),
+        (("cell_a_A", "cell_b_A", "cell_c_A"), r"Cell length ($\AA$)"),
+        (
+            ("cell_alpha_deg", "cell_beta_deg", "cell_gamma_deg"),
+            "Cell angle (degree)",
+        ),
+        (("cell_xy_A", "cell_xz_A", "cell_yz_A"), r"Cell tilt ($\AA$)"),
+        (
+            ("pressure_xx_bar", "pressure_yy_bar", "pressure_zz_bar"),
+            "Normal pressure component (bar)",
+        ),
+    )
+    for axis, (names, label) in zip(axes.flat, cell_panels):
+        for name in names:
+            axis.plot(time, series[name], linewidth=0.7, alpha=0.7, label=name)
+        axis.axvline(start, color="black", linestyle="--", linewidth=0.8)
+        axis.set_ylabel(label)
+        axis.grid(alpha=0.2)
+        if len(names) > 1:
+            axis.legend(fontsize=7)
+    axes[-1, 0].set_xlabel("Time (ps)")
+    axes[-1, 1].set_xlabel("Time (ps)")
+    figure.tight_layout()
+    figure.savefig(output_dir / "cell.png", dpi=180)
+    plt.close(figure)
+
     figure, axis = plt.subplots(figsize=(7, 4.5))
     for name, values in correlations.items():
         axis.plot(correlation_time_ps[: len(values)], values, label=name)
@@ -221,24 +257,38 @@ def plot_run(
     structural_time = structural["time_ps"]
     axes[0, 0].plot(structural_time, structural["framework_rmsd_A"])
     axes[0, 0].set(xlabel="Time (ps)", ylabel=r"Framework RMSD ($\AA$)")
-    axes[0, 1].plot(
-        structural_time, structural["minimum_host_methane_com_distance_A"]
-    )
-    axes[0, 1].set(
-        xlabel="Time (ps)", ylabel=r"Minimum host--CH$_4$ COM distance ($\AA$)"
-    )
-    axes[1, 0].plot(
-        structural["rdf_distance_A"], structural["host_methane_com_rdf"],
-        label=r"host atom--CH$_4$ COM",
-    )
-    axes[1, 0].plot(
-        structural["rdf_distance_A"], structural["methane_com_rdf"],
-        label=r"CH$_4$ COM--COM",
-    )
-    axes[1, 0].set(xlabel=r"Distance ($\AA$)", ylabel="g(r)")
-    axes[1, 0].legend(fontsize=8)
-    axes[1, 1].plot(msd_time_ps, msd_A2)
-    axes[1, 1].set(xlabel="Lag (ps)", ylabel=r"Methane COM MSD ($\AA^2$)")
+    has_methane = structural["methane_com_unwrapped_A"].shape[1] > 0
+    if has_methane:
+        axes[0, 1].plot(
+            structural_time, structural["minimum_host_methane_com_distance_A"]
+        )
+        axes[0, 1].set(
+            xlabel="Time (ps)",
+            ylabel=r"Minimum host--CH$_4$ COM distance ($\AA$)",
+        )
+        axes[1, 0].plot(
+            structural["rdf_distance_A"], structural["host_methane_com_rdf"],
+            label=r"host atom--CH$_4$ COM",
+        )
+        axes[1, 0].plot(
+            structural["rdf_distance_A"], structural["methane_com_rdf"],
+            label=r"CH$_4$ COM--COM",
+        )
+        axes[1, 0].set(xlabel=r"Distance ($\AA$)", ylabel="g(r)")
+        axes[1, 0].legend(fontsize=8)
+        axes[1, 1].plot(msd_time_ps, msd_A2)
+        axes[1, 1].set(xlabel="Lag (ps)", ylabel=r"Methane COM MSD ($\AA^2$)")
+    else:
+        for axis in (axes[0, 1], axes[1, 0], axes[1, 1]):
+            axis.set_axis_off()
+            axis.text(
+                0.5,
+                0.5,
+                "Not applicable: pristine MOF-5",
+                ha="center",
+                va="center",
+                transform=axis.transAxes,
+            )
     for axis in axes.flat:
         axis.grid(alpha=0.2)
     figure.tight_layout()
@@ -288,15 +338,21 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
     duration_ps = config.md_steps * config.timestep_fs / 1000.0
     start_ps = production_start(args, duration_ps)
     print(f"Analyzing {config.name}: {trajectory}", flush=True)
+    thermodynamic_series = None
+    thermo_log = None
+    if config.md_driver == "lammps":
+        thermo_log = config.output_dir / f"{config.md_prefix}.lammps.log"
+        thermodynamic_series = read_lammps_thermo(thermo_log)
     extracted = read_trajectory_observables(
         trajectory,
-        frame_spacing_fs=config.timestep_fs,
+        frame_spacing_fs=config.timestep_fs * config.output_stride,
         production_start_ps=start_ps,
         host_atoms=args.host_atoms,
         structural_stride=args.structural_stride,
         rdf_stride=args.rdf_stride,
         rdf_bins=args.rdf_bins,
         rdf_cutoff_A=args.rdf_cutoff,
+        thermodynamic_series=thermodynamic_series,
     )
     series = extracted["series"]
     structural = extracted["structural"]
@@ -332,13 +388,28 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
                 values[finite], structural["time_ps"][structural_mask][finite]
             )
 
-    energy_block_size = int(statistics["total_energy_eV"]["block_size_frames"])
-    classical_cv = classical_fluctuation_heat_capacity(
-        series["total_energy_eV"][production_mask],
-        float(statistics["temperature_K"]["mean"]),
-        float(extracted["metadata"]["total_mass_amu"]),
-        block_size=energy_block_size,
-    )
+    if config.md_ensemble == "nvt":
+        energy_block_size = int(
+            statistics["total_energy_eV"]["block_size_frames"]
+        )
+        classical_cv = {
+            "available": True,
+            **classical_fluctuation_heat_capacity(
+                series["total_energy_eV"][production_mask],
+                float(statistics["temperature_K"]["mean"]),
+                float(extracted["metadata"]["total_mass_amu"]),
+                block_size=energy_block_size,
+            ),
+        }
+    else:
+        classical_cv = {
+            "available": False,
+            "cv_J_per_gK": float("nan"),
+            "reason": (
+                "Total-energy fluctuations estimate C_V only in NVT; this "
+                f"trajectory uses {config.md_ensemble}."
+            ),
+        }
     heat = collect_heat_capacity_results(
         config.output_dir, target_temperature_K=config.temperature_K
     )
@@ -425,7 +496,8 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             "jax_checkpoint": str(config.jax_checkpoint) if config.jax_checkpoint else None,
             "timestep_fs": config.timestep_fs,
             "configured_steps": config.md_steps,
-            "saved_frame_spacing_fs": config.timestep_fs,
+            "saved_frame_spacing_fs": config.timestep_fs * config.output_stride,
+            "thermodynamic_log": str(thermo_log) if thermo_log else None,
         },
         "metadata": extracted["metadata"],
         "statistics": statistics,
@@ -465,7 +537,7 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
         structural_rows.append(row)
     write_rows(run_output / "structural_timeseries.csv", structural_rows)
     write_rows(run_output / "heat_capacity_frames.csv", heat["frame_rows"], [
-        "frame", "target_temperature_K", "cv_J_per_gK",
+        "frame", "time_ps", "target_temperature_K", "cv_J_per_gK",
         "running_mean_cv_J_per_gK", "imaginary_modes_below_threshold",
         "near_zero_modes", "minimum_frequency_cm1", "maximum_frequency_cm1", "source",
     ])
@@ -499,6 +571,7 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
     aggregate = {
         "run": config.name,
         "model": model,
+        "methane_loading": extracted["metadata"]["methane_molecules"],
         "temperature_K": config.temperature_K,
         "production_mean_temperature_K": statistics["temperature_K"]["mean"],
         "temperature_tau_ps": statistics["temperature_K"]["integrated_autocorrelation_time_ps"],
@@ -520,7 +593,7 @@ def paper_requirements(summaries: list[dict]) -> dict:
     stress_valid = bool(summaries) and all(
         item["stress_model_validated"] for item in summaries
     )
-    return {
+    requirements = {
         "paper_reference_targets": [
             "Classical loaded systems: five independent 500 ps flexible-cell NPT "
             "runs at 1 bar, discarding the first 100 ps.",
@@ -563,6 +636,11 @@ def paper_requirements(summaries: list[dict]) -> dict:
             "for nuclear quantum effects, couple LAMMPS to i-PI and test bead/time-step convergence",
         ],
     }
+    requirements["not_established_by_current_data"] = [
+        item for item in requirements["not_established_by_current_data"]
+        if item is not None
+    ]
+    return requirements
 
 
 def plot_sweep(path: Path, rows: list[dict]) -> None:
@@ -572,15 +650,24 @@ def plot_sweep(path: Path, rows: list[dict]) -> None:
     import matplotlib.pyplot as plt
 
     figure, axes = plt.subplots(1, 2, figsize=(11, 4.2))
-    models = sorted({str(row["model"]) for row in rows})
-    for model in models:
+    systems = sorted({
+        (str(row["model"]), int(row["methane_loading"])) for row in rows
+    })
+    for model, methane_loading in systems:
         selected = sorted(
-            (row for row in rows if row["model"] == model),
+            (
+                row for row in rows
+                if row["model"] == model
+                and int(row["methane_loading"]) == methane_loading
+            ),
             key=lambda item: item["temperature_K"],
         )
         temperature = [row["temperature_K"] for row in selected]
         axes[0].plot(
-            temperature, [row["density_g_cm3"] for row in selected], marker="o", label=model
+            temperature,
+            [row["density_g_cm3"] for row in selected],
+            marker="o",
+            label=f"{model}, {methane_loading} CH4",
         )
         harmonic = [
             row for row in selected
@@ -591,9 +678,10 @@ def plot_sweep(path: Path, rows: list[dict]) -> None:
             axes[1].plot(
                 [row["temperature_K"] for row in harmonic],
                 [row["harmonic_cv_J_per_gK"] for row in harmonic],
-                marker="o", label=model,
+                marker="o",
+                label=f"{model}, {methane_loading} CH4",
             )
-    axes[0].set(xlabel="MD temperature (K)", ylabel=r"Fixed-cell density (g cm$^{-3}$)")
+    axes[0].set(xlabel="MD temperature (K)", ylabel=r"Density (g cm$^{-3}$)")
     axes[1].set(xlabel="MD temperature (K)", ylabel=r"Harmonic $C_V$ (J g$^{-1}$ K$^{-1}$)")
     for axis in axes:
         axis.grid(alpha=0.2)

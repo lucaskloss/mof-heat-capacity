@@ -22,6 +22,11 @@ def _load_archive(path: Path) -> list[dict]:
         if not REQUIRED_KEYS.issubset(data.files):
             return []
         frames = np.asarray(data["frame_indices"], dtype=int).reshape(-1)
+        frame_times_ps = (
+            np.asarray(data["frame_times_ps"], dtype=float).reshape(-1)
+            if "frame_times_ps" in data.files
+            else np.full(len(frames), np.nan)
+        )
         temperatures = np.asarray(data["temperatures_K"], dtype=float).reshape(-1)
         frequencies = np.asarray(data["frequencies_cm1"], dtype=float)
         heat_capacity = np.asarray(data["cv_J_per_gK"], dtype=float)
@@ -34,6 +39,13 @@ def _load_archive(path: Path) -> list[dict]:
             if key in data.files
         }
 
+    if len(frame_times_ps) not in {0, len(frames)}:
+        raise ValueError(
+            f"inconsistent frame times in {path}: frames={len(frames)}, "
+            f"times={len(frame_times_ps)}"
+        )
+    if not len(frame_times_ps):
+        frame_times_ps = np.full(len(frames), np.nan)
     if frequencies.ndim == 1:
         frequencies = frequencies[None, :]
     if heat_capacity.ndim == 1:
@@ -49,6 +61,7 @@ def _load_archive(path: Path) -> list[dict]:
     return [
         {
             "frame": int(frame),
+            "time_ps": float(frame_times_ps[index]),
             "source": str(path),
             "temperatures_K": temperatures.copy(),
             "cv_J_per_gK": heat_capacity[index].copy(),
@@ -118,6 +131,7 @@ def collect_heat_capacity_results(
         frame_rows.append(
             {
                 "frame": record["frame"],
+                "time_ps": record["time_ps"],
                 "target_temperature_K": target_temperature_K,
                 "cv_J_per_gK": target_cv,
                 "running_mean_cv_J_per_gK": float(np.mean(target_values)),
@@ -176,6 +190,7 @@ def collect_heat_capacity_results(
         "available": bool(ordered),
         "frames_analyzed": len(ordered),
         "frame_indices": [item["frame"] for item in ordered],
+        "frame_times_ps": [item["time_ps"] for item in ordered],
         "target_temperature_K": target_temperature_K,
         "mean_cv_J_per_gK": float(values.mean()) if len(values) else None,
         "frame_standard_deviation_J_per_gK": (

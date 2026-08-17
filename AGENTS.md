@@ -19,6 +19,11 @@ smoke test, not a converged production calculation.
 - `scripts/install_sadmof.sh` installs the SADMOF/PET-JAX stack; it expects the
   sibling checkout at `../repos/sadmof-work` unless `SADMOF_SOURCE` is set.
 - `scripts/izar_job.sh` is the Slurm entry point for Izar.
+- `scripts/submit_analysis.sh` and `scripts/izar_analysis_job.sh` validate,
+  submit, and execute CPU-based trajectory analysis on Izar. The normal QOS
+  requires allocating one GPU even though this analysis does not use it.
+- `scripts/submit_heat_capacity.sh` submits selected equilibrated trajectory
+  times to the SADMOF harmonic workflow as one Slurm array task per run.
 - `scripts/analyze_all_results.py` generates the thermodynamic, statistical,
   structural, density, and heat-capacity convergence reports.
 - `scripts/README.md` maps all user-facing commands to their responsibilities.
