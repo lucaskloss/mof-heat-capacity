@@ -15,7 +15,7 @@
 \newcommand{\cv}{\ensuremath{C_V}}
 \newcommand{\cpheat}{\ensuremath{C_P}}
 
-\title{Molecular Dynamics and Harmonic Heat Capacity of Pristine and Methane-Loaded MOF-5 with a Machine-Learned Interatomic Potential}
+\title{Efficient Heat Capacity of Methane-Loaded MOF-5 with Classical Molecular Dynamics and Machine-Learned Hessians}
 \author{\textit{Author name}}
 \date{\today}
 
@@ -24,27 +24,20 @@
 \maketitle
 
 \begin{abstract}
-This report develops a simulation workflow for pristine and methane-loaded
-MOF-5 using the PET-MAD machine-learned interatomic potential. Classical
-constant-temperature molecular dynamics (MD) is performed with the Atomic
-Simulation Environment (ASE), while automatic differentiation (AD) through a
-PET-JAX model provides sparse Cartesian Hessians, normal-mode frequencies, and
-the quantum harmonic constant-volume heat capacity, \cv. The scientific
-motivation and reference protocol are taken from Kapil \emph{et al.}, who
-showed that harmonic quantum lattice dynamics describes empty MOF-5 well, but
-that loaded MOF-5 requires both anharmonic and nuclear-quantum effects for a
-quantitative constant-pressure heat capacity, \cpheat. The present project
-therefore provides a harmonic local-curvature analysis for pristine MOF-5 and
-MOF-5 containing 100 methane molecules; it does not reproduce the published
-path-integral \cpheat. A campaign of 20 flexible-cell NPT trajectories was
-completed: two PET potentials, two methane loadings, and five temperatures
-from 100 to \SI{500}{K}, each run for \SI{500}{ps} with the first
-\SI{100}{ps} discarded. Both models predict negative thermal expansion and
-remain close on density and framework-distortion observables. Hessians at 200,
-350, and \SI{500}{ps} give smoothly increasing nominal harmonic \cv{} curves,
-but contain many collapsed non-positive modes (roughly 29--46 for the pristine
-cell and 243--325 for the loaded cell). The heat-capacity values are therefore
-reported as diagnostics, not validated thermodynamic predictions.
+This report develops an efficient heat-capacity workflow for methane-loaded
+MOF-5 using a machine-learned interatomic potential (MLIP). Classical
+flexible-cell NPT molecular dynamics (MD) samples the loaded system and retains
+anharmonic methane and host--guest motion. Automatic differentiation (AD)
+through the matching PET-JAX model provides sparse Cartesian Hessians and
+normal-mode frequencies at optimized local minima. Following the approximation
+tested by Kapil \emph{et al.}, the classical anharmonic heat capacity is
+corrected by the difference between quantum and classical harmonic heat
+capacities of the same loaded composition. The already-equilibrated empty
+MOF-5 structure is relaxed directly and evaluated with one reference Hessian;
+no empty-framework MD campaign is required. The workflow is designed to retain
+the main quantum correction without the cost of full-system path-integral MD,
+while recognizing that it is an approximation whose low-temperature and
+model-dependent accuracy must be validated.
 \end{abstract}
 
 \section{Scientific motivation and scope}
@@ -67,22 +60,23 @@ $\mathrm{C}_{292}\mathrm{H}_{496}\mathrm{O}_{104}\mathrm{Zn}_{32}$.
 The principal objectives are:
 
 \begin{enumerate}
-  \item to test whether PET-MAD gives stable finite-temperature dynamics for
-        pristine and methane-loaded MOF-5;
-  \item to compute PET-MAD force constants efficiently by sparse AD;
-  \item to obtain and converge quantum harmonic \cv{} curves;
-  \item to distinguish results supported by the current implementation from
-        the anharmonic, constant-pressure quantities calculated by Kapil
-        \emph{et al.}\ \cite{kapil2019}; and
+  \item to sample the anharmonic thermodynamics of methane-loaded MOF-5 with
+        classical NPT MD and independent replicas;
+  \item to compute force constants efficiently by sparse AD at optimized empty
+        and loaded structures;
+  \item to obtain and converge the loaded-system harmonic quantum correction;
+  \item to combine that correction with the classical enthalpy derivative to
+        estimate the loaded-system \cpheat{} efficiently; and
   \item to establish a reproducible route from short cluster validation jobs
         to statistically meaningful production calculations.
 \end{enumerate}
 
-The workflow has two computational stages. MD samples finite-temperature
-configurations and diagnoses dynamical stability. The Hessian stage evaluates
-the local curvature of the potential-energy surface at selected geometries.
-The latter is not, by itself, an energy-fluctuation estimator and does not
-become an exact anharmonic heat capacity merely by evaluating more frames.
+The workflow has three computational stages. Loaded-system MD supplies the
+classical anharmonic enthalpy curve. Fixed-cell optimizations followed by AD
+Hessians supply quantum-minus-classical harmonic corrections. A final analysis
+combines the two terms with consistent composition and mass normalization. The
+empty-framework Hessian is retained as a reference and validation calculation,
+not as a replacement for the loaded-system correction.
 
 \section{Theory}
 \label{sec:theory}
@@ -550,8 +544,9 @@ The analogous isothermal--isobaric expression uses enthalpy fluctuations.
 These relations require a stationary ensemble, long sampling, and uncertainty
 estimation that accounts for time correlation. Moreover, classical nuclear
 dynamics gives equipartition rather than the quantum freezing of
-high-frequency modes. The current code does not use
-Eq.~\eqref{eq:fluctuation-cv}; it calculates quantum harmonic \cv{} from
+high-frequency modes. The present workflow obtains its classical
+constant-pressure term by differentiating replica-averaged NPT enthalpies on a
+temperature grid. It obtains the quantum correction separately from harmonic
 normal-mode frequencies.
 
 \subsubsection{Why classical and quantum predictions differ}
@@ -658,7 +653,7 @@ The main findings of the reference study are:
           \label{eq:quantum-correction}
         \end{equation}
         qualitatively recovers the loaded minimum and becomes useful above
-        roughly \SI{200}{K} in their 100-methane test. This correction is not
+        roughly \SI{200}{K} in their 100-methane test. This is the approximation
         implemented in the current repository.
 \end{itemize}
 
@@ -668,14 +663,13 @@ The main findings of the reference study are:
 
 The repository host structure is the conventional cubic MOF-5 cell with 424
 atoms and a cell parameter of approximately \SI{25.866}{\angstrom}. The loaded
-structure is generated by
-\texttt{python -m mof\_heat\_capacity.structures.methane}. Each methane
-molecule is centered, uniformly randomly rotated using a quaternion, and
-placed at a uniformly sampled fractional coordinate. Periodic atom--atom
-distances are checked against all previously placed atoms. The current
-100-methane structure used seed 2025, up to 20,000 attempts per molecule, and a
-minimum distance of \SI{1.5}{\angstrom}. The structure was validated to contain
-924 atoms.
+campaign is generated by
+\texttt{scripts/prepare\_loaded\_campaign.py}. For every temperature and
+replica, methane molecules are centered, uniformly randomly rotated using a
+quaternion, and placed at uniformly sampled fractional coordinates. Periodic
+atom--atom distances are checked against all previously placed atoms. A
+100-methane structure contains 924 atoms. Independent insertion and velocity
+seeds prevent the nominal replicas from sharing an identical initial state.
 
 This procedure prevents severe initial overlaps, but it is not an adsorption
 equilibrium calculation. In particular, it does not reproduce the RASPA
@@ -696,9 +690,9 @@ MD loads a metatomic PET-MAD or PET-SOL export. Harmonic analysis converts the
 matching checkpoint to a PET-JAX representation. Using the same learned
 parameters in both paths is essential: a trajectory from one potential must
 not be differentiated with a different potential. The updated exports expose
-an explicit stress output, and paper-protocol configurations record stress
-validation explicitly rather than inferring capability from the historical
-\texttt{nostress} filename suffix. PET is a universal model rather than a
+an explicit stress output, and loaded-campaign configurations record stress
+validation explicitly rather than inferring capability from a model filename.
+PET is a universal model rather than a
 MOF-5-specific fit, so energy, force, stress, and especially curvature
 accuracy for the relevant structures must still be documented and validated
 \cite{petmad}.
@@ -706,24 +700,26 @@ accuracy for the relevant structures must still be documented and validated
 \subsection{Classical NPT molecular dynamics}
 
 The statistical and dynamical foundations of classical MD are summarized in
-Section~\ref{sec:classical-md-theory}. The completed campaign uses LAMMPS with
-a metatomic PET model, a flexible triclinic cell, and an isotropic target
-pressure of \SI{1}{bar}. Temperature and pressure are controlled by the LAMMPS
-Nos\'e--Hoover-chain/MTTK NPT fix, with chain length 3, thermostat damping time
-\SI{100}{fs}, and barostat damping time \SI{1000}{fs}. Each run contains
-$10^6$ steps of \SI{0.5}{fs}, hence \SI{500}{ps}, and saves thermodynamic and
-trajectory data every 100 steps (\SI{0.05}{ps}). The first \SI{100}{ps} is
-treated as equilibration, leaving 8,001 saved production frames. A distinct
-recorded seed is used for each loading and temperature, although only one
-replica exists for each state point and model.
+Section~\ref{sec:classical-md-theory}. Only methane-loaded MOF-5 is propagated.
+LAMMPS evaluates a metatomic PET model in a flexible triclinic cell at an
+isotropic target pressure of \SI{1}{bar}. Temperature and pressure are
+controlled by a Nos\'e--Hoover-chain/MTTK NPT fix, with chain length 3,
+thermostat damping time \SI{100}{fs}, and barostat damping time
+\SI{1000}{fs}. The production template specifies $10^6$ steps of
+\SI{0.5}{fs}, hence \SI{500}{ps}, saves data every 100 steps
+(\SI{0.05}{ps}), and discards the first \SI{100}{ps}. Five independent
+replicas are prepared on a 100--\SI{500}{K} grid with \SI{25}{K} spacing.
 
-% RESULT-SOURCE: configs/mof5-*-paper-*.toml and matching LAMMPS input/log files.
-The model export was externally marked as stress validated before NPT use.
-This establishes the numerical protocol, but it is not an independent
-benchmark of PET stress accuracy for MOF-5. The present NPT data support
-density and cell-response diagnostics; they still do not provide the
-finite-difference quantum \cpheat{} estimator of
-Eq.~\eqref{eq:finite-difference-cp}.
+The exported model must expose stress and must be validated for the intended
+MOF/loading states before NPT use. Mean loaded-system enthalpies are computed
+from the stationary portions of the trajectories,
+\begin{equation}
+  \langle H\rangle_T
+  =\left\langle E+P_{\mathrm{ext}}V\right\rangle_T,
+\end{equation}
+then averaged across replicas and differentiated with respect to temperature.
+This classical contribution retains guest diffusion, localization changes,
+and other anharmonic effects sampled by the MLIP.
 
 \subsection{Harmonic approximation and Cartesian Hessian}
 
@@ -808,180 +804,84 @@ Eq.~\eqref{eq:harmonic-cv} controls oscillator populations; it does not require
 a separate MD trajectory at every analysis temperature when the force
 constants are assumed temperature independent.
 
-\subsection{Role of trajectory frames and averaging}
+\subsection{Optimized minima and the hybrid correction}
 
-The program reads saved ASE trajectories only to obtain geometries. It computes
-one Hessian for each explicitly selected frame, serially on one JAX device, and
-stores a separate \cv{} curve for every frame. It does not compute a Hessian at
-every MD step unless every frame is explicitly requested.
+The empty-framework calculation starts from the equilibrated MOF-5 structure
+already available to the project. Its coordinates are relaxed at fixed cell
+with the selected MLIP and one AD Hessian is evaluated. No empty-MOF MD is
+needed merely to obtain a Hessian reference.
 
-For a conventional harmonic calculation, the scientifically preferred
-reference is an energy-minimized geometry and one Hessian is sufficient. For a
-loaded system with several local minima, multiple independently initialized
-and optimized configurations can characterize basin-to-basin sensitivity, as
-in the reference paper. Hessians evaluated directly at finite-temperature MD
-frames describe instantaneous local curvature. If $N_f$ equilibrated,
-well-separated frames are used, their diagnostic mean is
+For the loaded system, final structures from several independent classical MD
+replicas are quenched at fixed cell with the same MLIP. A Hessian is accepted
+only after the relaxation reaches the chosen force tolerance and its signed
+spectrum is checked for unexpected imaginary modes. Raw finite-temperature
+frames are not treated as normal-mode reference structures. If $N_m$
+independent optimized minima are retained, the mean harmonic quantum
+correction is
 \begin{equation}
-  \overline{c_V}(T)=\frac{1}{N_f}\sum_{s=1}^{N_f}c_V^{(s)}(T),
-  \label{eq:frame-average}
+  \overline{\Delta c^{\mathrm{har}}}(T)
+  =\frac{1}{N_m}\sum_{s=1}^{N_m}
+  \left[c_{\mathrm{qn},s}^{\mathrm{har}}(T)
+       -c_{\mathrm{cl},s}^{\mathrm{har}}\right],
+  \label{eq:minimum-average}
 \end{equation}
 with sample variance
 \begin{equation}
-  s_{c_V}^2(T)=\frac{1}{N_f-1}
-  \sum_{s=1}^{N_f}\left[c_V^{(s)}(T)-\overline{c_V}(T)\right]^2.
+  s_{\Delta c}^2(T)=\frac{1}{N_m-1}
+  \sum_{s=1}^{N_m}\left[
+    \Delta c_s^{\mathrm{har}}(T)
+    -\overline{\Delta c^{\mathrm{har}}}(T)\right]^2.
 \end{equation}
-Adjacent frames are correlated. A standard error should therefore use an
-effective sample count, approximately
-\begin{equation}
-  N_{\mathrm{eff}}\simeq
-  \frac{N_f}{2\tau_{\mathrm{int}}/\Delta t_{\mathrm{sample}}},
-  \qquad
-  \mathrm{SE}[\overline{c_V}]\simeq
-  \sqrt{\frac{s_{c_V}^2}{N_{\mathrm{eff}}}},
-\end{equation}
-or a block/bootstrap analysis over independent trajectories.
 
-Equation~\eqref{eq:frame-average} is an ensemble average of local harmonic
-models, not a formally exact anharmonic partition function. It may reveal
-temperature-dependent softening and configurational variability, but it does
-not include barrier crossing, methane diffusion, or the correct free-energy
-weights of vibrational basins automatically. It must therefore be labelled a
-local-harmonic or effective-spectrum diagnostic, especially for loaded MOF-5.
+For each minimum, the quantum and classical harmonic terms use exactly the
+same retained-mode mask. The classical term is $k_{\mathrm B}$ per retained
+mode. The complete loaded-system spectrum is used because framework and
+methane motion can mix; the empty Hessian alone omits methane quantization and
+cannot supply this correction.
+
+The final estimator is
+\begin{equation}
+  c_P^{\mathrm{approx}}(T)
+  =c_{P,\mathrm{cl}}^{\mathrm{anh}}(T)
+  +\overline{\Delta c^{\mathrm{har}}}(T),
+  \qquad
+  c_{P,\mathrm{cl}}^{\mathrm{anh}}(T)
+  =\frac{\mathrm d\langle H\rangle_{\mathrm{cl}}}{\mathrm dT}.
+  \label{eq:hybrid-cp}
+\end{equation}
+Extensive terms are combined before division by the total mass of the loaded
+cell. Replica-aware resampling propagates uncertainty in the enthalpy curve;
+the spread across optimized minima measures sensitivity of the harmonic
+correction. The Hessian contribution is formally a \cv{} correction added to a
+classical \cpheat{} term, following the small solid-state $C_P-C_V$ assumption
+used in the reference approximation. This mixing and the approximation's
+limited validation below roughly \SI{200}{K} must be stated with the result.
 
 \section{Results and discussion}
 \label{sec:results}
 
-% RESULT-SOURCE: output/analysis-{0,100}ch4 and the raw heat-capacity NPZ archives.
-All 20 requested simulations reached \SI{500}{ps}. The analysis discards the
-first \SI{100}{ps} and evaluates thermodynamic statistics on the remaining
-\SI{400}{ps}. Figure~\ref{fig:results-overview} summarizes the two model
-variants, both loadings, and all five target temperatures. The harmonic panels
-were regenerated directly from the archives because the aggregate analysis
-files predate those archives and consequently contain blank harmonic columns.
+The earlier trajectory and raw-frame Hessian calculations were exploratory and
+are not results of the focused workflow defined here. Their numerical tables
+and generated overview figure have therefore been removed from this report.
+Production results should be added only after the new loaded replicas,
+optimized-minimum Hessians, and hybrid analysis have completed and passed the
+checks below.
 
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=\linewidth]{results_overview.pdf}
-  \caption{Summary of the completed NPT and Hessian calculations. Points in
-  the upper panels are production means after discarding \SI{100}{ps}. The
-  lower-left panel reports the mean over Hessians at 200, 350, and
-  \SI{500}{ps}; error bars are the sample standard deviation of those three
-  frames, not independent-replica uncertainty. ``Collapsed'' modes in the
-  lower-right panel are stored as exactly zero because the observable maps
-  negative Hessian eigenvalues to zero frequency. Their large number prevents
-  a conventional stable-minimum interpretation of the nominal \cv{} values.}
-  \label{fig:results-overview}
-\end{figure}
-
-\subsection{Thermodynamic sampling and cell response}
-
-The production mean temperatures differ from their targets by at most
-\SI{0.76}{K} across all runs. Temperature integrated autocorrelation times are
-short, \SIrange{0.055}{0.064}{ps}, relative to the \SI{400}{ps} production
-window. Mean pressures are statistically compatible with the \SI{1}{bar}
-target: their block standard errors are approximately 6--\SI{17}{bar}, much
-larger than the few-bar offsets of the means. These observations show that the
-thermostat and barostat control their requested intensive variables, but do
-not constitute uncertainty across independent initial conditions.
-
-Both models predict density increasing with temperature, hence negative
-thermal expansion. For pristine MOF-5, PET-MAD gives densities from 0.5952 to
-\SI{0.6051}{g\per cm\cubed} between 100 and \SI{500}{K}; PET-SOL gives 0.5950
-to \SI{0.6046}{g\per cm\cubed}. Linear fits to the five mean volumes give
-volumetric expansion coefficients of approximately
-$-4.19\times10^{-5}$ and $-4.08\times10^{-5}\ \si{K^{-1}}$, respectively.
-With 100 methane molecules, the density ranges are 0.7492--0.7539 and
-0.7491--\SI{0.7540}{g\per cm\cubed}, and the corresponding fitted coefficients
-are $-1.53\times10^{-5}$ and $-1.60\times10^{-5}\ \si{K^{-1}}$. Thus loading
-reduces the magnitude of the predicted contraction by about a factor of 2.6.
-The agreement between the two PET variants is close, but it is model
-agreement rather than validation against experiment or the QuickFF reference.
-
-Several runs show statistically significant differences between the first
-and second halves of the production window in density, volume, or energy.
-Because 8,001 closely spaced frames make the nominal standard errors very
-small, not every two-standard-error flag is practically large; nevertheless,
-the flags and the absence of replicate runs mean that the quoted fit values
-should not be assigned production-level confidence intervals.
-
-\subsection{Structural stability and methane contacts}
-
-Framework RMSD and reference-bond distortion increase smoothly with
-temperature. For PET-MAD the pristine-framework RMSD rises from 0.315 to
-\SI{0.673}{\angstrom}; the loaded values are 0.318 to
-\SI{0.669}{\angstrom}. PET-SOL is similar except for a larger loaded-cell RMSD
-of \SI{0.879}{\angstrom} at \SI{500}{K}. The RMS reference-bond changes remain
-between approximately 0.025 and \SI{0.055}{\angstrom} across the campaign.
-These results are consistent with a thermally distorted but connected
-framework over \SI{500}{ps}; RMSD alone cannot rule out localized chemical or
-topological changes, so the high-temperature trajectory should still be
-inspected visually.
-
-For loaded PET-MAD trajectories, the mean minimum host--guest atomic distance
-decreases from 2.108 to \SI{1.840}{\angstrom} from 100 to \SI{500}{K}; PET-SOL
-changes from 2.079 to \SI{1.825}{\angstrom}. The corresponding mean minimum
-methane center-of-mass separations decrease from about 3.404 to
-\SI{3.19}{\angstrom}. This trend is compatible with broader thermal sampling
-and more frequent close encounters. It does not by itself establish methane
-diffusion, adsorption equilibrium, or an interaction-energy mechanism.
-
-\subsection{Harmonic heat-capacity diagnostic}
-
-Table~\ref{tab:room-temperature-results} gives a representative numerical
-cross-section at \SI{300}{K}. The two models agree within about 2\% for the
-pristine diagnostic and within 0.3\% for the loaded diagnostic. Loading raises
-the gravimetric value despite the added methane mass because it also adds many
-low-frequency degrees of freedom.
-
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabular}{@{}llrrrr@{}}
-\toprule
-Loading & Model & $\langle T\rangle$ (K) & Density (g cm$^{-3}$) & RMSD (\AA) &
-$c_V \pm s$ (J g$^{-1}$ K$^{-1}$) \\
-\midrule
-0 \chfour{}   & PET-MAD & 300.014 & 0.60088 & 0.549 & $0.7434 \pm 0.0027$ \\
-0 \chfour{}   & PET-SOL & 300.128 & 0.60004 & 0.514 & $0.7291 \pm 0.0032$ \\
-100 \chfour{} & PET-MAD & 300.001 & 0.75251 & 0.506 & $0.9444 \pm 0.0108$ \\
-100 \chfour{} & PET-SOL & 300.036 & 0.75270 & 0.511 & $0.9415 \pm 0.0030$ \\
-\bottomrule
-\end{tabular}
-\caption{Production means and local-harmonic diagnostics at \SI{300}{K}.
-The $c_V$ uncertainty is the sample standard deviation across the three
-Hessian times; it is not a standard error over independent simulations.}
-\label{tab:room-temperature-results}
-\end{table}
-
-Across the 100--\SI{500}{K} state points, the PET-MAD pristine diagnostic
-increases from 0.333 to \SI{1.041}{J\per g\per K}, while the loaded diagnostic
-increases from 0.555 to \SI{1.318}{J\per g\per K}. PET-SOL gives closely
-similar endpoint ranges of 0.326--1.027 and
-0.553--\SI{1.313}{J\per g\per K}. Variation among the three Hessian times is
-small in absolute terms, with sample standard deviations no larger than
-\SI{0.0133}{J\per g\per K}. This apparent precision must not be confused with
-accuracy.
-
-The pristine spectra contain on average 29--46 exactly zero frequencies out
-of 1,272 modes, and the loaded spectra contain 243--325 out of 2,772. The
-implementation collapses negative eigenvalues to zero, so the stored arrays
-cannot distinguish physical instabilities from numerical or sparse-Hessian
-errors after the fact. In either case, counts far above the three acoustic
-translations violate the stable-minimum assumption behind
-Eq.~\eqref{eq:harmonic-cv}. The values above therefore quantify the output of
-the present local-curvature pipeline, but cannot yet be compared as validated
-harmonic \cv{} values with the approximately \SI{0.7}{J\per g\per K}
-room-temperature reference or interpreted as the loaded-system \cpheat{}
-minimum of Kapil \emph{et al.}
+The primary reported result will be a temperature-resolved table or curve
+containing the replica-averaged classical enthalpy derivative, the mean loaded
+harmonic quantum correction, their separate uncertainties, and the combined
+$c_P^{\mathrm{approx}}$. The empty quantum-harmonic curve will be shown as a
+separately normalized reference. Density, cell response, framework stability,
+methane mobility, imaginary-mode counts, and relaxation residual forces will
+support interpretation rather than replace the heat-capacity result.
 
 \section{Recommended production and analysis protocol}
 
-\subsection{Pristine MOF-5: primary quantitative target}
+\subsection{Empty MOF-5 reference}
 
-The strongest first scientific calculation is the pristine-framework quantum
-harmonic \cv{}, because this is the regime in which Kapil \emph{et al.} found
-close agreement between harmonic and path-integral results.
+The equilibrated empty-framework structure is used directly; an empty-MOF MD
+campaign would add cost without supplying the anharmonic loaded-system term
+needed by Eq.~\eqref{eq:hybrid-cp}.
 
 \begin{enumerate}
   \item Relax the atomic coordinates with the same PET-MAD checkpoint used for
@@ -995,40 +895,39 @@ close agreement between harmonic and path-integral results.
   \item Converge the conventional-cell result with respect to supercell size or
         phonon wave-vector sampling. A single periodic cell Hessian samples
         only the corresponding finite set of modes.
-  \item Compare the curve and the room-temperature value with the approximately
+  \item Retain the resulting curve as a separately normalized reference and
+        compare its room-temperature value with the approximately
         \SI{0.7}{J\per g\per K} reference scale, while stating that PET-MAD
         replaces QuickFF and that model error remains to be quantified.
 \end{enumerate}
 
-\subsection{Loaded MOF-5: staged diagnostic programme}
+\subsection{Loaded MOF-5 production and Hessians}
 
-For the 100-methane system, a sensible progression is:
+For the 100-methane system, the production sequence is:
 
 \begin{enumerate}
-  \item Treat the completed three-frame Hessians as diagnostics of the
-        non-stationary-point problem, not as converged heat capacities.
-  \item Optimize several methane configurations with the same model and
-        retain signed eigenvalues so genuine unstable modes remain visible.
-  \item Estimate autocorrelation times for energy and representative
-        host--guest observables, then select well-separated production frames.
-  \item Prefer separate Hessian jobs for independent frames because the current
-        implementation is serial and single-GPU. Start with a small number,
-        increase it until the mean curve and uncertainty stabilize, and retain
-        every individual curve.
-  \item Repeat the whole workflow for multiple methane insertion and velocity
-        seeds. Basin-to-basin variation cannot be measured from one initial
-        structure.
-  \item Label the average as a trajectory-frame harmonic diagnostic. Do not
-        identify a minimum near \SI{200}{K} as the paper's physical \cpheat{}
-        minimum without an anharmonic, quantum, constant-pressure method.
+  \item Prepare independent methane placements and velocity seeds for each
+        replica on the enthalpy temperature grid.
+  \item Run flexible-cell classical NPT only for the loaded system. Determine
+        equilibration from enthalpy, cell, framework, and methane-mobility
+        diagnostics rather than assuming the template duration is sufficient.
+  \item Average enthalpy over the stationary part of each replica, combine
+        replica uncertainties, and differentiate the temperature dependence.
+  \item Select representative independent loaded configurations, quench each
+        one to a fixed-cell minimum with the same MLIP, and reject unconverged
+        or unstable minima.
+  \item Compute one AD Hessian per accepted minimum. Converge precision, graph
+        hops, HVP chunking, acoustic treatment, frequency threshold, and cell
+        size on the quantum-minus-classical correction.
+  \item Average the loaded corrections, combine them with the classical
+        enthalpy derivative using Eq.~\eqref{eq:hybrid-cp}, and report MD and
+        minimum-to-minimum uncertainties separately as well as jointly.
 \end{enumerate}
 
-An exact reproduction of the loaded reference calculation would additionally
-require a validated pressure/stress model, cell dynamics, the published or an
-equivalently validated host--guest potential, Suzuki--Chin PIMD, ring-polymer
-contraction, multiple timesteps, controlled replicas and seeds, enthalpy
-finite differences at $T\pm\SI{25}{K}$, restart support, and uncertainty
-propagation across neighboring temperatures.
+This calculation is intentionally not an exact reproduction of the reference
+study. A small number of path-integral state points may be considered later as
+validation if quantitative accuracy below approximately \SI{200}{K} is
+required, but they are not part of the production workflow.
 
 \subsection{Equilibration and convergence criteria}
 
@@ -1043,9 +942,11 @@ alone. At minimum, inspect:
   \item methane center-of-mass distributions, host--guest distances, and
         mean-squared displacements;
   \item sensitivity to timestep and thermostat friction;
-  \item agreement among independent seeds; and
-  \item convergence of \cv{} with frame count, frame spacing, precision,
-        sparsity depth, cell size, and mode treatment.
+  \item agreement among independent seeds;
+  \item convergence of the enthalpy derivative with replica count, sampling
+        length, and temperature spacing; and
+  \item convergence of the harmonic correction with independent minima,
+        precision, sparsity depth, cell size, and mode treatment.
 \end{itemize}
 
 The timestep should first be validated in short NVE tests by checking energy
@@ -1055,20 +956,29 @@ kinetic temperature.
 
 \section{Implementation, outputs, and reproducibility}
 
-The repository's standard ASE MD entry point is \texttt{run.py}; the completed
-paper-protocol campaign used the LAMMPS/metatomic path recorded in its TOML
-configuration files and generated LAMMPS inputs. Methane insertion is handled by
-\texttt{python -m mof\_heat\_capacity.structures.methane}; harmonic analysis is
-handled by \texttt{python -m mof\_heat\_capacity.analysis.harmonic}. The latter
-stores the run name,
-structure, trajectory, PET-JAX checkpoint, selected frame indices, temperature
-grid, frequency arrays, gravimetric \cv{} curves, precision, graph hops, HVP
-chunk size, and rematerialization choice in an NPZ file.
+The production campaign is prepared by
+\texttt{scripts/prepare\_loaded\_campaign.py} and submitted by
+\texttt{scripts/submit\_loaded\_md.sh}. These commands create independent
+loaded structures and LAMMPS/metatomic NPT runs while deliberately rejecting a
+zero-methane MD campaign. Trajectory diagnostics are submitted with
+\texttt{scripts/submit\_analysis.sh}.
+
+The command \texttt{scripts/submit\_heat\_capacity.sh} takes final structures
+from selected loaded replicas, relaxes them with
+\texttt{mof\_heat\_capacity.structures.relax}, and passes the optimized
+structures to \texttt{mof\_heat\_capacity.analysis.harmonic}. The same command
+relaxes and evaluates the supplied empty reference directly. Harmonic archives
+store the run and model identity, optimized structure, temperature grid,
+frequency array, gravimetric \cv{} curve, precision, graph hops, HVP chunk
+size, and rematerialization choice. Finally,
+\texttt{scripts/submit\_hybrid\_analysis.sh} differentiates the loaded NPT
+enthalpies and writes the classical term, harmonic correction, combined curve,
+uncertainties, and provenance as NPZ, CSV, and JSON files.
 
 Cluster calculations use one node, one task, and one GPU because neither the MD
 nor Hessian code is MPI or multi-GPU parallel. Independent temperature,
-replica, or Hessian-frame jobs are the available level of parallelism. Slurm
-job identifiers and resource use should be retained; elapsed time and peak
+replica, or optimized-minimum jobs are the available level of parallelism.
+Slurm job identifiers and resource use should be retained; elapsed time and peak
 memory can be recovered with, for example,
 \begin{verbatim}
 sacct -j JOB_ID --format=JobID,State,Elapsed,MaxRSS,AllocTRES
@@ -1087,7 +997,7 @@ A reproducible result should record:
   \item ensemble, target temperature, timestep, thermostat and friction,
         number of steps, output stride, velocity seed, equilibration interval,
         production interval, and restart history;
-  \item Hessian frame indices, relaxation state, residual forces, graph hops,
+  \item Hessian source replica, relaxation state, residual forces, graph hops,
         HVP chunk size, rematerialization, acoustic sum rule, frequency
         threshold, and temperature grid; and
   \item independent-replica count, autocorrelation or block length,
@@ -1096,57 +1006,52 @@ A reproducible result should record:
 
 \section{Limitations and interpretation}
 
-The principal limitations of the current results are:
+The principal limitations of the planned result are:
 
 \begin{itemize}
   \item PET-MAD and QuickFF describe different potential-energy surfaces;
         agreement with the paper cannot be assumed.
-  \item The flexible-cell NPT trajectories use a model marked as externally
-        stress validated, but no MOF-5-specific stress benchmark is included.
+  \item Flexible-cell NPT requires a stress-capable MLIP and a MOF-5-specific
+        stress benchmark; an output capability flag alone is not validation.
   \item Classical nuclei are used in MD; nuclear quantum effects enter only
         through the harmonic oscillator formula.
-  \item Only one trajectory exists per model, loading, and temperature, so
-        uncertainty across insertion and velocity seeds is unknown.
   \item The random insertion is not an adsorption or Monte Carlo equilibrium
         distribution.
-  \item A Hessian at a thermally displaced frame is not necessarily evaluated
-        at a minimum. Imaginary directions and basin crossing complicate its
-        physical interpretation.
-  \item Negative Hessian eigenvalues are stored as zero frequencies. The large
-        zero-mode counts show that the present nominal \cv{} curves do not
-        satisfy the stable-minimum requirement.
-  \item Averaging local harmonic frame curves is not an exact anharmonic \cv{}
-        and cannot recover the published loaded-system \cpheat{} minimum by
-        construction.
-  \item Finite-size, sparse-Hessian depth, precision, model-validity, and
-        independent-replica errors have not yet been quantified.
+  \item A finite number of quenched structures may not represent every
+        thermodynamically important loaded basin. Their spread measures
+        sensitivity but is not automatically a free-energy-weighted average.
+  \item The harmonic correction cannot itself represent methane diffusion or
+        barrier crossing; those effects enter only through classical MD.
+  \item Adding a harmonic \cv{} correction to a classical \cpheat{} term assumes
+        that the corresponding pressure--volume quantum correction is small.
+  \item The approximation was quantitatively successful in the reference
+        100-methane system mainly above about \SI{200}{K}; transfer to this
+        MLIP, other loadings, and lower temperatures requires validation.
+  \item Finite-size, sparse-Hessian depth, precision, temperature-derivative,
+        model-validity, and independent-replica errors must all be quantified.
 \end{itemize}
 
-These qualifications do not make the current calculations uninformative. The
-workflow is valuable for checking model stability, measuring computational
-cost, comparing local spectra, and establishing whether a converged pristine
-harmonic calculation is feasible. They define the boundary between a useful
-diagnostic and a thermodynamic claim.
+These qualifications define the boundary between an efficient, physically
+motivated approximation and an exact quantum-anharmonic thermodynamic result.
+They should be carried into every plot, table, and comparison with experiment.
 
 \section{Conclusions}
 
-The completed campaign establishes a reproducible path from periodic MOF-5
-structures to \SI{500}{ps} flexible-cell NPT trajectories and sparse-AD
-Hessians. Across 20 runs, PET-MAD and PET-SOL agree closely on temperature,
-density, negative thermal expansion, and most framework-distortion measures.
-Methane loading reduces the magnitude of the predicted negative expansion and
-introduces closer host--guest contacts at higher temperature.
+The focused workflow avoids both unnecessary empty-framework MD and the cost
+of a full production path-integral campaign. Classical NPT trajectories are
+reserved for loaded MOF-5, where they are needed to describe anharmonic guest
+and host--guest motion. Sparse AD Hessians are evaluated only at converged
+fixed-cell minima and provide the loaded-system quantum-minus-classical
+harmonic correction. The equilibrated empty structure contributes one direct
+reference Hessian.
 
-% INTERPRETATION: keep the numerical result separate from the thermodynamic claim.
-The nominal harmonic curves are internally smooth and show modest variation
-among the three sampled times, but their many collapsed non-positive modes
-make them scientifically unconverged. The immediate priority is therefore a
-same-model geometry relaxation followed by signed-eigenvalue, precision, and
-sparsity-depth checks, first for pristine MOF-5. Independent replicas and
-optimized methane configurations are then needed to quantify basin-to-basin
-variation. Quantitative reproduction of Kapil \emph{et al.}'s loaded
-\cpheat{} remains a separate task requiring anharmonic nuclear-quantum
-sampling and enthalpy derivatives at neighboring temperatures.
+The final quantity is the classical loaded-system enthalpy derivative plus the
+mean loaded harmonic correction. Its credibility depends on stress validation,
+stationary and replicated MD, stable optimized minima, numerical Hessian
+convergence, consistent mode and mass bookkeeping, and explicit uncertainty
+propagation. This strategy implements the cost-saving approximation motivated
+by Kapil \emph{et al.} without attempting to reproduce every calculation in
+their study.
 
 \begin{thebibliography}{11}
 

@@ -30,7 +30,6 @@ dependencies:
       - matplotlib
       - metatomic-ase>=0.1.2
       - "nvalchemi-toolkit-ops[torch]==0.3.1"
-      - ipi>=3.2.0
       - "jax[cuda12]==0.11.0"
       - "jax-cuda12-plugin==0.11.0"
       - "jax-cuda12-pjrt==0.11.0"

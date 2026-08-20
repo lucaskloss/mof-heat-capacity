@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Submit sparse SADMOF harmonic heat capacities as one Slurm array task per run.
+# Relax empty/loaded structures and submit AD Hessians for the hybrid workflow.
 
 set -euo pipefail
 
@@ -8,22 +8,22 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 JOB_SCRIPT="${SCRIPT_DIR}/izar_job.sh"
-MODEL="both"
-LOADINGS="0,100"
-MD_TEMPERATURES="100,200,300,400,500"
-REPLICAS="1"
-FRAME_TIMES_PS="200,350,500"
+MODEL="pet-mad"
+LOADING=100
+SOURCE_TEMPERATURE=300
+REPLICAS="1,2,3"
+EMPTY_STRUCTURE="input/mof5.pdb"
+INCLUDE_EMPTY=1
 CV_TEMPERATURES="100:500:10"
+FMAX="0.01"
+RELAX_STEPS=2000
 PARTITION="${MOF_HEAT_PARTITION:-gpu}"
 QOS="${MOF_HEAT_QOS:-normal}"
-WALL_TIME="${MOF_HEAT_TIME:-00:45:00}"
+WALL_TIME="${MOF_HEAT_TIME:-08:00:00}"
 CPUS_PER_TASK="${MOF_HEAT_CPUS:-8}"
-MAX_CONCURRENT="${MOF_HEAT_MAX_CONCURRENT:-4}"
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${PROJECT_DIR}/output/slurm}"
 OVERWRITE=0
-DEBUG=0
 DRY_RUN=0
-HEAT_OUTPUT=""
 
 
 usage() {
@@ -31,27 +31,28 @@ usage() {
 Usage: scripts/submit_heat_capacity.sh [options]
 
 Options:
-  --model NAME            pet-mad, pet-sol, or both (default: both).
-  --loading LIST          Comma-separated methane counts (default: 0,100).
-  --md-temperatures LIST  Comma-separated MD temperatures in K.
-  --replicas LIST         Comma-separated replica numbers (default: 1).
-  --frame-times-ps LIST   Physical trajectory times (default: 200,350,500 ps).
+  --model NAME            pet-mad, pet-sol, or both (default: pet-mad).
+  --loading N             Positive methane loading (default: 100).
+  --source-temperature N  Loaded-MD temperature used to choose minima (default: 300 K).
+  --replicas LIST         Independent loaded replicas to quench (default: 1,2,3).
+  --empty-structure PATH  Equilibrated empty MOF-5 structure (default: input/mof5.pdb).
+  --skip-empty            Do not submit the one empty-reference Hessian per model.
   --cv-temperatures RANGE Harmonic C_V grid (default: 100:500:10 K).
+  --fmax VALUE            Fixed-cell relaxation threshold in eV/A (default: 0.01).
+  --relax-steps N         Maximum FIRE steps (default: 2000).
   --partition NAME        Slurm partition (default: gpu).
   --qos NAME              Slurm QOS (default: normal).
-  --time HH:MM:SS         Time per trajectory/task (default: 00:45:00).
-  --cpus N                CPUs per trajectory/task (default: 8).
-  --max-concurrent N      Maximum simultaneous array tasks (default: 4).
+  --time HH:MM:SS         Time per relaxation plus Hessian (default: 08:00:00).
+  --cpus N                CPUs per task (default: 8).
   --slurm-output-dir PATH Slurm log directory (default: output/slurm).
-  --overwrite             Intentionally replace matching existing NPZ outputs.
-  --debug                 One PET-MAD 100-CH4 300 K frame at 275 ps, debug QOS.
-  --dry-run               Validate files and print the array submission only.
+  --overwrite             Replace existing relaxation and Hessian outputs.
+  --dry-run               Validate inputs and print all submissions.
   -h, --help              Show this help.
 
-The defaults submit 20 array tasks: two MLIPs x two methane loadings x five MD
-temperatures x replica 1. Each task processes three well-separated production
-frames serially and writes one NPZ archive inside that run's output directory.
-No SADMOF, JAX, model, trajectory, or Hessian calculation runs before Slurm.
+Each loaded task reads the final structure from one completed classical MD
+replica, relaxes it at fixed cell with the same MLIP, and computes one AD
+Hessian from the resulting minimum. Empty MOF-5 is relaxed directly from the
+supplied equilibrated structure; no empty-MOF MD trajectory is used.
 EOF
 }
 
@@ -64,42 +65,23 @@ require_value() {
 }
 
 
-require_unique_values() {
-    local option_name="$1"
-    shift
-    local -A seen=()
-    local value
-
-    for value in "$@"; do
-        if [[ -z "${value}" ]]; then
-            echo "error: ${option_name} contains an empty value" >&2
-            exit 2
-        fi
-        if [[ -n "${seen["${value}"]+present}" ]]; then
-            echo "error: ${option_name} contains duplicate value: ${value}" >&2
-            exit 2
-        fi
-        seen["${value}"]=1
-    done
-}
-
-
 while (($#)); do
     case "$1" in
         --model) require_value "$@"; MODEL="$2"; shift 2 ;;
-        --loading) require_value "$@"; LOADINGS="$2"; shift 2 ;;
-        --md-temperatures) require_value "$@"; MD_TEMPERATURES="$2"; shift 2 ;;
+        --loading) require_value "$@"; LOADING="$2"; shift 2 ;;
+        --source-temperature) require_value "$@"; SOURCE_TEMPERATURE="$2"; shift 2 ;;
         --replicas) require_value "$@"; REPLICAS="$2"; shift 2 ;;
-        --frame-times-ps) require_value "$@"; FRAME_TIMES_PS="$2"; shift 2 ;;
+        --empty-structure) require_value "$@"; EMPTY_STRUCTURE="$2"; shift 2 ;;
+        --skip-empty) INCLUDE_EMPTY=0; shift ;;
         --cv-temperatures) require_value "$@"; CV_TEMPERATURES="$2"; shift 2 ;;
+        --fmax) require_value "$@"; FMAX="$2"; shift 2 ;;
+        --relax-steps) require_value "$@"; RELAX_STEPS="$2"; shift 2 ;;
         --partition) require_value "$@"; PARTITION="$2"; shift 2 ;;
         --qos) require_value "$@"; QOS="$2"; shift 2 ;;
         --time) require_value "$@"; WALL_TIME="$2"; shift 2 ;;
         --cpus) require_value "$@"; CPUS_PER_TASK="$2"; shift 2 ;;
-        --max-concurrent) require_value "$@"; MAX_CONCURRENT="$2"; shift 2 ;;
         --slurm-output-dir) require_value "$@"; SLURM_OUTPUT_DIR="$2"; shift 2 ;;
         --overwrite) OVERWRITE=1; shift ;;
-        --debug) DEBUG=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -107,38 +89,43 @@ while (($#)); do
 done
 
 
-if ((DEBUG)); then
-    MODEL="pet-mad"
-    LOADINGS="100"
-    MD_TEMPERATURES="300"
-    REPLICAS="1"
-    FRAME_TIMES_PS="275"
-    QOS="debug"
-    WALL_TIME="00:30:00"
-    MAX_CONCURRENT=1
-    HEAT_OUTPUT="output/debug/heat-capacity-pet-mad-100ch4-300K-275ps.npz"
-fi
 case "${MODEL}" in
-    both) MODEL_NAMES=("pet-mad-1.5-s-40nn" "pet-sol-s-best") ;;
     pet-mad) MODEL_NAMES=("pet-mad-1.5-s-40nn") ;;
     pet-sol) MODEL_NAMES=("pet-sol-s-best") ;;
+    both) MODEL_NAMES=("pet-mad-1.5-s-40nn" "pet-sol-s-best") ;;
     *) echo "error: --model must be pet-mad, pet-sol, or both" >&2; exit 2 ;;
 esac
-if [[ ! "${CPUS_PER_TASK}" =~ ^[1-9][0-9]*$ \
-    || ! "${MAX_CONCURRENT}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "error: --cpus and --max-concurrent must be positive integers" >&2
+if [[ ! "${LOADING}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: --loading must be a positive methane count" >&2
+    exit 2
+fi
+if [[ ! "${SOURCE_TEMPERATURE}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: --source-temperature must be a positive integer" >&2
+    exit 2
+fi
+if [[ ! "${RELAX_STEPS}" =~ ^[1-9][0-9]*$ \
+    || ! "${CPUS_PER_TASK}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: --relax-steps and --cpus must be positive integers" >&2
+    exit 2
+fi
+if [[ ! "${FMAX}" =~ ^[0-9]+([.][0-9]+)?$ \
+    || "${FMAX}" =~ ^0+([.]0+)?$ ]]; then
+    echo "error: --fmax must be a positive number" >&2
     exit 2
 fi
 if [[ ! "${CV_TEMPERATURES}" =~ ^[0-9]+([.][0-9]+)?:[0-9]+([.][0-9]+)?:[0-9]+([.][0-9]+)?$ ]]; then
     echo "error: --cv-temperatures must be start:stop:step" >&2
     exit 2
 fi
-if [[ -z "${SLURM_OUTPUT_DIR}" ]]; then
-    echo "error: --slurm-output-dir must not be empty" >&2
-    exit 2
-fi
 if [[ "${SLURM_OUTPUT_DIR}" != /* ]]; then
     SLURM_OUTPUT_DIR="${PROJECT_DIR}/${SLURM_OUTPUT_DIR}"
+fi
+if [[ "${EMPTY_STRUCTURE}" != /* ]]; then
+    EMPTY_STRUCTURE="${PROJECT_DIR}/${EMPTY_STRUCTURE}"
+fi
+if ((INCLUDE_EMPTY)) && [[ ! -f "${EMPTY_STRUCTURE}" ]]; then
+    echo "error: empty MOF-5 structure not found: ${EMPTY_STRUCTURE}" >&2
+    exit 2
 fi
 if ((!DRY_RUN)) && ! command -v sbatch >/dev/null 2>&1; then
     echo "error: sbatch is unavailable; submit from a cluster login node" >&2
@@ -146,126 +133,103 @@ if ((!DRY_RUN)) && ! command -v sbatch >/dev/null 2>&1; then
 fi
 
 
-IFS=',' read -r -a LOADING_VALUES <<< "${LOADINGS}"
-IFS=',' read -r -a MD_TEMPERATURE_VALUES <<< "${MD_TEMPERATURES}"
 IFS=',' read -r -a REPLICA_VALUES <<< "${REPLICAS}"
-IFS=',' read -r -a FRAME_TIME_VALUES <<< "${FRAME_TIMES_PS}"
-require_unique_values "--loading" "${LOADING_VALUES[@]}"
-require_unique_values "--md-temperatures" "${MD_TEMPERATURE_VALUES[@]}"
-require_unique_values "--replicas" "${REPLICA_VALUES[@]}"
-previous_time=-1
-for time_ps in "${FRAME_TIME_VALUES[@]}"; do
-    if [[ ! "${time_ps}" =~ ^[0-9]+$ \
-        || ${time_ps} -lt 100 || ${time_ps} -gt 500 ]]; then
-        echo "error: --frame-times-ps must contain integer times from 100 to 500 ps" >&2
-        exit 2
-    fi
-    if ((time_ps <= previous_time)); then
-        echo "error: --frame-times-ps must be unique and strictly increasing" >&2
-        exit 2
-    fi
-    previous_time=${time_ps}
-done
-
-CONFIGS=()
-cd "${PROJECT_DIR}"
-for loading in "${LOADING_VALUES[@]}"; do
-    [[ "${loading}" =~ ^[0-9]+$ ]] || {
-        echo "error: --loading must contain non-negative integers" >&2
-        exit 2
-    }
-    for model_name in "${MODEL_NAMES[@]}"; do
-        for temperature in "${MD_TEMPERATURE_VALUES[@]}"; do
-            [[ "${temperature}" =~ ^[1-9][0-9]*$ ]] || {
-                echo "error: --md-temperatures must contain positive integers" >&2
-                exit 2
-            }
-            for replica in "${REPLICA_VALUES[@]}"; do
-                [[ "${replica}" =~ ^[1-9][0-9]*$ ]] || {
-                    echo "error: --replicas must contain positive integers" >&2
-                    exit 2
-                }
-                printf -v replica_tag '%02d' "${replica}"
-                run="mof5-${loading}ch4-paper-${model_name}-classical-${temperature}K-rep${replica_tag}"
-                config="configs/${run}.toml"
-                trajectory="output/${run}/${run}.lammpstrj"
-                thermo_log="output/${run}/${run}.lammps.log"
-                for required in "${config}" "${trajectory}" "${thermo_log}"; do
-                    if [[ ! -f "${required}" ]]; then
-                        echo "error: missing required completed-run file: ${required}" >&2
-                        exit 2
-                    fi
-                done
-                time_tag=""
-                for time_ps in "${FRAME_TIME_VALUES[@]}"; do
-                    time_tag+="${time_tag:+-}${time_ps}ps"
-                done
-                heat_output="${HEAT_OUTPUT:-output/${run}/heat-capacity-times-${time_tag}.npz}"
-                if ((!OVERWRITE)) && [[ -e "${heat_output}" ]]; then
-                    echo "error: heat-capacity output already exists: ${heat_output}" >&2
-                    echo "use --overwrite only if replacing it is intentional" >&2
-                    exit 2
-                fi
-                if [[ "${model_name}" == "pet-mad-1.5-s-40nn" ]]; then
-                    jax_model="models/pet-mad-1.5-s_40nn_jax"
-                else
-                    jax_model="models/pet_sol-s-best_nostress_jax"
-                fi
-                if [[ ! -f "${jax_model}/model.msgpack" \
-                    || ! -f "${jax_model}/metadata.yaml" ]]; then
-                    echo "error: incomplete PET-JAX model directory: ${jax_model}" >&2
-                    exit 2
-                fi
-                CONFIGS+=("${config}")
-            done
-        done
-    done
-done
-if ((${#CONFIGS[@]} == 0)); then
-    echo "error: selection produced no heat-capacity tasks" >&2
+if ((${#REPLICA_VALUES[@]} == 0)); then
+    echo "error: --replicas must not be empty" >&2
     exit 2
 fi
-
-
-CONFIG_LIST=$(IFS=':'; echo "${CONFIGS[*]}")
-LAST_TASK=$((${#CONFIGS[@]} - 1))
-export MOF_STAGE="heat-capacity"
-export MOF_HEAT_CONFIGS="${CONFIG_LIST}"
-export MOF_HEAT_FRAME_TIMES_PS="${FRAME_TIMES_PS}"
-export MOF_HEAT_TEMPERATURES="${CV_TEMPERATURES}"
-export MOF_HEAT_OVERWRITE="${OVERWRITE}"
-export MOF_HEAT_OUTPUT="${HEAT_OUTPUT}"
-
-command=(
-    sbatch --parsable
-    --job-name=mof5-harmonic-cv
-    --partition="${PARTITION}" --qos="${QOS}"
-    --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
-    --gres=gpu:1 --time="${WALL_TIME}"
-    --array="0-${LAST_TASK}%${MAX_CONCURRENT}"
-    --output="${SLURM_OUTPUT_DIR}/slurm-%x-%A_%a.out"
-    --export=ALL
-    "${JOB_SCRIPT}"
-)
-
-echo "Selected ${#CONFIGS[@]} trajectories; ${#FRAME_TIME_VALUES[@]} frame time(s) each: ${FRAME_TIMES_PS} ps"
-for index in "${!CONFIGS[@]}"; do
-    echo "  array task ${index}: ${CONFIGS[index]}"
+declare -A SEEN_REPLICAS=()
+for replica in "${REPLICA_VALUES[@]}"; do
+    if [[ ! "${replica}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "error: --replicas must contain positive integers" >&2
+        exit 2
+    fi
+    if [[ -n "${SEEN_REPLICAS[${replica}]:-}" ]]; then
+        echo "error: duplicate replica: ${replica}" >&2
+        exit 2
+    fi
+    SEEN_REPLICAS[${replica}]=1
 done
-echo "Harmonic C_V grid: ${CV_TEMPERATURES} K"
-echo "Resources per array task: ${PARTITION}/${QOS}, GPU=1, CPUs=${CPUS_PER_TASK}, time=${WALL_TIME}"
-echo "Array concurrency: ${MAX_CONCURRENT}; Slurm output: ${SLURM_OUTPUT_DIR}/slurm-%x-%A_%a.out"
-if ((DRY_RUN)); then
-    printf 'DRY RUN ENV:'
-    printf ' %q=%q' MOF_STAGE "${MOF_STAGE}"
-    printf ' %q=%q' MOF_HEAT_CONFIGS "${MOF_HEAT_CONFIGS}"
-    printf ' %q=%q' MOF_HEAT_FRAME_TIMES_PS "${MOF_HEAT_FRAME_TIMES_PS}"
-    printf ' %q=%q' MOF_HEAT_TEMPERATURES "${MOF_HEAT_TEMPERATURES}"
-    printf ' %q=%q' MOF_HEAT_OUTPUT "${MOF_HEAT_OUTPUT}"
-    printf ' %q=%q\n' MOF_HEAT_OVERWRITE "${MOF_HEAT_OVERWRITE}"
-    printf 'DRY RUN:'; printf ' %q' "${command[@]}"; printf '\n'
-else
+
+
+CONFIGS=()
+INPUTS=()
+RELAXED=()
+HESSIANS=()
+LABELS=()
+ALLOW_SUBSETS=()
+cd "${PROJECT_DIR}"
+for model_name in "${MODEL_NAMES[@]}"; do
+    carrier_config=""
+    for replica in "${REPLICA_VALUES[@]}"; do
+        printf -v replica_tag '%02d' "${replica}"
+        run="mof5-${LOADING}ch4-${model_name}-npt-${SOURCE_TEMPERATURE}K-rep${replica_tag}"
+        config="configs/${run}.toml"
+        trajectory="output/classical/production/${LOADING}ch4/${run}/${run}.final.data"
+        if [[ ! -f "${config}" || ! -f "${trajectory}" ]]; then
+            echo "error: completed loaded run is required: ${config} and ${trajectory}" >&2
+            exit 2
+        fi
+        carrier_config="${carrier_config:-${config}}"
+        base="output/hybrid/${model_name}/${LOADING}ch4"
+        CONFIGS+=("${config}")
+        INPUTS+=("${trajectory}")
+        RELAXED+=("${base}/minima/rep${replica_tag}.optimized.extxyz")
+        HESSIANS+=("${base}/hessians/rep${replica_tag}.npz")
+        LABELS+=("${LOADING}ch4-r${replica_tag}")
+        ALLOW_SUBSETS+=(0)
+    done
+    if ((INCLUDE_EMPTY)); then
+        base="output/hybrid/${model_name}/0ch4"
+        CONFIGS+=("${carrier_config}")
+        INPUTS+=("${EMPTY_STRUCTURE}")
+        RELAXED+=("${base}/minima/empty.optimized.extxyz")
+        HESSIANS+=("${base}/hessians/empty.npz")
+        LABELS+=("empty")
+        ALLOW_SUBSETS+=(1)
+    fi
+done
+
+
+for index in "${!CONFIGS[@]}"; do
+    if ((!OVERWRITE)) && [[ -e "${HESSIANS[index]}" ]]; then
+        echo "error: Hessian output exists; use --overwrite to replace it: ${HESSIANS[index]}" >&2
+        exit 2
+    fi
+    if ((!OVERWRITE)) && [[ -e "${RELAXED[index]}" ]]; then
+        echo "Will reuse converged relaxed structure: ${RELAXED[index]}"
+    fi
+done
+
+
+echo "Hybrid Hessian campaign: ${#CONFIGS[@]} fixed-cell relaxation/Hessian task(s)"
+echo "Loaded source: ${LOADING} CH4 at ${SOURCE_TEMPERATURE} K; replicas ${REPLICAS}"
+echo "Harmonic grid: ${CV_TEMPERATURES} K; fmax=${FMAX} eV/A"
+if ((!DRY_RUN)); then
     mkdir -p "${SLURM_OUTPUT_DIR}"
-    submission=$("${command[@]}")
-    echo "Submitted heat-capacity array: ${submission%%;*} (tasks 0-${LAST_TASK})"
 fi
+
+for index in "${!CONFIGS[@]}"; do
+    config="${CONFIGS[index]}"
+    input="${INPUTS[index]}"
+    relaxed="${RELAXED[index]}"
+    hessian="${HESSIANS[index]}"
+    label="${LABELS[index]}"
+    allow_subset="${ALLOW_SUBSETS[index]}"
+    command=(
+        sbatch --parsable
+        --job-name="mof5-hybrid-${label}"
+        --partition="${PARTITION}" --qos="${QOS}"
+        --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
+        --gres=gpu:1 --time="${WALL_TIME}"
+        --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
+        --export="ALL,MOF_STAGE=relax-and-heat-capacity,MOF_CONFIG=${config},MOF_RELAX_INPUT=${input},MOF_RELAX_INDEX=-1,MOF_RELAX_OUTPUT=${relaxed},MOF_RELAX_FMAX=${FMAX},MOF_RELAX_STEPS=${RELAX_STEPS},MOF_RELAX_ALLOW_ELEMENT_SUBSET=${allow_subset},MOF_RELAX_OVERWRITE=${OVERWRITE},MOF_HEAT_TEMPERATURES=${CV_TEMPERATURES},MOF_HEAT_OUTPUT=${hessian},MOF_HEAT_OVERWRITE=${OVERWRITE}"
+        "${JOB_SCRIPT}"
+    )
+    if ((DRY_RUN)); then
+        printf 'DRY RUN:'; printf ' %q' "${command[@]}"; printf '\n'
+    else
+        submission=$("${command[@]}")
+        echo "Submitted ${label}: ${submission%%;*}"
+    fi
+done

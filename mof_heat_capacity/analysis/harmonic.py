@@ -13,14 +13,10 @@ from ..config import RunConfig, load_run_config
 from .lammps import read_lammps_thermo
 
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG = PROJECT_DIR / "configs" / "mof5_pet_mad.toml"
-
-
 def parse_args() -> argparse.Namespace:
     """Parse a run specification and heat-capacity overrides."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--trajectory", type=Path)
     parser.add_argument("--frames", help="Count, 'all', or comma-separated indices")
     parser.add_argument(

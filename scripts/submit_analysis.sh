@@ -12,8 +12,8 @@ ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
 VALIDATE_PYTHON="${MOF_ANALYSIS_PYTHON:-${ENV_PREFIX}/bin/python}"
 RUNS=""
 MODEL="both"
-LOADINGS="0"
-TEMPERATURES="100,200,300,400,500"
+LOADINGS="100"
+TEMPERATURES="100,125,150,175,200,225,250,275,300,325,350,375,400,425,450,475,500"
 REPLICAS="1"
 DISCARD_PS="100"
 ANALYSIS_DIR="output/analysis"
@@ -32,7 +32,7 @@ Usage: scripts/submit_analysis.sh [options]
 
 Options:
   --model NAME            pet-mad, pet-sol, or both (default: both).
-  --loading LIST          Comma-separated methane counts (default: 0).
+  --loading LIST          Comma-separated positive methane counts (default: 100).
   --temperatures LIST     Comma-separated temperatures in K.
   --replicas LIST         Comma-separated replica numbers (default: 1).
   --runs PATTERN          Advanced: explicit run-name glob(s); overrides selectors.
@@ -48,10 +48,9 @@ Options:
   -h, --help              Show this help.
 
 Izar's normal QOS requires one allocated GPU, although the analysis itself is
-CPU-based. By default the job analyzes the ten pristine classical replica-01
-trajectories for both MLIPs and all five temperatures. For example, use
-`--loading 0,100 --model both` to analyze both available methane loadings and
-potentials in one job.
+CPU-based. By default the job analyzes loaded classical replica 1 across the
+25 K enthalpy grid for both MLIPs. Empty MOF-5 has no MD stage in the hybrid
+workflow.
 EOF
 }
 
@@ -98,8 +97,8 @@ if [[ -z "${RUNS}" ]]; then
     IFS=',' read -r -a REPLICA_VALUES <<< "${REPLICAS}"
     RUN_PATTERNS=()
     for loading in "${LOADING_VALUES[@]}"; do
-        if [[ ! "${loading}" =~ ^[0-9]+$ ]]; then
-            echo "error: --loading must contain non-negative integers" >&2
+        if [[ ! "${loading}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "error: --loading must contain positive integers" >&2
             exit 2
         fi
         for model_name in "${MODEL_NAMES[@]}"; do
@@ -115,7 +114,7 @@ if [[ -z "${RUNS}" ]]; then
                     fi
                     printf -v replica_tag '%02d' "${replica}"
                     RUN_PATTERNS+=(
-                        "mof5-${loading}ch4-paper-${model_name}-classical-${temperature}K-rep${replica_tag}"
+                        "mof5-${loading}ch4-${model_name}-npt-${temperature}K-rep${replica_tag}"
                     )
                 done
             done
@@ -178,7 +177,7 @@ if missing_patterns:
     )
 print(f"Validated {len(runs)} completed trajectory/thermo-log selections")
 for _, config, trajectory in runs:
-    log = config.output_dir / f"{config.md_prefix}.lammps.log"
+    log = trajectory.parent / f"{config.md_prefix}.lammps.log"
     if config.md_driver == "lammps" and not log.is_file():
         raise SystemExit(f"error: missing LAMMPS thermo log: {log}")
     if config.md_driver == "lammps":

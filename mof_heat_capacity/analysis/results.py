@@ -13,7 +13,6 @@ import numpy as np
 
 
 from ..config import load_run_config
-from .heat_capacity_results import collect_heat_capacity_results
 from .lammps import read_lammps_thermo
 from .statistics import (
     autocorrelation,
@@ -133,7 +132,11 @@ def discover_runs(config_dir: Path, patterns: list[str]):
             selected.append((path, config, trajectory))
         else:
             skipped.append(
-                {"config": str(path), "run": config.name, "reason": "trajectory absent"}
+                {
+                    "config": str(path),
+                    "run": config.name,
+                    "reason": "production trajectory absent",
+                }
             )
     return selected, skipped
 
@@ -161,7 +164,6 @@ def plot_run(
     production_mask: np.ndarray,
     correlations: dict[str, np.ndarray],
     correlation_time_ps: np.ndarray,
-    heat: dict,
     msd_time_ps: np.ndarray,
     msd_A2: np.ndarray,
 ) -> None:
@@ -295,43 +297,6 @@ def plot_run(
     figure.savefig(output_dir / "structure.png", dpi=180)
     plt.close(figure)
 
-    if heat["summary"]["available"]:
-        figure, axes = plt.subplots(1, 2, figsize=(11, 4.2))
-        curves = heat["frame_curves_J_per_gK"]
-        for curve in curves:
-            axes[0].plot(heat["temperatures_K"], curve, alpha=0.45)
-        axes[0].plot(
-            heat["temperatures_K"], heat["mean_curve_J_per_gK"],
-            color="black", linewidth=2, label="frame mean",
-        )
-        axes[0].set(xlabel="Temperature (K)", ylabel=r"Harmonic $C_V$ (J g$^{-1}$ K$^{-1}$)")
-        axes[0].legend(fontsize=8)
-        rows = heat["frame_rows"]
-        axes[1].plot(
-            [row["frame"] for row in rows],
-            [row["cv_J_per_gK"] for row in rows],
-            marker="o", label="frame value",
-        )
-        axes[1].plot(
-            [row["frame"] for row in rows],
-            [row["running_mean_cv_J_per_gK"] for row in rows],
-            marker="s", label="running frame mean",
-        )
-        if len(rows) == 1:
-            axes[1].set_xlim(rows[0]["frame"] - 1, rows[0]["frame"] + 1)
-            axes[1].text(
-                0.04, 0.08, "one frame: convergence unavailable",
-                transform=axes[1].transAxes, fontsize=9,
-            )
-        axes[1].set(xlabel="Trajectory frame", ylabel=r"Harmonic $C_V$ at MD T")
-        axes[1].legend(fontsize=8)
-        for axis in axes:
-            axis.grid(alpha=0.2)
-        figure.tight_layout()
-        figure.savefig(output_dir / "heat_capacity.png", dpi=180)
-        plt.close(figure)
-
-
 def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
     run_output = args.analysis_dir / config.name
     run_output.mkdir(parents=True, exist_ok=True)
@@ -341,7 +306,7 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
     thermodynamic_series = None
     thermo_log = None
     if config.md_driver == "lammps":
-        thermo_log = config.output_dir / f"{config.md_prefix}.lammps.log"
+        thermo_log = trajectory.parent / f"{config.md_prefix}.lammps.log"
         thermodynamic_series = read_lammps_thermo(thermo_log)
     extracted = read_trajectory_observables(
         trajectory,
@@ -410,9 +375,6 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
                 f"trajectory uses {config.md_ensemble}."
             ),
         }
-    heat = collect_heat_capacity_results(
-        config.output_dir, target_temperature_K=config.temperature_K
-    )
     msd_time, msd = methane_mean_squared_displacement(
         structural["methane_com_unwrapped_A"],
         structural["time_ps"],
@@ -457,26 +419,6 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             warnings.append(f"{name} differs between production halves by more than 2 SE.")
         if float(item["effective_samples"]) < 20.0:
             warnings.append(f"{name} has fewer than 20 effective production samples.")
-    if not heat["summary"]["frame_convergence_assessable"]:
-        warnings.append(
-            "Harmonic C_V frame convergence needs at least three decorrelated Hessian frames."
-        )
-    if heat["frame_rows"]:
-        maximum_imaginary = max(
-            row["imaginary_modes_below_threshold"] for row in heat["frame_rows"]
-        )
-        maximum_near_zero = max(row["near_zero_modes"] for row in heat["frame_rows"])
-        if maximum_imaginary:
-            warnings.append(
-                "At least one Hessian has modes below -1 cm^-1; inspect structural "
-                "stability and the stationary-point/harmonic assumptions."
-            )
-        if maximum_near_zero > 3:
-            warnings.append(
-                "At least one Hessian has more than three modes within +/-1 cm^-1; "
-                "inspect sparse-Hessian completeness and floppy-mode treatment."
-            )
-
     summary = {
         "run": config.name,
         "config": str(path),
@@ -507,7 +449,6 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             "standard_deviation_K": target_temperature_std,
         },
         "classical_fluctuation_cv": classical_cv,
-        "harmonic_cv": heat["summary"],
         "warnings": warnings,
     }
     write_json(run_output / "summary.json", summary)
@@ -536,11 +477,6 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
         row["production"] = bool(structural_mask[index])
         structural_rows.append(row)
     write_rows(run_output / "structural_timeseries.csv", structural_rows)
-    write_rows(run_output / "heat_capacity_frames.csv", heat["frame_rows"], [
-        "frame", "time_ps", "target_temperature_K", "cv_J_per_gK",
-        "running_mean_cv_J_per_gK", "imaginary_modes_below_threshold",
-        "near_zero_modes", "minimum_frequency_cm1", "maximum_frequency_cm1", "source",
-    ])
     np.savez(
         run_output / "autocorrelation.npz",
         lag_time_ps=correlation_time,
@@ -554,17 +490,10 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
         msd_lag_time_ps=msd_time,
         methane_com_msd_A2=msd,
     )
-    np.savez(
-        run_output / "harmonic_heat_capacity.npz",
-        temperatures_K=heat["temperatures_K"],
-        frame_curves_J_per_gK=heat["frame_curves_J_per_gK"],
-        mean_curve_J_per_gK=heat["mean_curve_J_per_gK"],
-        curve_standard_error_J_per_gK=heat["curve_standard_error_J_per_gK"],
-    )
     if not args.no_plots:
         plot_run(
             run_output, series, structural, production_mask, correlations,
-            correlation_time, heat, msd_time, msd,
+            correlation_time, msd_time, msd,
         )
 
     model = config.checkpoint.stem if config.checkpoint else config.exported_model.stem
@@ -580,30 +509,26 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
         "density_g_cm3": statistics["density_g_cm3"]["mean"],
         "fixed_volume": fixed_volume,
         "classical_cv_J_per_gK": classical_cv["cv_J_per_gK"],
-        "harmonic_cv_J_per_gK": heat["summary"]["mean_cv_J_per_gK"],
-        "harmonic_frames": heat["summary"]["frames_analyzed"],
         "warning_count": len(warnings),
     }
     return summary, aggregate
 
 
-def paper_requirements(summaries: list[dict]) -> dict:
-    harmonic_frames = [item["harmonic_cv"]["frames_analyzed"] for item in summaries]
+def workflow_requirements(summaries: list[dict]) -> dict:
     all_fixed = bool(summaries) and all(item["fixed_volume"] for item in summaries)
     stress_valid = bool(summaries) and all(
         item["stress_model_validated"] for item in summaries
     )
     requirements = {
-        "paper_reference_targets": [
+        "production_targets": [
             "Classical loaded systems: five independent 500 ps flexible-cell NPT "
             "runs at 1 bar, discarding the first 100 ps.",
-            "Suzuki--Chin PIMD loaded systems: thirty independent 50 ps runs, "
-            "64 short-range beads with contraction to 8 for long-range forces, "
-            "discarding the first 25 ps.",
-            "Paper C_P: centered differences of converged enthalpies at T-25 K "
-            "and T+25 K, not fluctuations from one trajectory.",
-            "Loaded harmonic comparison: five independently placed and optimized "
-            "methane configurations, with Hessian/numerical convergence checks.",
+            "Hybrid C_P: differentiate converged replica-averaged loaded-system "
+            "enthalpies on the temperature grid.",
+            "Quantum correction: independently optimize representative loaded "
+            "configurations and check Hessian/numerical convergence.",
+            "Empty MOF-5: relax the supplied equilibrated structure and compute "
+            "one reference Hessian without an MD campaign.",
         ],
         "available_from_current_trajectories": [
             "temperature, kinetic/potential/total energy, forces, cell, volume, density",
@@ -612,28 +537,22 @@ def paper_requirements(summaries: list[dict]) -> dict:
             "framework RMSD and reference-bond distortion",
             "host--methane and methane--methane distances/RDFs, methane COM MSD",
             "classical NVT energy-fluctuation C_V diagnostic",
-            "harmonic Hessian C_V curves and vibrational mode checks when NPZ files exist",
         ],
         "not_established_by_current_data": [
             "equilibrium density, thermal expansion, or NPT response" if all_fixed else None,
             "validated pressure/stress" if not stress_valid else None,
-            "constant-pressure C_p from enthalpy finite differences at T +/- 25 K",
-            "PIMD quantum heat capacity or bead convergence",
+            "final hybrid C_p until the temperature grid and Hessians are complete",
             "uncertainty across independent initial conditions/seeds",
-            (
-                "harmonic C_V frame convergence (need >=3 decorrelated frames per run)"
-                if not harmonic_frames or min(harmonic_frames) < 3 else None
-            ),
             "host--guest interaction-energy decomposition",
             "complete cluster provenance such as Slurm job ID and resource usage",
         ],
         "recommended_next_simulations": [
             "extend production until slow observables contain many autocorrelation times",
             "run multiple independent seeds",
-            "compute Hessians on decorrelated production frames",
+            "quench representative independent loaded structures before Hessian analysis",
             "use a stress-trained/validated potential and NPT runs for density and expansion",
-            "for the paper's C_p route, run converged simulations at T-25, T, and T+25 K",
-            "for nuclear quantum effects, couple LAMMPS to i-PI and test bead/time-step convergence",
+            "run converged neighboring temperatures for the enthalpy derivative",
+            "quench representative loaded configurations and compute AD Hessians",
         ],
     }
     requirements["not_established_by_current_data"] = [
@@ -669,20 +588,14 @@ def plot_sweep(path: Path, rows: list[dict]) -> None:
             marker="o",
             label=f"{model}, {methane_loading} CH4",
         )
-        harmonic = [
-            row for row in selected
-            if row["harmonic_cv_J_per_gK"] is not None
-            and np.isfinite(row["harmonic_cv_J_per_gK"])
-        ]
-        if harmonic:
-            axes[1].plot(
-                [row["temperature_K"] for row in harmonic],
-                [row["harmonic_cv_J_per_gK"] for row in harmonic],
-                marker="o",
-                label=f"{model}, {methane_loading} CH4",
-            )
+        axes[1].plot(
+            temperature,
+            [row["potential_energy_eV"] for row in selected],
+            marker="o",
+            label=f"{model}, {methane_loading} CH4",
+        )
     axes[0].set(xlabel="MD temperature (K)", ylabel=r"Density (g cm$^{-3}$)")
-    axes[1].set(xlabel="MD temperature (K)", ylabel=r"Harmonic $C_V$ (J g$^{-1}$ K$^{-1}$)")
+    axes[1].set(xlabel="MD temperature (K)", ylabel="Potential energy (eV)")
     for axis in axes:
         axis.grid(alpha=0.2)
         if axis.lines:
@@ -726,7 +639,10 @@ def main() -> None:
 
     if aggregate_rows:
         write_rows(args.analysis_dir / "runs.csv", aggregate_rows)
-        write_json(args.analysis_dir / "paper_requirements.json", paper_requirements(summaries))
+        write_json(
+            args.analysis_dir / "workflow_requirements.json",
+            workflow_requirements(summaries),
+        )
         if not args.no_plots:
             plot_sweep(args.analysis_dir / "temperature_sweep.png", aggregate_rows)
     manifest = {

@@ -7,4 +7,8 @@ output/
 external/
 slurm-*.out
 /slurm
-configs/
+# Keep generated campaign configurations local, but version the reusable
+# templates required by the configuration generators.
+configs/*
+!configs/metatomic_md_template.toml
+!configs/mof5_100ch4_hybrid_npt.toml

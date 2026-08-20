@@ -1,4 +1,4 @@
-"""Prepare independent loaded structures and paper-protocol run configurations."""
+"""Prepare independent loaded structures and classical NPT configurations."""
 
 from __future__ import annotations
 
@@ -13,11 +13,8 @@ from ..structures.methane import insert_molecules
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 
 
-METHOD_DEFAULT_REPLICAS = {"classical": 5, "pimd": 30}
-METHOD_TEMPLATES = {
-    "classical": PROJECT_DIR / "configs" / "mof5_100ch4_paper_classical.toml",
-    "pimd": PROJECT_DIR / "configs" / "mof5_100ch4_paper_pimd.toml",
-}
+DEFAULT_REPLICAS = 5
+CONFIG_TEMPLATE = PROJECT_DIR / "configs" / "mof5_100ch4_hybrid_npt.toml"
 MODEL_PRESETS = {
     "pet-mad": {
         "label": "pet-mad-1.5-s-40nn",
@@ -36,15 +33,21 @@ MODEL_PRESETS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--method", choices=("classical", "pimd"), default="classical")
     parser.add_argument("--model", choices=tuple(MODEL_PRESETS), default="pet-mad")
-    parser.add_argument("--temperatures", default="100,200,300,400,500")
+    parser.add_argument(
+        "--temperatures",
+        default=(
+            "100,125,150,175,200,225,250,275,300,325,350,375,400,"
+            "425,450,475,500"
+        ),
+        help="Classical enthalpy grid (default: 100 to 500 K in 25 K steps)",
+    )
     parser.add_argument("--replicas", type=int)
     parser.add_argument(
         "--loading",
         type=int,
         default=100,
-        help="methane molecule count; use 0 for pristine MOF-5 (default: 100)",
+        help="positive methane molecule count (default: 100)",
     )
     parser.add_argument("--host", type=Path, default=PROJECT_DIR / "input" / "mof5.pdb")
     parser.add_argument("--methane", type=Path, default=PROJECT_DIR / "input" / "ch4.gro")
@@ -62,6 +65,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--configs-only", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Keep existing configurations/structures and create only missing runs",
+    )
     return parser.parse_args()
 
 
@@ -81,7 +89,6 @@ def replace_once(text: str, old: str, new: str) -> str:
 def render_config(
     template: str,
     *,
-    method: str,
     temperature: int,
     replica: int,
     seed: int,
@@ -91,12 +98,17 @@ def render_config(
     args: argparse.Namespace,
 ) -> tuple[str, str]:
     base_name = (
-        f"mof5-{loading}ch4-paper-{model_label}-{method}-"
+        f"mof5-{loading}ch4-{model_label}-npt-"
         f"{temperature}K-rep{replica:02d}"
     )
-    template_name = f"mof5-100ch4-paper-{method}-300K-rep01"
-    trajectory_suffix = ".lammpstrj" if method == "classical" else ".centroid.extxyz"
+    template_name = "mof5-100ch4-hybrid-npt-300K-rep01"
+    trajectory_suffix = ".lammpstrj"
     rendered = template
+    rendered = replace_once(
+        rendered,
+        f'output_dir = "../output/classical/production/100ch4/{template_name}"',
+        f'output_dir = "../output/classical/production/{loading}ch4/{base_name}"',
+    )
     rendered = replace_once(
         rendered,
         f'trajectory_file = "{template_name}{trajectory_suffix}"',
@@ -109,8 +121,7 @@ def render_config(
         f'path = "../{structure_path.relative_to(PROJECT_DIR)}"',
     )
     rendered = replace_once(rendered, "temperature_K = 300.0", f"temperature_K = {temperature}.0")
-    old_seed = "seed = 202501" if method == "classical" else "seed = 203001"
-    rendered = replace_once(rendered, old_seed, f"seed = {seed}")
+    rendered = replace_once(rendered, "seed = 202501", f"seed = {seed}")
     rendered = replace_once(
         rendered,
         'checkpoint = "../models/REPLACE_WITH_STRESS_VALIDATED.ckpt"',
@@ -156,6 +167,13 @@ def prepare_structure(
 
 def main() -> None:
     args = parse_args()
+    if args.force and args.skip_existing:
+        raise ValueError("--force and --skip-existing are mutually exclusive")
+    if args.loading == 0:
+        raise ValueError(
+            "empty MOF-5 needs only direct relaxation and a Hessian; "
+            "do not prepare an MD campaign"
+        )
     preset = MODEL_PRESETS[args.model]
     custom_paths = any(
         value is not None
@@ -174,14 +192,12 @@ def main() -> None:
     if not custom_paths:
         args.stress_validated = True
     selected_temperatures = temperatures(args.temperatures)
-    replicas = args.replicas or METHOD_DEFAULT_REPLICAS[args.method]
-    if replicas < 1 or args.loading < 0 or args.tries < 1 or args.min_distance <= 0:
+    replicas = args.replicas or DEFAULT_REPLICAS
+    if replicas < 1 or args.tries < 1 or args.min_distance <= 0:
         raise ValueError(
-            "replicas, tries, and minimum distance must be positive; "
-            "loading must be non-negative"
+            "replicas, tries, and minimum distance must be positive"
         )
-    template_path = METHOD_TEMPLATES[args.method]
-    template = template_path.read_text()
+    template = CONFIG_TEMPLATE.read_text()
     if not args.host.is_file():
         raise FileNotFoundError("host input structure must exist")
     if args.loading > 0 and not args.methane.is_file():
@@ -196,14 +212,13 @@ def main() -> None:
         for replica in range(1, replicas + 1):
             seed = args.seed_base + temperature * 100 + replica
             structure_stem = (
-                f"mof5-{args.loading}ch4-paper-{args.method}-"
+                f"mof5-{args.loading}ch4-npt-"
                 f"{temperature}K-rep{replica:02d}-seed{seed}"
             )
             structure_path = PROJECT_DIR / "output" / "structures" / f"{structure_stem}.pdb"
             data_path = structure_path.with_suffix(".data")
             name, config_text = render_config(
                 template,
-                method=args.method,
                 temperature=temperature,
                 replica=replica,
                 seed=seed,
@@ -217,8 +232,16 @@ def main() -> None:
             if args.dry_run:
                 count += 1
                 continue
+            if config_path.exists() and args.skip_existing:
+                print(f"Keeping existing configuration: {config_path}")
+                continue
             if config_path.exists() and not args.force:
                 raise FileExistsError(f"configuration exists; use --force: {config_path}")
+            if args.configs_only and not structure_path.is_file():
+                raise FileNotFoundError(
+                    "cannot reuse missing structure: "
+                    f"{structure_path}; prepare structures before using --configs-only"
+                )
             if not args.configs_only:
                 if structure_path.exists() and not args.force:
                     raise FileExistsError(f"structure exists; use --force: {structure_path}")
@@ -234,7 +257,7 @@ def main() -> None:
                 )
             config_path.write_text(config_text)
             count += 1
-    print(f"Prepared {count} {args.method} run specifications")
+    print(f"Prepared {count} loaded classical-NPT run specifications")
     if custom_paths and not args.stress_validated:
         print(
             "NPT remains blocked: provide a stress-capable model and rerun with "

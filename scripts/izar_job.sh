@@ -18,7 +18,7 @@
 set -euo pipefail
 
 MOF_STAGE="${MOF_STAGE:-md}"
-MOF_CONFIG="${MOF_CONFIG:-configs/mof5_pet_mad.toml}"
+MOF_CONFIG="${MOF_CONFIG:-}"
 MOF_ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
 MOF_STEPS="${MOF_STEPS:-}"
 MOF_OUTPUT_DIR="${MOF_OUTPUT_DIR:-}"
@@ -26,12 +26,24 @@ MOF_PREFIX="${MOF_PREFIX:-}"
 MOF_RERUN="${MOF_RERUN:-0}"
 MOF_RESUME="${MOF_RESUME:-0}"
 MOF_HEAT_FRAMES="${MOF_HEAT_FRAMES:-}"
+MOF_HEAT_TRAJECTORY="${MOF_HEAT_TRAJECTORY:-}"
 MOF_HEAT_FRAME_INDICES="${MOF_HEAT_FRAME_INDICES:-}"
 MOF_HEAT_FRAME_TIMES_PS="${MOF_HEAT_FRAME_TIMES_PS:-}"
 MOF_HEAT_TEMPERATURES="${MOF_HEAT_TEMPERATURES:-}"
 MOF_HEAT_OUTPUT="${MOF_HEAT_OUTPUT:-}"
 MOF_HEAT_CONFIGS="${MOF_HEAT_CONFIGS:-}"
 MOF_HEAT_OVERWRITE="${MOF_HEAT_OVERWRITE:-0}"
+MOF_RELAX_INPUT="${MOF_RELAX_INPUT:-}"
+MOF_RELAX_INDEX="${MOF_RELAX_INDEX:--1}"
+MOF_RELAX_OUTPUT="${MOF_RELAX_OUTPUT:-}"
+MOF_RELAX_FMAX="${MOF_RELAX_FMAX:-0.01}"
+MOF_RELAX_STEPS="${MOF_RELAX_STEPS:-2000}"
+MOF_RELAX_ALLOW_ELEMENT_SUBSET="${MOF_RELAX_ALLOW_ELEMENT_SUBSET:-0}"
+MOF_RELAX_OVERWRITE="${MOF_RELAX_OVERWRITE:-0}"
+MOF_HYBRID_MODEL_LABEL="${MOF_HYBRID_MODEL_LABEL:-pet-mad-1.5-s-40nn}"
+MOF_HYBRID_LOADING="${MOF_HYBRID_LOADING:-100}"
+MOF_HYBRID_REPLICAS="${MOF_HYBRID_REPLICAS:-1:2:3:4:5}"
+MOF_HYBRID_OUTPUT="${MOF_HYBRID_OUTPUT:-}"
 
 
 if [[ -n "${MOF_HEAT_CONFIGS}" ]]; then
@@ -102,9 +114,12 @@ export PYTHONUNBUFFERED=1
 cd "${SLURM_SUBMIT_DIR}"
 
 if [[ ! -f mof_heat_capacity/simulation/md.py \
-    || ! -f mof_heat_capacity/analysis/harmonic.py \
-    || ! -f "${MOF_CONFIG}" ]]; then
-    echo "error: submit from mof-heat-capacity and check MOF_CONFIG=${MOF_CONFIG}" >&2
+    || ! -f mof_heat_capacity/analysis/harmonic.py ]]; then
+    echo "error: submit from the mof-heat-capacity repository root" >&2
+    exit 2
+fi
+if [[ "${MOF_STAGE}" != "hybrid-analysis" && ! -f "${MOF_CONFIG}" ]]; then
+    echo "error: stage ${MOF_STAGE} requires a valid MOF_CONFIG: ${MOF_CONFIG}" >&2
     exit 2
 fi
 
@@ -253,6 +268,10 @@ run_heat_capacity() {
     local command=(python -m mof_heat_capacity.analysis.harmonic
         --config "${MOF_CONFIG}")
 
+    if [[ -n "${MOF_HEAT_TRAJECTORY}" ]]; then
+        command+=(--trajectory "${MOF_HEAT_TRAJECTORY}")
+    fi
+
     if [[ -n "${MOF_HEAT_FRAMES}" ]]; then
         command+=(--frames "${MOF_HEAT_FRAMES}")
     fi
@@ -289,6 +308,61 @@ run_heat_capacity() {
 }
 
 
+run_relaxation() {
+    if [[ -z "${MOF_RELAX_OUTPUT}" ]]; then
+        echo "error: relaxation requires MOF_RELAX_OUTPUT" >&2
+        exit 2
+    fi
+    local command=(python -m mof_heat_capacity.structures.relax
+        --config "${MOF_CONFIG}"
+        --output "${MOF_RELAX_OUTPUT}"
+        --index "${MOF_RELAX_INDEX}"
+        --fmax "${MOF_RELAX_FMAX}"
+        --steps "${MOF_RELAX_STEPS}"
+        --device cuda)
+
+    if [[ -n "${MOF_RELAX_INPUT}" ]]; then
+        command+=(--input "${MOF_RELAX_INPUT}")
+    fi
+    case "${MOF_RELAX_ALLOW_ELEMENT_SUBSET,,}" in
+        1|true|yes)
+            command+=(--allow-element-subset)
+            ;;
+        0|false|no)
+            ;;
+        *)
+            echo "error: MOF_RELAX_ALLOW_ELEMENT_SUBSET must be 0/1, false/true, or no/yes" >&2
+            exit 2
+            ;;
+    esac
+    case "${MOF_RELAX_OVERWRITE,,}" in
+        1|true|yes)
+            command+=(--overwrite)
+            ;;
+        0|false|no)
+            ;;
+        *)
+            echo "error: MOF_RELAX_OVERWRITE must be 0/1, false/true, or no/yes" >&2
+            exit 2
+            ;;
+    esac
+    srun --ntasks=1 "${command[@]}"
+}
+
+
+run_hybrid_analysis() {
+    local hybrid_replicas="${MOF_HYBRID_REPLICAS//:/,}"
+    local command=(python -m mof_heat_capacity.analysis.hybrid
+        --model-label "${MOF_HYBRID_MODEL_LABEL}"
+        --loading "${MOF_HYBRID_LOADING}"
+        --replicas "${hybrid_replicas}")
+    if [[ -n "${MOF_HYBRID_OUTPUT}" ]]; then
+        command+=(--output "${MOF_HYBRID_OUTPUT}")
+    fi
+    srun --ntasks=1 "${command[@]}"
+}
+
+
 case "${MOF_STAGE}" in
     md)
         check_pytorch_cuda
@@ -299,15 +373,28 @@ case "${MOF_STAGE}" in
         check_jax_cuda
         run_heat_capacity
         ;;
-    all)
+    relax)
         check_pytorch_cuda
-        check_lammps_cuda
+        run_relaxation
+        ;;
+    relax-and-heat-capacity)
+        check_pytorch_cuda
         check_jax_cuda
-        run_md
+        if [[ -f "${MOF_RELAX_OUTPUT}" \
+            && "${MOF_RELAX_OVERWRITE,,}" =~ ^(0|false|no)$ ]]; then
+            echo "Reusing converged relaxed structure: ${MOF_RELAX_OUTPUT}"
+        else
+            run_relaxation
+        fi
+        MOF_HEAT_TRAJECTORY="${MOF_RELAX_OUTPUT}"
+        MOF_HEAT_FRAME_INDICES="0"
         run_heat_capacity
         ;;
+    hybrid-analysis)
+        run_hybrid_analysis
+        ;;
     *)
-        echo "error: MOF_STAGE must be md, heat-capacity, or all" >&2
+        echo "error: MOF_STAGE must be md, relax, heat-capacity, relax-and-heat-capacity, or hybrid-analysis" >&2
         exit 2
         ;;
 esac

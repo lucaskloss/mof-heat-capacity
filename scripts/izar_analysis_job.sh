@@ -17,7 +17,7 @@
 set -euo pipefail
 
 
-RUNS="mof5-0ch4-paper-*-classical-*-rep01"
+RUNS="mof5-100ch4-*-npt-*-rep01"
 DISCARD_PS="100"
 ANALYSIS_DIR="output/analysis"
 NO_PLOTS=0

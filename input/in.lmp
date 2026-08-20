@@ -1,9 +1,0 @@
-units metal
-atom_style atomic
-read_data /home/dealmeid/project/work/mof-heat-capacity/input/mof5.data
-pair_style metatomic /home/dealmeid/project/work/mof-heat-capacity/models/pet-mad-1.5-s_40nn_nostress.pt device cuda
-pair_coeff * * 6 1 8 30
-neighbor 2.0 bin
-neigh_modify delay 0 every 1 check yes
-fix ipi all ipi mof5-static 32342 unix
-run 100000000

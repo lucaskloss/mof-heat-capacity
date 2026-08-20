@@ -38,15 +38,6 @@ class RunConfig:
     pressure_bar: float
     barostat: str
     barostat_tau_fs: float
-    cell_thermostat: str
-    cell_thermostat_tau_fs: float
-    pimd_beads: int
-    pimd_factorization: str
-    pimd_splitting: str
-    pimd_force_beads: int
-    pimd_fd_epsilon_bohr: float
-    force_clients: int
-    ipi_command: str
     lammps_command: str
     heat_frames: str
     heat_start_frame: int
@@ -73,7 +64,6 @@ def load_run_config(path: Path) -> RunConfig:
     structure = _table(data, "structure")
     model = _table(data, "model")
     md = _table(data, "md")
-    pimd = _table(data, "pimd")
     execution = _table(data, "execution")
     heat = _table(data, "heat_capacity")
 
@@ -121,17 +111,6 @@ def load_run_config(path: Path) -> RunConfig:
         pressure_bar=float(md.get("pressure_bar", 1.0)),
         barostat=str(md.get("barostat", "none")),
         barostat_tau_fs=float(md.get("barostat_tau_fs", 1000.0)),
-        cell_thermostat=str(md.get("cell_thermostat", "langevin")),
-        cell_thermostat_tau_fs=float(
-            md.get("cell_thermostat_tau_fs", 100.0)
-        ),
-        pimd_beads=int(pimd.get("beads", 1)),
-        pimd_factorization=str(pimd.get("factorization", "none")),
-        pimd_splitting=str(pimd.get("splitting", "baoab")),
-        pimd_force_beads=int(pimd.get("force_beads", pimd.get("beads", 1))),
-        pimd_fd_epsilon_bohr=float(pimd.get("fd_epsilon_bohr", -0.001)),
-        force_clients=int(execution.get("force_clients", 1)),
-        ipi_command=str(execution.get("ipi_command", "i-pi")),
         lammps_command=str(execution.get("lammps_command", "lmp")),
         heat_frames=str(heat.get("frames", "1")),
         heat_start_frame=int(heat.get("start_frame", 0)),
@@ -171,8 +150,8 @@ def _validate(config: RunConfig) -> None:
         raise ValueError("pet-jax AD requires model.checkpoint and model.jax_checkpoint")
     if config.ad_backend not in {"pet-jax", "none"}:
         raise ValueError("unsupported AD backend; choose 'pet-jax' or 'none'")
-    if config.md_driver not in {"ase", "lammps", "ipi-lammps"}:
-        raise ValueError("md.driver must be 'ase', 'lammps', or 'ipi-lammps'")
+    if config.md_driver not in {"ase", "lammps"}:
+        raise ValueError("md.driver must be 'ase' or 'lammps'")
     if config.temperature_K <= 0.0 or config.md_steps < 1 or config.timestep_fs <= 0.0:
         raise ValueError("MD temperature, steps, and timestep must be positive")
     if not 0 <= config.equilibration_steps < config.md_steps:
@@ -183,27 +162,19 @@ def _validate(config: RunConfig) -> None:
         raise ValueError("md.seed must be positive")
     if config.thermostat_tau_fs <= 0.0 or config.thermostat_chain_length < 1:
         raise ValueError("thermostat time and chain length must be positive")
-    if config.md_ensemble in {"npt-flexible", "sc-npt"} and (
+    if config.md_ensemble == "npt-flexible" and (
         config.pressure_bar <= 0.0 or config.barostat_tau_fs <= 0.0
     ):
         raise ValueError("NPT pressure and barostat time must be positive")
     if config.md_driver == "lammps" and config.md_ensemble != "npt-flexible":
         raise ValueError("the LAMMPS production driver requires ensemble='npt-flexible'")
-    if config.md_driver == "ipi-lammps":
-        if config.md_ensemble != "sc-npt":
-            raise ValueError("the i-PI/LAMMPS driver requires ensemble='sc-npt'")
-        if config.pimd_factorization != "suzuki-chin":
-            raise ValueError("the PIMD production driver requires Suzuki-Chin")
-        if config.pimd_beads < 2 or config.pimd_beads % 2:
-            raise ValueError("Suzuki-Chin PIMD requires a positive even bead count")
-        if config.pimd_force_beads != config.pimd_beads:
-            raise ValueError(
-                "a single MLIP force component must be evaluated on every PIMD bead"
-            )
-        if config.pimd_splitting != "baoab":
-            raise ValueError("paper-matched PIMD requires pimd.splitting='baoab'")
-    if config.force_clients < 1:
-        raise ValueError("execution.force_clients must be positive")
+    if config.md_driver == "lammps" and (
+        config.thermostat != "nose-hoover-chain" or config.barostat != "mttk"
+    ):
+        raise ValueError(
+            "the LAMMPS production driver requires thermostat='nose-hoover-chain' "
+            "and barostat='mttk'"
+        )
     if config.heat_start_frame < 0:
         raise ValueError("heat_capacity.start_frame must be non-negative")
     if config.heat_dtype not in {"float32", "float64"}:

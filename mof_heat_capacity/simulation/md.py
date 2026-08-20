@@ -1,4 +1,4 @@
-"""Run configuration-driven ASE, LAMMPS-NPT, or i-PI PIMD with an MLIP."""
+"""Run configuration-driven ASE or LAMMPS-NPT dynamics with an MLIP."""
 
 from __future__ import annotations
 
@@ -15,17 +15,13 @@ from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary
 from ..config import RunConfig, load_run_config
 from ..io import load_structure
 from ..models import ensure_exported_model
-from .production import run_classical_npt, run_pimd
-
-
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG = PROJECT_DIR / "configs" / "mof5_pet_mad.toml"
+from .production import run_classical_npt
 
 
 def parse_args() -> argparse.Namespace:
     """Parse a run specification and lightweight MD overrides."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--device", help="Override model.device, e.g. cuda or cpu")
     parser.add_argument("--steps", type=int, help="Override md.steps")
     parser.add_argument("--output-dir", type=Path, help="Override run.output_dir")
@@ -55,15 +51,6 @@ def run_md(
         config = replace(config, device=device)
     if config.md_driver == "lammps":
         return run_classical_npt(
-            config,
-            steps=steps,
-            output_dir=output_dir,
-            prefix=prefix,
-            rerun=rerun,
-            resume=resume,
-        )
-    if config.md_driver == "ipi-lammps":
-        return run_pimd(
             config,
             steps=steps,
             output_dir=output_dir,
