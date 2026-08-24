@@ -13,6 +13,9 @@ from ..config import RunConfig, load_run_config
 from .lammps import read_lammps_thermo
 
 
+IMAGINARY_THRESHOLD_CM1 = 1.0
+
+
 def parse_args() -> argparse.Namespace:
     """Parse a run specification and heat-capacity overrides."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -265,6 +268,53 @@ def compute_frame_hessian(
     return hessian[:n_atoms, :, :n_atoms, :].reshape(3 * n_atoms, 3 * n_atoms)
 
 
+def signed_frequencies_from_hessian(
+    hessian: np.ndarray,
+    masses: np.ndarray,
+    *,
+    enforce_asr: bool = True,
+) -> np.ndarray:
+    """Return signed normal-mode frequencies while retaining unstable modes.
+
+    Negative mass-weighted Hessian eigenvalues are represented as negative
+    frequencies. SADMOF's compatibility convention maps them to zero, which is
+    useful for reproducing published heat capacities but cannot distinguish a
+    minimum from a saddle point.
+    """
+    from ase import units
+
+    masses = np.asarray(masses, dtype=float)
+    hessian = np.asarray(hessian, dtype=float)
+    expected_shape = (3 * len(masses), 3 * len(masses))
+    if hessian.shape != expected_shape:
+        raise ValueError(
+            f"Hessian shape {hessian.shape} does not match {len(masses)} masses"
+        )
+    hessian = (hessian + hessian.T) / 2.0
+    if enforce_asr:
+        force_constants = hessian.reshape(len(masses), 3, len(masses), 3)
+        force_constants = force_constants - force_constants.mean(
+            axis=0, keepdims=True
+        )
+        force_constants = force_constants - force_constants.mean(
+            axis=2, keepdims=True
+        )
+        hessian = force_constants.reshape(expected_shape)
+
+    inverse_sqrt_mass = np.repeat(masses**-0.5, 3)
+    dynamical_matrix = (
+        inverse_sqrt_mass[:, None] * hessian * inverse_sqrt_mass[None, :]
+    )
+    eigenvalues = np.linalg.eigvalsh(dynamical_matrix)
+    conversion = units._hbar * units.m / np.sqrt(units._e * units._amu)
+    return (
+        np.sign(eigenvalues)
+        * conversion
+        * np.sqrt(np.abs(eigenvalues))
+        / units.invcm
+    )
+
+
 def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
     """Evaluate SADMOF's PET sparse-Hessian path for selected trajectory frames."""
     if config.ad_backend != "pet-jax":
@@ -313,7 +363,7 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
     import jax
     from ase.io import read
     from sadmof.models.pet import load_pet
-    from sadmof.observables import cv_from_hessian
+    from sadmof.observables import cv_curve
 
     if dtype == "float64":
         jax.config.update("jax_enable_x64", True)
@@ -377,11 +427,23 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
             chunk_size=chunk_size,
             remat=remat,
         )
-        freqs, cv = cv_from_hessian(
-            hessian, atoms.get_masses(), temperatures, enforce_asr=True
+        freqs = signed_frequencies_from_hessian(
+            hessian, atoms.get_masses(), enforce_asr=True
+        )
+        cv = cv_curve(
+            freqs, temperatures, float(atoms.get_masses().sum())
         )
         frequencies.append(freqs)
         heat_capacities.append([cv[temperature] for temperature in temperatures])
+        imaginary_count = int(np.count_nonzero(freqs < -IMAGINARY_THRESHOLD_CM1))
+        near_zero_count = int(
+            np.count_nonzero(np.abs(freqs) <= IMAGINARY_THRESHOLD_CM1)
+        )
+        print(
+            f"  modes: {imaginary_count} imaginary below "
+            f"-{IMAGINARY_THRESHOLD_CM1:g} cm^-1; "
+            f"{near_zero_count} within +/-{IMAGINARY_THRESHOLD_CM1:g} cm^-1"
+        )
         print(f"  C_v(300 K) = {cv.get(300.0, float('nan')):.6f} J/(g K)")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -404,6 +466,9 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
                 "chunk_size": chunk_size,
                 "remat": remat,
                 "shadow": False,
+                "frequency_convention": "signed",
+                "acoustic_sum_rule": "force-constant-row-sum",
+                "imaginary_threshold_cm1": IMAGINARY_THRESHOLD_CM1,
             }
         ),
     )

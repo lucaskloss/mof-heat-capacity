@@ -31,6 +31,9 @@ MOF_HEAT_FRAME_INDICES="${MOF_HEAT_FRAME_INDICES:-}"
 MOF_HEAT_FRAME_TIMES_PS="${MOF_HEAT_FRAME_TIMES_PS:-}"
 MOF_HEAT_TEMPERATURES="${MOF_HEAT_TEMPERATURES:-}"
 MOF_HEAT_OUTPUT="${MOF_HEAT_OUTPUT:-}"
+MOF_HEAT_DTYPE="${MOF_HEAT_DTYPE:-}"
+MOF_HEAT_HOPS="${MOF_HEAT_HOPS:-}"
+MOF_HEAT_CHUNK_SIZE="${MOF_HEAT_CHUNK_SIZE:-}"
 MOF_HEAT_CONFIGS="${MOF_HEAT_CONFIGS:-}"
 MOF_HEAT_OVERWRITE="${MOF_HEAT_OVERWRITE:-0}"
 MOF_RELAX_INPUT="${MOF_RELAX_INPUT:-}"
@@ -38,12 +41,9 @@ MOF_RELAX_INDEX="${MOF_RELAX_INDEX:--1}"
 MOF_RELAX_OUTPUT="${MOF_RELAX_OUTPUT:-}"
 MOF_RELAX_FMAX="${MOF_RELAX_FMAX:-0.01}"
 MOF_RELAX_STEPS="${MOF_RELAX_STEPS:-2000}"
+MOF_RELAX_OPTIMIZER="${MOF_RELAX_OPTIMIZER:-fire}"
 MOF_RELAX_ALLOW_ELEMENT_SUBSET="${MOF_RELAX_ALLOW_ELEMENT_SUBSET:-0}"
 MOF_RELAX_OVERWRITE="${MOF_RELAX_OVERWRITE:-0}"
-MOF_HYBRID_MODEL_LABEL="${MOF_HYBRID_MODEL_LABEL:-pet-mad-1.5-s-40nn}"
-MOF_HYBRID_LOADING="${MOF_HYBRID_LOADING:-100}"
-MOF_HYBRID_REPLICAS="${MOF_HYBRID_REPLICAS:-1:2:3:4:5}"
-MOF_HYBRID_OUTPUT="${MOF_HYBRID_OUTPUT:-}"
 
 
 if [[ -n "${MOF_HEAT_CONFIGS}" ]]; then
@@ -118,7 +118,7 @@ if [[ ! -f mof_heat_capacity/simulation/md.py \
     echo "error: submit from the mof-heat-capacity repository root" >&2
     exit 2
 fi
-if [[ "${MOF_STAGE}" != "hybrid-analysis" && ! -f "${MOF_CONFIG}" ]]; then
+if [[ ! -f "${MOF_CONFIG}" ]]; then
     echo "error: stage ${MOF_STAGE} requires a valid MOF_CONFIG: ${MOF_CONFIG}" >&2
     exit 2
 fi
@@ -292,6 +292,18 @@ run_heat_capacity() {
         command+=(--output "${MOF_HEAT_OUTPUT}")
     fi
 
+    if [[ -n "${MOF_HEAT_DTYPE}" ]]; then
+        command+=(--dtype "${MOF_HEAT_DTYPE}")
+    fi
+
+    if [[ -n "${MOF_HEAT_HOPS}" ]]; then
+        command+=(--hops "${MOF_HEAT_HOPS}")
+    fi
+
+    if [[ -n "${MOF_HEAT_CHUNK_SIZE}" ]]; then
+        command+=(--chunk-size "${MOF_HEAT_CHUNK_SIZE}")
+    fi
+
     case "${MOF_HEAT_OVERWRITE,,}" in
         1|true|yes)
             command+=(--overwrite)
@@ -319,6 +331,7 @@ run_relaxation() {
         --index "${MOF_RELAX_INDEX}"
         --fmax "${MOF_RELAX_FMAX}"
         --steps "${MOF_RELAX_STEPS}"
+        --optimizer "${MOF_RELAX_OPTIMIZER}"
         --device cuda)
 
     if [[ -n "${MOF_RELAX_INPUT}" ]]; then
@@ -350,19 +363,6 @@ run_relaxation() {
 }
 
 
-run_hybrid_analysis() {
-    local hybrid_replicas="${MOF_HYBRID_REPLICAS//:/,}"
-    local command=(python -m mof_heat_capacity.analysis.hybrid
-        --model-label "${MOF_HYBRID_MODEL_LABEL}"
-        --loading "${MOF_HYBRID_LOADING}"
-        --replicas "${hybrid_replicas}")
-    if [[ -n "${MOF_HYBRID_OUTPUT}" ]]; then
-        command+=(--output "${MOF_HYBRID_OUTPUT}")
-    fi
-    srun --ntasks=1 "${command[@]}"
-}
-
-
 case "${MOF_STAGE}" in
     md)
         check_pytorch_cuda
@@ -390,11 +390,8 @@ case "${MOF_STAGE}" in
         MOF_HEAT_FRAME_INDICES="0"
         run_heat_capacity
         ;;
-    hybrid-analysis)
-        run_hybrid_analysis
-        ;;
     *)
-        echo "error: MOF_STAGE must be md, relax, heat-capacity, relax-and-heat-capacity, or hybrid-analysis" >&2
+        echo "error: MOF_STAGE must be md, relax, heat-capacity, or relax-and-heat-capacity" >&2
         exit 2
         ;;
 esac

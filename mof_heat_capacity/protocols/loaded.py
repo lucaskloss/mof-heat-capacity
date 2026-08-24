@@ -13,7 +13,7 @@ from ..structures.methane import insert_molecules
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 
 
-DEFAULT_REPLICAS = 5
+DEFAULT_REPLICAS = 1
 CONFIG_TEMPLATE = PROJECT_DIR / "configs" / "mof5_100ch4_hybrid_npt.toml"
 MODEL_PRESETS = {
     "pet-mad": {
@@ -37,10 +37,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--temperatures",
         default=(
-            "100,125,150,175,200,225,250,275,300,325,350,375,400,"
-            "425,450,475,500"
+            "100,200,300,400,500"
         ),
-        help="Classical enthalpy grid (default: 100 to 500 K in 25 K steps)",
+        help="Classical enthalpy grid (default: 100 to 500 K in 100 K steps)",
     )
     parser.add_argument("--replicas", type=int)
     parser.add_argument(

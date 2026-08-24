@@ -521,8 +521,10 @@ def workflow_requirements(summaries: list[dict]) -> dict:
     )
     requirements = {
         "production_targets": [
-            "Classical loaded systems: five independent 500 ps flexible-cell NPT "
-            "runs at 1 bar, discarding the first 100 ps.",
+            "Initial classical campaign: one 500 ps flexible-cell NPT run at "
+            "each selected temperature and 1 bar, discarding the first 100 ps.",
+            "Add independent replicas later to quantify placement and velocity-seed "
+            "uncertainty.",
             "Hybrid C_P: differentiate converged replica-averaged loaded-system "
             "enthalpies on the temperature grid.",
             "Quantum correction: independently optimize representative loaded "

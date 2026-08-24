@@ -5,6 +5,36 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
+
+def configure_metatomic_neighbors(metatomic_neighbors) -> None:
+    """Configure the metatomic ASE neighbor backend for the Izar stack.
+
+    metatomic-ase computes ``max_neighbors`` from a floating-point cutoff.
+    nvalchemi 0.3/0.4 passes that value to ``torch.full`` as a tensor shape,
+    while Torch 2.5 requires integer dimensions. Keep the GPU backend enabled
+    and normalize the argument at the integration boundary.
+    """
+    if metatomic_neighbors.HAS_NVALCHEMIOPS:
+        neighbor_list = metatomic_neighbors.nvalchemi_neighbor_list
+        if not getattr(neighbor_list, "_mof5_patched", False):
+            original = neighbor_list
+
+            def neighbor_list_with_integer_capacity(*args, **kwargs):
+                if "max_neighbors" in kwargs:
+                    kwargs["max_neighbors"] = int(kwargs["max_neighbors"])
+                return original(*args, **kwargs)
+
+            neighbor_list_with_integer_capacity._mof5_patched = True
+            metatomic_neighbors.nvalchemi_neighbor_list = (
+                neighbor_list_with_integer_capacity
+            )
+
+    # nvalchemi avoids Vesin's NVRTC JIT path, which is not accepted by Izar's
+    # V100/CUDA runtime. Retain an opt-out for diagnostics on other CUDA stacks.
+    if os.environ.get("MOF_USE_NVALCHEMIOPS", "1").lower() in {"0", "false", "no"}:
+        metatomic_neighbors.HAS_NVALCHEMIOPS = False
+
+
 def ensure_exported_model(checkpoint_path: Path, exported_path: Path) -> Path:
     """Export a PET checkpoint to metatomic's portable format once."""
     try:

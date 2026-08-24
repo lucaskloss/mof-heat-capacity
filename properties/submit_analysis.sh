@@ -7,13 +7,12 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/.." && pwd)
-JOB_SCRIPT="${SCRIPT_DIR}/izar_analysis_job.sh"
 ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
 VALIDATE_PYTHON="${MOF_ANALYSIS_PYTHON:-${ENV_PREFIX}/bin/python}"
 RUNS=""
 MODEL="both"
 LOADINGS="100"
-TEMPERATURES="100,125,150,175,200,225,250,275,300,325,350,375,400,425,450,475,500"
+TEMPERATURES="100,200,300,400,500"
 REPLICAS="1"
 DISCARD_PS="100"
 ANALYSIS_DIR="output/analysis"
@@ -26,9 +25,82 @@ NO_PLOTS=0
 DRY_RUN=0
 
 
+run_analysis_worker() {
+    local runs=""
+    local discard_ps="100"
+    local analysis_dir="output/analysis"
+    local no_plots=0
+
+    shift
+    while (($#)); do
+        case "$1" in
+            --runs) runs="$2"; shift 2 ;;
+            --discard-ps) discard_ps="$2"; shift 2 ;;
+            --analysis-dir) analysis_dir="$2"; shift 2 ;;
+            --no-plots) no_plots=1; shift ;;
+            *) echo "error: unknown analysis-worker argument: $1" >&2; exit 2 ;;
+        esac
+    done
+
+    if [[ -z "${SLURM_SUBMIT_DIR:-}" ]]; then
+        echo "error: the internal worker must be launched with sbatch" >&2
+        exit 2
+    fi
+    if [[ ! "${discard_ps}" =~ ^[0-9]+([.][0-9]+)?$ \
+        || -z "${runs}" || -z "${analysis_dir}" ]]; then
+        echo "error: invalid internal analysis-worker arguments" >&2
+        exit 2
+    fi
+
+    local analysis_python="${ENV_PREFIX}/bin/python"
+    if [[ ! -x "${analysis_python}" ]]; then
+        echo "error: analysis Python not found: ${analysis_python}" >&2
+        echo "set MOF_ENV_PREFIX to the installed Conda environment" >&2
+        exit 2
+    fi
+
+    cd "${SLURM_SUBMIT_DIR}"
+    if [[ ! -f mof_heat_capacity/analysis/results.py ]]; then
+        echo "error: submit from the mof-heat-capacity repository root" >&2
+        exit 2
+    fi
+
+    export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
+    export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
+    export PYTHONUNBUFFERED=1
+    export MPLCONFIGDIR="${analysis_dir}/.matplotlib"
+    mkdir -p "${MPLCONFIGDIR}"
+
+    echo "Job ID:          ${SLURM_JOB_ID}"
+    echo "Node:            ${SLURMD_NODENAME}"
+    echo "Environment:     ${ENV_PREFIX}"
+    echo "Run selection:   ${runs}"
+    echo "Discard:         ${discard_ps} ps"
+    echo "Analysis output: ${analysis_dir}"
+    echo "GPU allocated:   1 (required by Izar normal QOS; analysis is CPU-based)"
+
+    local command=(
+        "${analysis_python}" -m mof_heat_capacity.analysis.results
+        --runs "${runs}"
+        --discard-ps "${discard_ps}"
+        --analysis-dir "${analysis_dir}"
+    )
+    if ((no_plots)); then
+        command+=(--no-plots)
+    fi
+    srun --ntasks=1 "${command[@]}"
+}
+
+
+if [[ "${1:-}" == "--internal-analysis-worker" ]]; then
+    run_analysis_worker "$@"
+    exit 0
+fi
+
+
 usage() {
     cat <<'EOF'
-Usage: scripts/submit_analysis.sh [options]
+Usage: properties/submit_analysis.sh [options]
 
 Options:
   --model NAME            pet-mad, pet-sol, or both (default: both).
@@ -49,7 +121,7 @@ Options:
 
 Izar's normal QOS requires one allocated GPU, although the analysis itself is
 CPU-based. By default the job analyzes loaded classical replica 1 across the
-25 K enthalpy grid for both MLIPs. Empty MOF-5 has no MD stage in the hybrid
+100 K enthalpy grid for both MLIPs. Empty MOF-5 has no MD stage in the hybrid
 workflow.
 EOF
 }
@@ -207,7 +279,8 @@ command=(
     --gres=gpu:1
     --time="${WALL_TIME}"
     --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
-    "${JOB_SCRIPT}"
+    "${SCRIPT_DIR}/submit_analysis.sh"
+    --internal-analysis-worker
     --runs "${RUNS}"
     --discard-ps "${DISCARD_PS}"
     --analysis-dir "${ANALYSIS_DIR}"

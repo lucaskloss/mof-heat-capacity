@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
-import os
 from pathlib import Path
 
 from ase import units
@@ -14,7 +13,7 @@ from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary
 
 from ..config import RunConfig, load_run_config
 from ..io import load_structure
-from ..models import ensure_exported_model
+from ..models import configure_metatomic_neighbors, ensure_exported_model
 from .production import run_classical_npt
 
 
@@ -82,13 +81,7 @@ def run_md(
 
     atoms = load_structure(config.structure, required_elements=config.required_elements)
     model_path = _prepare_metatomic_model(config)
-    _patch_nvalchemi_max_neighbors(metatomic_neighbors)
-    # Prefer the installed nvalchemi-toolkit-ops GPU neighbor backend when it
-    # is available. It avoids Vesin's NVRTC JIT path, which is not accepted by
-    # Izar's V100/CUDA runtime. Set MOF_USE_NVALCHEMIOPS=0 to force Vesin for
-    # diagnostics on a different CUDA stack.
-    if os.environ.get("MOF_USE_NVALCHEMIOPS", "1").lower() in {"0", "false", "no"}:
-        metatomic_neighbors.HAS_NVALCHEMIOPS = False
+    configure_metatomic_neighbors(metatomic_neighbors)
     atoms.calc = MetatomicCalculator(
         model_path, device=active_device, check_consistency=True
     )
@@ -117,30 +110,6 @@ def run_md(
     trajectory.close()
     print(f"Completed ASE MD. Trajectory: {trajectory_path}")
     return trajectory_path
-
-
-def _patch_nvalchemi_max_neighbors(metatomic_neighbors) -> None:
-    """Normalize nvalchemi's neighbor capacity for older Torch releases.
-
-    metatomic-ase computes ``max_neighbors`` from a floating-point cutoff.
-    nvalchemi 0.3/0.4 passes that value to ``torch.full`` as a tensor shape,
-    while Torch 2.5 requires integer dimensions. Keep the backend enabled and
-    normalize only this argument at the integration boundary.
-    """
-    if not metatomic_neighbors.HAS_NVALCHEMIOPS:
-        return
-    if getattr(metatomic_neighbors.nvalchemi_neighbor_list, "_mof5_patched", False):
-        return
-
-    original = metatomic_neighbors.nvalchemi_neighbor_list
-
-    def neighbor_list_with_integer_capacity(*args, **kwargs):
-        if "max_neighbors" in kwargs:
-            kwargs["max_neighbors"] = int(kwargs["max_neighbors"])
-        return original(*args, **kwargs)
-
-    neighbor_list_with_integer_capacity._mof5_patched = True
-    metatomic_neighbors.nvalchemi_neighbor_list = neighbor_list_with_integer_capacity
 
 
 def _prepare_metatomic_model(config: RunConfig) -> Path:

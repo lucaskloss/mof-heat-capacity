@@ -10,22 +10,31 @@ PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
   `simulation/`, `analysis/`, `structures/`, and `protocols/` subpackages
   separate the major workflow responsibilities; `config.py`, `io.py`, and
   `models.py` contain shared infrastructure.
-- `run.py` is the single-run ASE/metatomic molecular-dynamics entry point.
+- `simulation/` contains the user-facing Slurm submission command for MD.
+  Campaign preparation and single-run execution use the package modules
+  `mof_heat_capacity.protocols.loaded` and `mof_heat_capacity.simulation.md`
+  directly; do not add forwarding Python scripts for them.
+- `properties/` contains all user-facing trajectory and heat-capacity
+  calculation commands; it consumes completed outputs without starting MD.
 - `configs/` holds reusable TOML run specifications. Paths in a TOML file are
   resolved relative to that file.
 - `input/` holds source MOF-5 and methane structures.
 - `scripts/install_sadmof.sh` installs the SADMOF/PET-JAX stack; it expects the
   sibling checkout at `../repos/sadmof-work` unless `SADMOF_SOURCE` is set.
-- `scripts/izar_job.sh` is the Slurm entry point for Izar.
-- `scripts/submit_analysis.sh` and `scripts/izar_analysis_job.sh` validate,
-  submit, and execute CPU-based trajectory analysis on Izar. The normal QOS
-  requires allocating one GPU even though this analysis does not use it.
-- `scripts/prepare_loaded_campaign.py` and `scripts/submit_loaded_md.sh`
+- `scripts/izar_job.sh` is the shared GPU runtime for MD, relaxation, and
+  Hessian stages on Izar.
+- `properties/submit_analysis.sh` validates, submits, and executes CPU-based
+  trajectory analysis on Izar. Its Slurm worker mode is internal to the same
+  file. The normal QOS requires allocating one GPU even though this analysis
+  does not use it.
+- `mof_heat_capacity.protocols.loaded` and `simulation/submit_loaded_md.sh`
   generate and submit loaded classical-NPT campaigns.
-- `scripts/submit_heat_capacity.sh` quenches representative loaded structures
+- `properties/submit_heat_capacity.sh` quenches representative loaded structures
   and computes loaded and empty-reference Hessians.
-- `scripts/submit_hybrid_analysis.sh` assembles the final hybrid curve.
-- `scripts/README.md` maps all user-facing commands to their responsibilities.
+- `properties/submit_hybrid_analysis.sh` submits and assembles the final hybrid
+  curve without a separate worker script.
+- `scripts/` contains only setup and Slurm infrastructure shared by both
+  workflows; each workflow has its own README.
 - `docs/` contains the scientific rationale, source paper, and Izar guide.
 - `models/`, `output/`, and `external/` are generated, supplied, or local
   dependency directories and are intentionally ignored by Git.
@@ -38,10 +47,10 @@ SADMOF dependencies with `./scripts/install_sadmof.sh` before using harmonic
 heat-capacity analysis.
 
 ```bash
-python scripts/prepare_loaded_campaign.py --model pet-mad --loading 100 --dry-run
-./scripts/submit_loaded_md.sh --model pet-mad --loading 100 --debug --dry-run
-./scripts/submit_heat_capacity.sh --model pet-mad --loading 100 --dry-run
-./scripts/submit_hybrid_analysis.sh --model pet-mad --loading 100 --dry-run
+python -m mof_heat_capacity.protocols.loaded --model pet-mad --loading 100 --dry-run
+./simulation/submit_loaded_md.sh --model pet-mad --loading 100 --debug --dry-run
+./properties/submit_heat_capacity.sh --model pet-mad --loading 100 --dry-run
+./properties/submit_hybrid_analysis.sh --model pet-mad --loading 100 --dry-run
 ```
 
 The active production MD path is LAMMPS/metatomic classical NPT. Generated
@@ -81,8 +90,9 @@ wall-time requests. Keep MD, Hessian, and hybrid assembly as separate jobs.
   commands, Markdown links, and this guide together.
 - Keep generated weights, converted models, trajectories, analysis products,
   logs, Slurm output, and caches out of source control.
-- Use `python -m compileall -q run.py mof_heat_capacity scripts` after Python
-  changes and `bash -n scripts/*.sh` after shell changes.
+- Use `python -m compileall -q mof_heat_capacity` after Python changes and
+  `bash -n scripts/*.sh simulation/*.sh properties/*.sh`
+  after shell changes.
 - A lightweight dependency-independent smoke check is
   `python -m mof_heat_capacity.structures.methane --dry-run`. Full MD requires
   the configured

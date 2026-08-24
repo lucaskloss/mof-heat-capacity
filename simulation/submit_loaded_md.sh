@@ -7,13 +7,13 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/.." && pwd)
-JOB_SCRIPT="${SCRIPT_DIR}/izar_job.sh"
+JOB_SCRIPT="${PROJECT_DIR}/scripts/izar_job.sh"
 ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
 VALIDATE_PYTHON="${MOF_CAMPAIGN_PYTHON:-${ENV_PREFIX}/bin/python}"
 MODEL="pet-mad"
 LOADING=100
-TEMPERATURES=(100 125 150 175 200 225 250 275 300 325 350 375 400 425 450 475 500)
-REPLICAS=5
+TEMPERATURES=(100 200 300 400 500)
+REPLICAS=1
 PARTITION="${MOF_MD_PARTITION:-gpu}"
 QOS="${MOF_MD_QOS:-normal}"
 WALL_TIME="${MOF_MD_TIME:-24:00:00}"
@@ -28,13 +28,13 @@ DRY_RUN=0
 
 usage() {
     cat <<'EOF'
-Usage: scripts/submit_loaded_md.sh [options]
+Usage: simulation/submit_loaded_md.sh [options]
 
 Options:
   --model NAME         pet-mad, pet-sol, or both (default: pet-mad).
   --loading N          Positive methane count (default: 100).
-  --temperatures LIST  Comma-separated temperatures (default: 100:25:500).
-  --replicas N         Replica count (default: 5).
+  --temperatures LIST  Comma-separated temperatures (default: 100,200,300,400,500).
+  --replicas N         Replica count (default: 1).
   --partition NAME     Slurm partition (default: gpu).
   --qos NAME           Slurm QOS (default: normal).
   --time HH:MM:SS      Wall time per run (default: 24:00:00).
@@ -142,7 +142,7 @@ for model_index in "${!MODELS[@]}"; do
             stem="mof5-${LOADING}ch4-${MODEL_LABELS[model_index]}-npt-${temperature}K-rep${replica_tag}"
             config="configs/${stem}.toml"
             if [[ ! -f "${PROJECT_DIR}/${config}" ]]; then
-                echo "error: missing ${config}; run scripts/prepare_loaded_campaign.py" >&2
+                echo "error: missing ${config}; run python -m mof_heat_capacity.protocols.loaded" >&2
                 exit 2
             fi
             CONFIGS+=("${config}")

@@ -38,18 +38,18 @@ an explicit `--stress-validated` after validation.
 
 ## 1. Prepare loaded runs
 
-Preview the 100--500 K, 25 K-spaced, five-replica campaign:
+Preview the initial 100--500 K campaign with 100 K spacing and one replica:
 
 ```bash
-python scripts/prepare_loaded_campaign.py --model pet-mad --loading 100 \
-  --replicas 5 --dry-run
+python -m mof_heat_capacity.protocols.loaded --model pet-mad --loading 100 \
+  --temperatures 100,200,300,400,500 --replicas 1 --dry-run
 ```
 
 Then create the independent methane arrangements and generated TOMLs:
 
 ```bash
-python scripts/prepare_loaded_campaign.py --model pet-mad --loading 100 \
-  --replicas 5
+python -m mof_heat_capacity.protocols.loaded --model pet-mad --loading 100 \
+  --temperatures 100,200,300,400,500 --replicas 1
 ```
 
 Generated configurations remain local and are ignored by Git. Use a distinct
@@ -60,8 +60,8 @@ model/loading combination or output tree for every independent campaign.
 First run the isolated ten-step path:
 
 ```bash
-./scripts/submit_loaded_md.sh --model pet-mad --loading 100 --debug --dry-run
-./scripts/submit_loaded_md.sh --model pet-mad --loading 100 --debug
+./simulation/submit_loaded_md.sh --model pet-mad --loading 100 --debug --dry-run
+./simulation/submit_loaded_md.sh --model pet-mad --loading 100 --debug
 ```
 
 Inspect its Slurm log, LAMMPS thermodynamics, trajectory, cell, forces, and
@@ -69,16 +69,17 @@ restart. Next use `--calibration` to measure representative throughput and set
 a defensible wall time:
 
 ```bash
-./scripts/submit_loaded_md.sh --model pet-mad --loading 100 --calibration --dry-run
-./scripts/submit_loaded_md.sh --model pet-mad --loading 100 --calibration
+./simulation/submit_loaded_md.sh --model pet-mad --loading 100 --calibration --dry-run
+./simulation/submit_loaded_md.sh --model pet-mad --loading 100 --calibration
 ```
 
 Submit production only after both checks pass:
 
 ```bash
-./scripts/submit_loaded_md.sh --model pet-mad --loading 100 \
-  --replicas 5 --dry-run
-./scripts/submit_loaded_md.sh --model pet-mad --loading 100 --replicas 5
+./simulation/submit_loaded_md.sh --model pet-mad --loading 100 \
+  --temperatures 100,200,300,400,500 --replicas 1 --dry-run
+./simulation/submit_loaded_md.sh --model pet-mad --loading 100 \
+  --temperatures 100,200,300,400,500 --replicas 1
 ```
 
 Production output is organized as:
@@ -99,10 +100,10 @@ it parallel.
 Trajectory diagnostics are required before heat capacities are interpreted:
 
 ```bash
-./scripts/submit_analysis.sh --model pet-mad --loading 100 \
-  --replicas 1,2,3,4,5 --dry-run
-./scripts/submit_analysis.sh --model pet-mad --loading 100 \
-  --replicas 1,2,3,4,5
+./properties/submit_analysis.sh --model pet-mad --loading 100 \
+  --temperatures 100,200,300,400,500 --replicas 1 --dry-run
+./properties/submit_analysis.sh --model pet-mad --loading 100 \
+  --temperatures 100,200,300,400,500 --replicas 1
 ```
 
 Check equilibration, temperature and enthalpy stationarity, autocorrelation,
@@ -118,16 +119,42 @@ force convergence, and computes one PET-JAX Hessian. It also processes the
 equilibrated empty structure directly:
 
 ```bash
-./scripts/submit_heat_capacity.sh --model pet-mad --loading 100 \
-  --source-temperature 300 --replicas 1,2,3 --dry-run
-./scripts/submit_heat_capacity.sh --model pet-mad --loading 100 \
-  --source-temperature 300 --replicas 1,2,3
+./properties/submit_heat_capacity.sh --model pet-mad --loading 100 \
+  --source-temperature 300 --replicas 1 --dry-run
+./properties/submit_heat_capacity.sh --model pet-mad --loading 100 \
+  --source-temperature 300 --replicas 1
 ```
 
 Do not use raw thermal frames as normal-mode structures. Inspect relaxation
 logs, maximum residual forces, imaginary modes, precision, graph hops, and mode
 cutoff sensitivity. Existing relaxation/Hessian products are protected unless
 `--overwrite` is supplied.
+
+Hessian archives retain the sign of unstable modes. Hybrid assembly requires
+signed spectra and relaxation metadata, rejects any mode below the negative
+frequency threshold, and rejects more than three near-zero translational modes.
+An old archive produced with the zero-clipped convention must be recomputed.
+
+If a loaded quench reaches the force threshold but its signed spectrum is
+unstable, refine that same minimum without repeating the empty calculation:
+
+```bash
+./properties/submit_heat_capacity.sh --model pet-mad --loading 100 \
+  --source-temperature 300 --replicas 1 --skip-empty \
+  --continue-loaded --overwrite --optimizer fire \
+  --fmax 0.005 --relax-steps 4000 --cv-temperatures 100:500:100 --dry-run
+```
+
+Remove `--dry-run` after checking that the relaxation input and output are the
+same existing loaded minimum. The overwrite is intentional for the canonical
+loaded minimum and Hessian; it does not touch the empty reference.
+Use `--hessian-only` when the minimum itself is accepted and only a legacy or
+diagnostic Hessian must be replaced. Non-finite relaxation results are rejected
+before they can overwrite a valid minimum; line-search optimizers require
+particular care with float32 model energies.
+For a precision or graph-depth comparison, use an explicit tag such as
+`--hessian-tag fp64-h4 --dtype float64 --hops 4`; tagged archives are retained
+for inspection but are never consumed automatically by hybrid assembly.
 
 Outputs are stored below:
 
@@ -145,10 +172,10 @@ the loaded heat capacity uses the complete loaded-system spectra.
 After every requested temperature/replica and loaded Hessian is complete:
 
 ```bash
-./scripts/submit_hybrid_analysis.sh --model pet-mad --loading 100 \
-  --replicas 1,2,3,4,5 --dry-run
-./scripts/submit_hybrid_analysis.sh --model pet-mad --loading 100 \
-  --replicas 1,2,3,4,5
+./properties/submit_hybrid_analysis.sh --model pet-mad --loading 100 \
+  --temperatures 100,200,300,400,500 --replicas 1 --dry-run
+./properties/submit_hybrid_analysis.sh --model pet-mad --loading 100 \
+  --temperatures 100,200,300,400,500 --replicas 1
 ```
 
 The analysis differentiates replica-averaged classical NPT enthalpy and adds
@@ -157,8 +184,9 @@ and JSON provenance below `output/hybrid/<model>/<loading>ch4/`.
 
 ## Troubleshooting
 
-- Missing generated TOMLs: rerun `prepare_loaded_campaign.py` with the same
-  model, loading, temperatures, and replica count.
+- Missing generated TOMLs: rerun
+  `python -m mof_heat_capacity.protocols.loaded` with the same model, loading,
+  temperatures, and replica count.
 - Missing stress output: stop; NPT is not valid with that exported model.
 - CUDA initialization failure: recreate the pinned environment and confirm the
   Slurm job has one V100 allocation.

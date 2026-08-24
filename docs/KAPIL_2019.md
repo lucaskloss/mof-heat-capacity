@@ -57,14 +57,14 @@ requirements for the MLIP workflow defined here.
 For a loaded system $L=\mathrm{MOF\text{-}5}+x\mathrm{CH_4}$, Kapil et al.
 propose
 
-\[
+$$
 C^{\mathrm{approx}}(T;L)
 = C^{\mathrm{anh}}_{\mathrm{cl}}(T;L)
 + \left[
     C^{\mathrm{har}}_{\mathrm{qn}}(T;L)
     - C^{\mathrm{har}}_{\mathrm{cl}}(L)
   \right].
-\]
+$$
 
 All three terms refer to the **same loaded composition and the same MLIP**:
 
@@ -74,12 +74,12 @@ All three terms refer to the **same loaded composition and the same MLIP**:
 - $C^{\mathrm{har}}_{\mathrm{qn}}$ comes from the normal-mode frequencies of
   an optimized loaded structure. For each retained mode,
 
-  \[
+  $$
   C_{\mathrm{qn},i}^{\mathrm{har}}(T)
   = k_B\left(\frac{\hbar\omega_i}{k_BT}\right)^2
     \frac{\exp(\hbar\omega_i/k_BT)}
          {[\exp(\hbar\omega_i/k_BT)-1]^2}.
-  \]
+  $$
 
 - $C^{\mathrm{har}}_{\mathrm{cl}}$ is the classical harmonic limit for the
   identical set of retained modes: $k_B$ per unconstrained vibrational mode.
@@ -87,11 +87,11 @@ All three terms refer to the **same loaded composition and the same MLIP**:
 
 It is clearest to calculate and store the bracket as a quantum correction,
 
-\[
+$$
 \Delta C^{\mathrm{har}}_{\mathrm{qn-cl}}(T;L)
 = C^{\mathrm{har}}_{\mathrm{qn}}(T;L)
 - C^{\mathrm{har}}_{\mathrm{cl}}(L),
-\]
+$$
 
 and then add it to the classical MD result. This correction is normally
 negative because classical mechanics over-populates high-frequency modes.
@@ -192,10 +192,10 @@ not from the short repository smoke test.
 
 For fixed-cell NVT, obtain
 
-\[
+$$
 C^{\mathrm{anh}}_{V,\mathrm{cl}}
 = \frac{\langle E^2\rangle-\langle E\rangle^2}{k_BT^2},
-\]
+$$
 
 with the correct treatment of constrained or removed degrees of freedom. As a
 cross-check, fit the replica-averaged $\langle E\rangle(T)$ and differentiate
@@ -203,10 +203,10 @@ it.
 
 For NPT, use $H=E+P_{\mathrm{ext}}V$ and estimate
 
-\[
+$$
 C^{\mathrm{anh}}_{P,\mathrm{cl}}(T)
 = \frac{d\langle H\rangle}{dT}.
-\]
+$$
 
 A centered difference requires simulations at $T-\Delta T$ and
 $T+\Delta T$. Kapil et al. used $\Delta T=25$ K for their PIMD enthalpy
@@ -253,8 +253,8 @@ It writes quantum-harmonic $C_V$ and frequencies. The matching classical mode
 term and the final hybrid curve are assembled after the MD and Hessian jobs by:
 
 ```bash
-./scripts/submit_hybrid_analysis.sh --model pet-mad --loading 100 \
-  --replicas 1,2,3,4,5
+./properties/submit_hybrid_analysis.sh --model pet-mad --loading 100 \
+  --temperatures 100,200,300,400,500 --replicas 1
 ```
 
 That analysis differentiates the replica-averaged classical NPT enthalpies,

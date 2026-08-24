@@ -1,33 +1,16 @@
-# Command entry points
+# Shared project utilities
 
-Run these commands from the repository root.
+The two scientific workflows have their own command folders:
 
-| Command | Responsibility |
-| --- | --- |
-| `prepare_loaded_campaign.py` | Generate independent loaded structures and classical-NPT TOMLs on the enthalpy temperature grid. |
-| `submit_loaded_md.sh` | Validate and submit loaded classical-NPT jobs. |
-| `submit_analysis.sh` | Validate and submit trajectory diagnostics. |
-| `izar_analysis_job.sh` | Execute trajectory diagnostics in an Izar allocation. |
-| `submit_heat_capacity.sh` | Quench loaded configurations and compute loaded and empty-reference AD Hessians. |
-| `submit_hybrid_analysis.sh` | Differentiate classical enthalpies and add the loaded-Hessian quantum correction. |
-| `izar_job.sh` | Execute MD, relaxation, Hessian, or hybrid-analysis stages on Izar. |
-| `install_sadmof.sh` | Install the SADMOF/PET-JAX Hessian stack. |
+- `simulation/` prepares and runs molecular dynamics.
+- `properties/` inspects results and calculates heat capacities.
 
-The normal sequence is:
+This directory contains only infrastructure shared by those workflows:
 
-```bash
-python scripts/prepare_loaded_campaign.py --model pet-mad --loading 100 \
-  --replicas 5 --dry-run
-./scripts/submit_loaded_md.sh --model pet-mad --loading 100 \
-  --replicas 5 --dry-run
-./scripts/submit_analysis.sh --model pet-mad --loading 100 \
-  --replicas 1,2,3,4,5 --dry-run
-./scripts/submit_heat_capacity.sh --model pet-mad --loading 100 \
-  --source-temperature 300 --replicas 1,2,3 --dry-run
-./scripts/submit_hybrid_analysis.sh --model pet-mad --loading 100 \
-  --replicas 1,2,3,4,5 --dry-run
-```
+- `install_sadmof.sh` installs the PET-JAX/SADMOF dependencies required by
+  harmonic property calculations.
+- `izar_job.sh` contains the shared GPU runtime checks used by MD, relaxation,
+  and Hessian submission. CPU trajectory analysis and final hybrid assembly
+  are self-contained in their respective submission scripts.
 
-Remove `--dry-run` only after inspecting each complete command matrix. Empty
-MOF-5 is intentionally absent from MD preparation: `submit_heat_capacity.sh`
-uses its equilibrated structure directly.
+See each workflow's README for its public commands.
