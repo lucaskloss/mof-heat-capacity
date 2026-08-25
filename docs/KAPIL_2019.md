@@ -238,26 +238,10 @@ sum-rule handling, and finite-size effects on the correction. Do not repair a
 poor minimum by silently deleting imaginary frequencies or raising a frequency
 cutoff until the result looks smooth.
 
-The repository's harmonic entry point is:
-
-```bash
-python -m mof_heat_capacity.analysis.harmonic \
-  --config <loaded-config.toml> \
-  --trajectory <trajectory-containing-optimized-minima> \
-  --frame-indices <indices> \
-  --temperatures 100:500:10 \
-  --output <unique-result.npz>
-```
-
-It writes quantum-harmonic $C_V$ and frequencies. The matching classical mode
-term and the final hybrid curve are assembled after the MD and Hessian jobs by:
-
-```bash
-./properties/submit_hybrid_analysis.sh --model pet-mad --loading 100 \
-  --temperatures 100,200,300,400,500 --replicas 1
-```
-
-That analysis differentiates the replica-averaged classical NPT enthalpies,
+The property workflow described in
+[`scripts/properties/README.md`](../scripts/properties/README.md) writes the
+quantum-harmonic $C_V$ and frequencies, then assembles the final hybrid curve.
+It differentiates the replica-averaged classical NPT enthalpies,
 recomputes the quantum and classical harmonic terms with one common mode mask,
 and propagates MD and minimum-to-minimum uncertainty into the final curve.
 

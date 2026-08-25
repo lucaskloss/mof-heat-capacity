@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
-# Relax empty/loaded structures and submit AD Hessians for the hybrid workflow.
+# Verify the GPU Hessian runtime, then submit relaxation and AD Hessian jobs.
 
 set -euo pipefail
 
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/.." && pwd)
-JOB_SCRIPT="${PROJECT_DIR}/scripts/izar_job.sh"
+GPU_RUNTIME="${PROJECT_DIR}/scripts/slurm/izar_gpu_runtime.sh"
 MODEL="pet-mad"
 LOADING=100
 SOURCE_TEMPERATURE=300
@@ -35,7 +35,7 @@ DRY_RUN=0
 
 usage() {
     cat <<'EOF'
-Usage: properties/submit_heat_capacity.sh [options]
+Usage: scripts/properties/submit_heat_capacity.sh [options]
 
 Options:
   --model NAME            pet-mad, pet-sol, or both (default: pet-mad).
@@ -67,6 +67,10 @@ Each loaded task reads the final structure from one completed classical MD
 replica, relaxes it at fixed cell with the same MLIP, and computes one AD
 Hessian from the resulting minimum. Empty MOF-5 is relaxed directly from the
 supplied equilibrated structure; no empty-MOF MD trajectory is used.
+
+Before submitting Hessian work, the command automatically submits a lightweight
+GPU/JAX preflight for each selected model. Every relaxation/Hessian job depends
+on its model's preflight succeeding.
 EOF
 }
 
@@ -289,6 +293,33 @@ if ((!DRY_RUN)); then
     mkdir -p "${SLURM_OUTPUT_DIR}"
 fi
 
+declare -A HESSIAN_DEBUG_JOBS=()
+declare -A HESSIAN_DEBUG_SEEN=()
+for config in "${CONFIGS[@]}"; do
+    if [[ -n "${HESSIAN_DEBUG_SEEN[${config}]:-}" ]]; then
+        continue
+    fi
+    HESSIAN_DEBUG_SEEN[${config}]=1
+    debug_command=(
+        sbatch --parsable
+        --job-name="mof5-hessian-debug-$(basename "${config}" .toml)"
+        --partition="${PARTITION}" --qos="${QOS}"
+        --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
+        --gres=gpu:1 --time=00:15:00
+        --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
+        --export="ALL,MOF_STAGE=hessian-debug,MOF_CONFIG=${config}"
+        "${GPU_RUNTIME}"
+    )
+    if ((DRY_RUN)); then
+        printf 'DRY RUN:'; printf ' %q' "${debug_command[@]}"; printf '\n'
+        HESSIAN_DEBUG_JOBS[${config}]="<hessian-debug-job>"
+    else
+        submission=$("${debug_command[@]}")
+        HESSIAN_DEBUG_JOBS[${config}]=${submission%%;*}
+        echo "Submitted Hessian preflight for ${config}: ${submission%%;*}"
+    fi
+done
+
 for index in "${!CONFIGS[@]}"; do
     config="${CONFIGS[index]}"
     input="${INPUTS[index]}"
@@ -305,12 +336,13 @@ for index in "${!CONFIGS[@]}"; do
     command=(
         sbatch --parsable
         --job-name="mof5-hybrid-${label}"
+        --dependency="afterok:${HESSIAN_DEBUG_JOBS[${config}]}"
         --partition="${PARTITION}" --qos="${QOS}"
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1 --time="${WALL_TIME}"
         --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
         --export="ALL,MOF_STAGE=relax-and-heat-capacity,MOF_CONFIG=${config},MOF_RELAX_INPUT=${input},MOF_RELAX_INDEX=-1,MOF_RELAX_OUTPUT=${relaxed},MOF_RELAX_FMAX=${FMAX},MOF_RELAX_STEPS=${RELAX_STEPS},MOF_RELAX_OPTIMIZER=${OPTIMIZER},MOF_RELAX_ALLOW_ELEMENT_SUBSET=${allow_subset},MOF_RELAX_OVERWRITE=${relax_overwrite},MOF_HEAT_TEMPERATURES=${CV_TEMPERATURES},MOF_HEAT_OUTPUT=${hessian},MOF_HEAT_DTYPE=${HESSIAN_DTYPE},MOF_HEAT_HOPS=${HESSIAN_HOPS},MOF_HEAT_CHUNK_SIZE=${HESSIAN_CHUNK_SIZE},MOF_HEAT_OVERWRITE=${heat_overwrite}"
-        "${JOB_SCRIPT}"
+        "${GPU_RUNTIME}"
     )
     if ((DRY_RUN)); then
         printf 'DRY RUN:'; printf ' %q' "${command[@]}"; printf '\n'

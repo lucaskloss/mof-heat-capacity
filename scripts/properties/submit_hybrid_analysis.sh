@@ -99,7 +99,7 @@ fi
 
 usage() {
     cat <<'EOF'
-Usage: properties/submit_hybrid_analysis.sh [options]
+Usage: scripts/properties/submit_hybrid_analysis.sh [options]
 
 Options:
   --model NAME            pet-mad, pet-sol, or both (default: pet-mad).

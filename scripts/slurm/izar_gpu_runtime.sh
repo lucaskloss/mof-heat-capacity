@@ -1,7 +1,9 @@
 #!/bin/bash -l
 
-# Reusable single-GPU Slurm template for the MOF-5 workflow on SCITAS Izar.
-# Submit this file from the mof-heat-capacity directory. The default stage is MD.
+# Shared single-GPU runtime for MOF-5 jobs on SCITAS Izar.
+# The workflow submission scripts construct stage commands and submit this
+# runtime, which activates the environment, checks GPU compatibility, and runs
+# the requested MD, relaxation, or Hessian stage from the repository root.
 # After checking `sacctmgr show qos`, optionally add the appropriate QOS directive.
 # The current Python programs do not use MPI or multiple GPUs: keep one node,
 # one task, and one GPU. Benchmark cpus-per-task and set time from a short run.
@@ -25,6 +27,7 @@ MOF_OUTPUT_DIR="${MOF_OUTPUT_DIR:-}"
 MOF_PREFIX="${MOF_PREFIX:-}"
 MOF_RERUN="${MOF_RERUN:-0}"
 MOF_RESUME="${MOF_RESUME:-0}"
+MOF_TIMING_FILE="${MOF_TIMING_FILE:-}"
 MOF_HEAT_FRAMES="${MOF_HEAT_FRAMES:-}"
 MOF_HEAT_TRAJECTORY="${MOF_HEAT_TRAJECTORY:-}"
 MOF_HEAT_FRAME_INDICES="${MOF_HEAT_FRAME_INDICES:-}"
@@ -264,6 +267,20 @@ run_md() {
 }
 
 
+run_md_with_timing() {
+    local elapsed_seconds
+
+    SECONDS=0
+    run_md
+    elapsed_seconds=${SECONDS}
+    if [[ -n "${MOF_TIMING_FILE}" ]]; then
+        mkdir -p "$(dirname "${MOF_TIMING_FILE}")"
+        printf '%s\n' "${elapsed_seconds}" > "${MOF_TIMING_FILE}"
+        echo "MD elapsed seconds: ${elapsed_seconds}; recorded in ${MOF_TIMING_FILE}"
+    fi
+}
+
+
 run_heat_capacity() {
     local command=(python -m mof_heat_capacity.analysis.harmonic
         --config "${MOF_CONFIG}")
@@ -364,10 +381,15 @@ run_relaxation() {
 
 
 case "${MOF_STAGE}" in
+    hessian-debug)
+        check_pytorch_cuda
+        check_jax_cuda
+        echo "Hessian runtime preflight completed"
+        ;;
     md)
         check_pytorch_cuda
         check_lammps_cuda
-        run_md
+        run_md_with_timing
         ;;
     heat-capacity)
         check_jax_cuda
@@ -391,7 +413,7 @@ case "${MOF_STAGE}" in
         run_heat_capacity
         ;;
     *)
-        echo "error: MOF_STAGE must be md, relax, heat-capacity, or relax-and-heat-capacity" >&2
+        echo "error: MOF_STAGE must be md, hessian-debug, relax, heat-capacity, or relax-and-heat-capacity" >&2
         exit 2
         ;;
 esac

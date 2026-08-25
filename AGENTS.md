@@ -10,31 +10,32 @@ PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
   `simulation/`, `analysis/`, `structures/`, and `protocols/` subpackages
   separate the major workflow responsibilities; `config.py`, `io.py`, and
   `models.py` contain shared infrastructure.
-- `simulation/` contains the user-facing Slurm submission command for MD.
-  Campaign preparation and single-run execution use the package modules
+- `simulation/` contains the MD implementation namespace. Campaign preparation
+  and single-run execution use the package modules
   `mof_heat_capacity.protocols.loaded` and `mof_heat_capacity.simulation.md`
   directly; do not add forwarding Python scripts for them.
-- `properties/` contains all user-facing trajectory and heat-capacity
-  calculation commands; it consumes completed outputs without starting MD.
+- `properties/` contains the property-calculation implementation namespace; it
+  consumes completed outputs without starting MD.
 - `configs/` holds reusable TOML run specifications. Paths in a TOML file are
   resolved relative to that file.
 - `input/` holds source MOF-5 and methane structures.
-- `scripts/install_sadmof.sh` installs the SADMOF/PET-JAX stack; it expects the
+- `scripts/setup/install_sadmof.sh` installs the SADMOF/PET-JAX stack; it expects the
   sibling checkout at `../repos/sadmof-work` unless `SADMOF_SOURCE` is set.
-- `scripts/izar_job.sh` is the shared GPU runtime for MD, relaxation, and
+- `scripts/slurm/izar_gpu_runtime.sh` is the shared GPU runtime for MD, relaxation, and
   Hessian stages on Izar.
-- `properties/submit_analysis.sh` validates, submits, and executes CPU-based
+- `scripts/properties/submit_analysis.sh` validates, submits, and executes CPU-based
   trajectory analysis on Izar. Its Slurm worker mode is internal to the same
   file. The normal QOS requires allocating one GPU even though this analysis
   does not use it.
-- `mof_heat_capacity.protocols.loaded` and `simulation/submit_loaded_md.sh`
-  generate and submit loaded classical-NPT campaigns.
-- `properties/submit_heat_capacity.sh` quenches representative loaded structures
+- `scripts/md/submit_loaded_md.sh` invokes
+  `mof_heat_capacity.protocols.loaded` to generate and submit loaded
+  classical-NPT campaigns.
+- `scripts/properties/submit_heat_capacity.sh` quenches representative loaded structures
   and computes loaded and empty-reference Hessians.
-- `properties/submit_hybrid_analysis.sh` submits and assembles the final hybrid
+- `scripts/properties/submit_hybrid_analysis.sh` submits and assembles the final hybrid
   curve without a separate worker script.
-- `scripts/` contains only setup and Slurm infrastructure shared by both
-  workflows; each workflow has its own README.
+- `scripts/` contains every Bash entry point, grouped into `setup/`, `slurm/`,
+  `md/`, and `properties/`; each workflow also has its own README.
 - `docs/` contains the scientific rationale, source paper, and Izar guide.
 - `models/`, `output/`, and `external/` are generated, supplied, or local
   dependency directories and are intentionally ignored by Git.
@@ -43,14 +44,13 @@ PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
 
 Run commands from the repository root. Create the Conda environment with
 `conda env create --file environment.yml`, activate it, then install the
-SADMOF dependencies with `./scripts/install_sadmof.sh` before using harmonic
+SADMOF dependencies with `./scripts/setup/install_sadmof.sh` before using harmonic
 heat-capacity analysis.
 
 ```bash
-python -m mof_heat_capacity.protocols.loaded --model pet-mad --loading 100 --dry-run
-./simulation/submit_loaded_md.sh --model pet-mad --loading 100 --debug --dry-run
-./properties/submit_heat_capacity.sh --model pet-mad --loading 100 --dry-run
-./properties/submit_hybrid_analysis.sh --model pet-mad --loading 100 --dry-run
+./scripts/md/submit_loaded_md.sh --model pet-mad --loading 100 --dry-run
+./scripts/properties/submit_heat_capacity.sh --model pet-mad --loading 100 --dry-run
+./scripts/properties/submit_hybrid_analysis.sh --model pet-mad --loading 100 --dry-run
 ```
 
 The active production MD path is LAMMPS/metatomic classical NPT. Generated
@@ -91,7 +91,7 @@ wall-time requests. Keep MD, Hessian, and hybrid assembly as separate jobs.
 - Keep generated weights, converted models, trajectories, analysis products,
   logs, Slurm output, and caches out of source control.
 - Use `python -m compileall -q mof_heat_capacity` after Python changes and
-  `bash -n scripts/*.sh simulation/*.sh properties/*.sh`
+  `find scripts -name '*.sh' -exec bash -n {} +`
   after shell changes.
 - A lightweight dependency-independent smoke check is
   `python -m mof_heat_capacity.structures.methane --dry-run`. Full MD requires
