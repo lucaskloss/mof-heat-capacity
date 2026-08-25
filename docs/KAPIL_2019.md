@@ -114,7 +114,7 @@ An empty-host-only correction could be investigated later as an additional
 cost reduction, but it would be a new approximation and must first be compared
 with the full loaded-Hessian correction.
 
-## Choose \(C_V\) or \(C_P\) before running simulations
+## Choose $C_V$ or $C_P$ before running simulations
 
 The current Hessian calculation produces harmonic $C_V$. Kapil et al. report
 classical/PIMD $C_P$, and found $C_P\approx C_V$ for empty MOF-5. That
@@ -123,11 +123,11 @@ for this MLIP.
 
 Two internally coherent routes are available:
 
-1. **Fixed-cell \(C_V\), recommended until MLIP stresses are validated.** Run
+1. **Fixed-cell $C_V$, recommended until MLIP stresses are validated.** Run
    loaded NVT MD at the chosen cell and calculate
    $C^{\mathrm{anh}}_{V,\mathrm{cl}}$. Combine it with the fixed-cell
    harmonic correction. Report the result as approximate $C_V$.
-2. **One-bar \(C_P\).** Run converged loaded NPT MD with a validated MLIP stress
+2. **One-bar $C_P$.** Run converged loaded NPT MD with a validated MLIP stress
    and compute $d\langle H\rangle/dT$. Add the harmonic quantum correction as
    the paper did and explicitly label the small $C_P/C_V$ mixing assumption.
    If needed, quantify $C_P-C_V$ from thermal expansion and compressibility.
@@ -253,7 +253,7 @@ For every loading and temperature:
 2. add the mean loaded-Hessian quantum correction to the classical loaded-MD
    result;
 3. only then divide by the total mass of that loaded simulation cell for
-   J g\(^{-1}\) K\(^{-1}\), or by its volume for a volumetric result;
+   J g$^{-1}$ K$^{-1}$, or by its volume for a volumetric result;
 4. retain the empty harmonic curve as a separately normalized reference;
 5. report statistical uncertainty from MD and sensitivity to the optimized
    minimum and numerical Hessian settings.
