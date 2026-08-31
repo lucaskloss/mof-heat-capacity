@@ -36,10 +36,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", choices=tuple(MODEL_PRESETS), default="pet-mad")
     parser.add_argument(
         "--temperatures",
-        default=(
-            "100,200,300,400,500"
-        ),
-        help="Classical enthalpy grid (default: 100 to 500 K in 100 K steps)",
+        default="200,225,250,275,300,325,350,375,400",
+        help="Classical enthalpy grid (default: 200 to 400 K in 25 K steps)",
     )
     parser.add_argument("--replicas", type=int)
     parser.add_argument(
@@ -242,18 +240,23 @@ def main() -> None:
                     f"{structure_path}; prepare structures before using --configs-only"
                 )
             if not args.configs_only:
-                if structure_path.exists() and not args.force:
-                    raise FileExistsError(f"structure exists; use --force: {structure_path}")
-                prepare_structure(
-                    structure_path,
-                    data_path,
-                    host=host,
-                    methane=methane,
-                    loading=args.loading,
-                    tries=args.tries,
-                    minimum=args.min_distance,
-                    seed=seed,
-                )
+                if structure_path.exists() and args.skip_existing:
+                    print(f"Reusing existing structure: {structure_path}")
+                else:
+                    if structure_path.exists() and not args.force:
+                        raise FileExistsError(
+                            f"structure exists; use --force: {structure_path}"
+                        )
+                    prepare_structure(
+                        structure_path,
+                        data_path,
+                        host=host,
+                        methane=methane,
+                        loading=args.loading,
+                        tries=args.tries,
+                        minimum=args.min_distance,
+                        seed=seed,
+                    )
             config_path.write_text(config_text)
             count += 1
     print(f"Prepared {count} loaded classical-NPT run specifications")

@@ -6,7 +6,7 @@ set -euo pipefail
 
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/.." && pwd)
+PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 GPU_RUNTIME="${PROJECT_DIR}/scripts/slurm/izar_gpu_runtime.sh"
 MODEL="pet-mad"
 LOADING=100
@@ -40,7 +40,8 @@ Usage: scripts/properties/submit_heat_capacity.sh [options]
 Options:
   --model NAME            pet-mad, pet-sol, or both (default: pet-mad).
   --loading N             Positive methane loading (default: 100).
-  --source-temperature N  Loaded-MD temperature used to choose minima (default: 300 K).
+  --source-temperature N  Loaded-MD temperature used to choose quench inputs
+                          (default: 300 K; not a Hessian temperature).
   --replicas LIST         Independent loaded replicas to quench (default: 1).
   --empty-structure PATH  Equilibrated empty MOF-5 structure (default: input/mof5.pdb).
   --skip-empty            Do not submit the one empty-reference Hessian per model.

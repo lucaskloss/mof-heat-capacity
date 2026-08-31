@@ -6,11 +6,11 @@ set -euo pipefail
 
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/.." && pwd)
+PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 MODEL="pet-mad"
 LOADING=100
 REPLICAS="1"
-TEMPERATURES="100,200,300,400,500"
+TEMPERATURES="200,225,250,275,300,325,350,375,400"
 PARTITION="${MOF_ANALYSIS_PARTITION:-gpu}"
 QOS="${MOF_ANALYSIS_QOS:-normal}"
 WALL_TIME="${MOF_ANALYSIS_TIME:-00:30:00}"
@@ -105,7 +105,8 @@ Options:
   --model NAME            pet-mad, pet-sol, or both (default: pet-mad).
   --loading N             Positive methane loading (default: 100).
   --replicas LIST         Classical MD replicas (default: 1).
-  --temperatures LIST     Classical MD temperatures (default: 100,200,300,400,500).
+  --temperatures LIST     Classical MD temperatures
+                          (default: 200 to 400 K in 25 K steps).
   --partition NAME        Slurm partition (default: gpu).
   --qos NAME              Slurm QOS (default: normal).
   --time HH:MM:SS         Wall time per model (default: 00:30:00).

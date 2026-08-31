@@ -12,12 +12,18 @@ belongs inside a Slurm allocation, not on the login node.
 Use the MD submission command documented in
 [`scripts/md/README.md`](../scripts/md/README.md).
 
-The command automatically submits a 10-step debug job followed by a
-1,000-step calibration job. After both succeed, a dependent planner calculates
-the production wall time from the measured calibration rate, with a 25% margin
-and 10-minute startup allowance, and submits the production jobs. Inspect the
-debug and calibration logs, LAMMPS thermodynamics, trajectory, cell, forces,
-and restart before interpreting the final results.
+The command automatically submits one 1,000-step debug-QOS calibration per
+MLIP. Each calibration performs the CUDA, LAMMPS, model, and stress preflight
+before measuring the MD rate. After it succeeds, a dependent debug-QOS planner
+estimates and reports the production runtime, then submits the production jobs
+under the requested production QOS. The default `normal` jobs request
+`2-23:50:00`, ten minutes below the three-day limit. MD is stopped ten minutes
+before the allocation ends; if its absolute final step is still incomplete,
+the worker automatically submits one successor under the same QOS. Successors
+resume from the latest numeric LAMMPS restart and repeat this process until the
+final restart is written. A scientific or runtime failure is not automatically
+retried. Inspect the calibration logs, LAMMPS thermodynamics, trajectory, cell,
+forces, and restart before interpreting the final results.
 
 Production output is organized as:
 
@@ -25,8 +31,8 @@ Production output is organized as:
 output/classical/production/<loading>ch4/<run-name>/
 ```
 
-`--resume` continues production from the latest numeric LAMMPS restart toward
-the TOML's absolute step target.
+`--resume` remains available for manual recovery. It continues production from
+the latest numeric LAMMPS restart toward the TOML's absolute step target.
 
 Useful scheduler overrides are `--partition`, `--qos`, `--time`, and `--cpus`.
 Each program uses one task and one GPU; requesting multiple GPUs does not make

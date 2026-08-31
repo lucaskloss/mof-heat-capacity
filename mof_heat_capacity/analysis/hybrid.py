@@ -18,6 +18,7 @@ from .statistics import AMU_TO_G, EV_TO_J, KB_EV_PER_K, summarize_series
 
 BAR_A3_TO_EV = 6.241509074e-7
 HC_OVER_K_CM_K = 1.438776877
+ANGSTROM3_TO_CM3 = 1.0e-24
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,8 +32,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--replicas", default="1")
     parser.add_argument(
         "--temperatures",
-        default="100,200,300,400,500",
-        help="Comma-separated classical-MD temperatures",
+        default="200,225,250,275,300,325,350,375,400",
+        help="Classical-MD grid (default: 200 to 400 K in 25 K steps)",
     )
     parser.add_argument("--configs-dir", type=Path, default=Path("configs"))
     parser.add_argument("--hybrid-dir", type=Path, default=Path("output/hybrid"))
@@ -76,7 +77,15 @@ def _enthalpy_records(
     loading: int,
     replicas: list[int],
     temperatures: list[int],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, list[dict]]:
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    float,
+    list[dict],
+]:
     records = []
     mass_amu = None
     for replica in replicas:
@@ -109,6 +118,9 @@ def _enthalpy_records(
                 * BAR_A3_TO_EV
             )
             summary = summarize_series(enthalpy, thermo["time_ps"][mask])
+            volume_summary = summarize_series(
+                thermo["volume_A3"][mask], thermo["time_ps"][mask]
+            )
             current_mass = float(read(config.structure).get_masses().sum())
             if mass_amu is None:
                 mass_amu = current_mass
@@ -120,7 +132,10 @@ def _enthalpy_records(
                     "replica": replica,
                     "mean_enthalpy_eV": summary["mean"],
                     "enthalpy_standard_error_eV": summary["standard_error"],
+                    "mean_volume_A3": volume_summary["mean"],
+                    "volume_standard_error_A3": volume_summary["standard_error"],
                     "effective_samples": summary["effective_samples"],
+                    "volume_effective_samples": volume_summary["effective_samples"],
                     "source": str(log_path),
                 }
             )
@@ -128,6 +143,8 @@ def _enthalpy_records(
     temperature_array = np.asarray(temperatures, dtype=float)
     means = []
     errors = []
+    volume_means = []
+    volume_errors = []
     for temperature in temperature_array:
         selected = [row for row in records if row["temperature_K"] == temperature]
         present = {row["replica"] for row in selected}
@@ -139,13 +156,40 @@ def _enthalpy_records(
         within_sem = math.sqrt(float(np.sum(within**2))) / len(within)
         means.append(float(values.mean()))
         errors.append(math.hypot(between_sem, within_sem))
+        volumes = np.asarray([row["mean_volume_A3"] for row in selected])
+        volume_within = np.asarray(
+            [row["volume_standard_error_A3"] for row in selected]
+        )
+        volume_between_sem = (
+            volumes.std(ddof=1) / math.sqrt(len(volumes))
+            if len(volumes) > 1
+            else 0.0
+        )
+        volume_within_sem = math.sqrt(float(np.sum(volume_within**2))) / len(
+            volume_within
+        )
+        volume_means.append(float(volumes.mean()))
+        volume_errors.append(math.hypot(volume_between_sem, volume_within_sem))
     return (
         temperature_array,
         np.asarray(means),
         np.asarray(errors),
+        np.asarray(volume_means),
+        np.asarray(volume_errors),
         float(mass_amu),
         records,
     )
+
+
+def _volumetric_heat_capacity(
+    gravimetric: np.ndarray,
+    gravimetric_error: np.ndarray,
+    density: np.ndarray,
+    density_error: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    values = gravimetric * density
+    errors = np.hypot(gravimetric_error * density, gravimetric * density_error)
+    return values, errors
 
 
 def _harmonic_corrections(
@@ -256,7 +300,15 @@ def run(args: argparse.Namespace) -> Path:
         raise ValueError("--bootstrap-samples must be at least 100")
     replicas = _replicas(args.replicas)
     selected_temperatures = _temperatures(args.temperatures)
-    temperatures, enthalpy, enthalpy_error, mass_amu, md_records = _enthalpy_records(
+    (
+        temperatures,
+        enthalpy,
+        enthalpy_error,
+        volume_A3,
+        volume_error_A3,
+        mass_amu,
+        md_records,
+    ) = _enthalpy_records(
         args.configs_dir,
         model_label=args.model_label,
         loading=args.loading,
@@ -286,6 +338,18 @@ def run(args: argparse.Namespace) -> Path:
     )
     approximate = classical_cp + correction
     approximate_error = np.hypot(classical_error, correction_error)
+    mass_g = mass_amu * AMU_TO_G
+    density = mass_g / (volume_A3 * ANGSTROM3_TO_CM3)
+    density_error = density * volume_error_A3 / volume_A3
+    classical_cp_vol, classical_error_vol = _volumetric_heat_capacity(
+        classical_cp, classical_error, density, density_error
+    )
+    correction_vol, correction_error_vol = _volumetric_heat_capacity(
+        correction, correction_error, density, density_error
+    )
+    approximate_vol, approximate_error_vol = _volumetric_heat_capacity(
+        approximate, approximate_error, density, density_error
+    )
 
     output = args.output or loaded_dir / "hybrid-heat-capacity.npz"
     output = output.expanduser().resolve()
@@ -299,6 +363,16 @@ def run(args: argparse.Namespace) -> Path:
         harmonic_quantum_correction_standard_error_J_per_gK=correction_error,
         approximate_cp_J_per_gK=approximate,
         approximate_cp_standard_error_J_per_gK=approximate_error,
+        mean_volume_A3=volume_A3,
+        mean_volume_standard_error_A3=volume_error_A3,
+        density_g_per_cm3=density,
+        density_standard_error_g_per_cm3=density_error,
+        classical_anharmonic_cp_J_per_cm3K=classical_cp_vol,
+        classical_anharmonic_cp_standard_error_J_per_cm3K=classical_error_vol,
+        harmonic_quantum_correction_J_per_cm3K=correction_vol,
+        harmonic_quantum_correction_standard_error_J_per_cm3K=correction_error_vol,
+        approximate_cp_J_per_cm3K=approximate_vol,
+        approximate_cp_standard_error_J_per_cm3K=approximate_error_vol,
         total_mass_amu=mass_amu,
     )
     csv_path = output.with_suffix(".csv")
@@ -313,6 +387,16 @@ def run(args: argparse.Namespace) -> Path:
                 "harmonic_correction_standard_error_J_per_gK",
                 "approximate_cp_J_per_gK",
                 "approximate_cp_standard_error_J_per_gK",
+                "mean_volume_A3",
+                "mean_volume_standard_error_A3",
+                "density_g_per_cm3",
+                "density_standard_error_g_per_cm3",
+                "classical_anharmonic_cp_J_per_cm3K",
+                "classical_cp_standard_error_J_per_cm3K",
+                "harmonic_quantum_correction_J_per_cm3K",
+                "harmonic_correction_standard_error_J_per_cm3K",
+                "approximate_cp_J_per_cm3K",
+                "approximate_cp_standard_error_J_per_cm3K",
             ]
         )
         writer.writerows(
@@ -324,6 +408,16 @@ def run(args: argparse.Namespace) -> Path:
                 correction_error,
                 approximate,
                 approximate_error,
+                volume_A3,
+                volume_error_A3,
+                density,
+                density_error,
+                classical_cp_vol,
+                classical_error_vol,
+                correction_vol,
+                correction_error_vol,
+                approximate_vol,
+                approximate_error_vol,
                 strict=True,
             )
         )
@@ -343,6 +437,8 @@ def run(args: argparse.Namespace) -> Path:
                     "Harmonic correction is C_qn_har - C_cl_har for identical retained modes.",
                     "Endpoint derivatives are second-order one-sided estimates.",
                     "Temperature spacing is a heat-capacity convergence parameter.",
+                    "Volumetric values use the production NPT mean volume at each temperature.",
+                    "Volumetric uncertainty propagation neglects covariance between heat capacity and volume.",
                 ],
             },
             indent=2,

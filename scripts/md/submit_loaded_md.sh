@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
 
-# Prepare, validate, and submit loaded classical-NPT runs to Slurm.
+# Prepare, validate, calibrate, and submit loaded classical-NPT runs to Slurm.
 
 set -euo pipefail
 
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/.." && pwd)
+PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 GPU_RUNTIME="${PROJECT_DIR}/scripts/slurm/izar_gpu_runtime.sh"
 ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
 VALIDATE_PYTHON="${MOF_CAMPAIGN_PYTHON:-${ENV_PREFIX}/bin/python}"
-MODEL="pet-mad"
+MODEL="both"
 LOADING=100
-TEMPERATURES=(100 200 300 400 500)
+TEMPERATURES=(200 225 250 275 300 325 350 375 400)
 REPLICAS=1
 PARTITION="${MOF_MD_PARTITION:-gpu}"
 QOS="${MOF_MD_QOS:-normal}"
-WALL_TIME="${MOF_MD_TIME:-24:00:00}"
+WALL_TIME="${MOF_MD_TIME:-2-23:50:00}"
 WALL_TIME_SET=0
+if [[ -n "${MOF_MD_TIME:-}" ]]; then
+    WALL_TIME_SET=1
+fi
 CPUS_PER_TASK="${MOF_MD_CPUS:-8}"
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${PROJECT_DIR}/output/slurm}"
 STEPS=""
@@ -25,10 +28,13 @@ DEBUG=0
 CALIBRATION=0
 PRODUCTION_AFTER_CALIBRATION=""
 RESUME=0
+AUTO_RESUME=1
 DRY_RUN=0
 CALIBRATION_STEPS=1000
 CALIBRATION_MARGIN_PERCENT=125
 CALIBRATION_STARTUP_SECONDS=600
+NORMAL_QOS_WALL_TIME="2-23:50:00"
+AUTO_RESUME_BUFFER_SECONDS=600
 
 
 usage() {
@@ -36,18 +42,23 @@ usage() {
 Usage: scripts/md/submit_loaded_md.sh [options]
 
 Options:
-  --model NAME         pet-mad, pet-sol, or both (default: pet-mad).
+  --model NAME         pet-mad, pet-sol, or both (default: both).
   --loading N          Positive methane count (default: 100).
-  --temperatures LIST  Comma-separated temperatures (default: 100,200,300,400,500).
+  --temperatures LIST  Comma-separated temperatures
+                       (default: 200 to 400 K in 25 K steps).
   --replicas N         Replica count (default: 1).
   --partition NAME     Slurm partition (default: gpu).
-  --qos NAME           Slurm QOS (default: normal).
-  --time HH:MM:SS      Explicit production wall-time override (otherwise estimated).
+  --qos NAME           Production Slurm QOS (default: normal).
+  --time [D-]HH:MM:SS Production wall-time override (default for normal QOS:
+                       2-23:50:00, ten minutes below its three-day limit).
   --cpus N             CPUs per task (default: 8).
   --steps N            Override the configured final step.
   --debug              Manually submit an isolated 10-step debug run.
   --calibration        Manually submit an isolated 1000-step timing run.
-  --resume             Continue from the latest numeric LAMMPS restart.
+  --resume             Submit only unfinished production runs, continuing from
+                       their latest numeric LAMMPS restart.
+  --no-auto-resume     Do not automatically submit another production job when
+                       an MD segment reaches its wall-time buffer.
   --dry-run            Prepare missing inputs, validate, and print the full pipeline.
   -h, --help           Show this help.
 EOF
@@ -78,6 +89,7 @@ while (($#)); do
         --production-after-calibration)
             require_value "$@"; PRODUCTION_AFTER_CALIBRATION="$2"; shift 2 ;;
         --resume) RESUME=1; shift ;;
+        --no-auto-resume) AUTO_RESUME=0; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -113,9 +125,12 @@ if ((DEBUG || CALIBRATION)) && ((RESUME)); then
     exit 2
 fi
 if ((DEBUG)); then
-    TEMPERATURES=(300); REPLICAS=1; QOS=debug; WALL_TIME=00:30:00; CPUS_PER_TASK=4; STEPS=10
+    TEMPERATURES=(300); REPLICAS=1; QOS=debug; WALL_TIME=00:30:00; CPUS_PER_TASK=4; STEPS=10; AUTO_RESUME=0
 elif ((CALIBRATION)); then
-    TEMPERATURES=(300); REPLICAS=1; WALL_TIME=02:00:00; CPUS_PER_TASK=4; STEPS=${CALIBRATION_STEPS}
+    TEMPERATURES=(300); REPLICAS=1; QOS=debug; WALL_TIME=01:00:00; CPUS_PER_TASK=4; STEPS=${CALIBRATION_STEPS}; AUTO_RESUME=0
+fi
+if ((RESUME && !WALL_TIME_SET)); then
+    WALL_TIME="${NORMAL_QOS_WALL_TIME}"
 fi
 if ((${#TEMPERATURES[@]} == 0)); then
     echo "error: --temperatures must not be empty" >&2
@@ -176,6 +191,10 @@ done
 
 
 cd "${PROJECT_DIR}"
+echo "Loaded MD campaign: model=${MODEL}; loading=${LOADING}; replicas=${REPLICAS}"
+printf 'Temperatures:'
+printf ' %s' "${TEMPERATURES[@]}"
+printf ' K\n'
 prepare_campaign
 "${VALIDATE_PYTHON}" - "${CONFIGS[@]}" <<'PY'
 from pathlib import Path
@@ -211,6 +230,7 @@ estimate_production_wall_time() {
     local calibration_seconds
     local production_steps
     local estimate_seconds
+    local estimated_wall_time
     local first_config=${CONFIGS[0]}
 
     if [[ ! -f "${PRODUCTION_AFTER_CALIBRATION}" ]]; then
@@ -241,10 +261,21 @@ PY
             + CALIBRATION_STEPS * 100 - 1) / (CALIBRATION_STEPS * 100)
         + CALIBRATION_STARTUP_SECONDS
     ))
-    printf -v WALL_TIME '%02d:%02d:%02d' \
+    printf -v estimated_wall_time '%02d:%02d:%02d' \
         "$((estimate_seconds / 3600))" \
         "$(((estimate_seconds / 60) % 60))" \
         "$((estimate_seconds % 60))"
+    if [[ "${QOS}" == "normal" ]]; then
+        WALL_TIME="${NORMAL_QOS_WALL_TIME}"
+        echo "Calibrated production estimate: ${estimated_wall_time}."
+        if ((AUTO_RESUME)); then
+            echo "Using the default normal-QOS allocation ${WALL_TIME}; unfinished MD will automatically continue in a new job."
+        else
+            echo "Using the default normal-QOS allocation ${WALL_TIME}; automatic continuation is disabled."
+        fi
+    else
+        WALL_TIME="${estimated_wall_time}"
+    fi
     echo "Calibration: ${calibration_seconds}s for ${CALIBRATION_STEPS} steps; production: ${production_steps} steps; requested wall time: ${WALL_TIME}"
 }
 
@@ -255,10 +286,9 @@ submit_automatic_pipeline() {
     local config
     local stem
     local timing_file
-    local debug_submission
     local calibration_submission
+    local planner_submission
     local continuation
-    local -a debug_command
     local -a calibration_command
     local -a continuation_command
 
@@ -267,17 +297,10 @@ submit_automatic_pipeline() {
         config="configs/mof5-${LOADING}ch4-${MODEL_LABELS[model_index]}-npt-${TEMPERATURES[0]}K-rep01.toml"
         stem=$(basename "${config}" .toml)
         timing_file="output/classical/calibration/${LOADING}ch4/${stem}/elapsed-seconds.txt"
-        debug_command=(
-            sbatch --parsable --job-name="mof5-${model}-debug"
-            --partition="${PARTITION}" --qos=debug --nodes=1 --ntasks=1 --cpus-per-task=4
-            --gres=gpu:1 --time=00:30:00 --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
-            --export="ALL,MOF_STAGE=md,MOF_CONFIG=${config},MOF_STEPS=10,MOF_OUTPUT_DIR=output/classical/debug/${LOADING}ch4/${stem},MOF_PREFIX=${stem}-debug,MOF_RERUN=1"
-            "${GPU_RUNTIME}"
-        )
         calibration_command=(
-            sbatch --parsable --job-name="mof5-${model}-calibration"
-            --dependency=afterok:PLACEHOLDER --partition="${PARTITION}" --qos="${QOS}"
-            --nodes=1 --ntasks=1 --cpus-per-task=4 --gres=gpu:1 --time=02:00:00
+            sbatch --parsable --job-name="mof5-${LOADING}ch4-${model}-calibration"
+            --partition="${PARTITION}" --qos=debug
+            --nodes=1 --ntasks=1 --cpus-per-task=4 --gres=gpu:1 --time=01:00:00
             --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
             --export="ALL,MOF_STAGE=md,MOF_CONFIG=${config},MOF_STEPS=${CALIBRATION_STEPS},MOF_OUTPUT_DIR=output/classical/calibration/${LOADING}ch4/${stem},MOF_PREFIX=${stem}-calibration,MOF_RERUN=1,MOF_TIMING_FILE=${timing_file}"
             "${GPU_RUNTIME}"
@@ -295,30 +318,31 @@ submit_automatic_pipeline() {
         if ((WALL_TIME_SET)); then
             continuation_command+=(--time "${WALL_TIME}")
         fi
+        if ((!AUTO_RESUME)); then
+            continuation_command+=(--no-auto-resume)
+        fi
         printf -v continuation '%q ' "${continuation_command[@]}"
         if ((DRY_RUN)); then
-            printf 'DRY RUN:'; printf ' %q' "${debug_command[@]}"; printf '\n'
             printf 'DRY RUN:'; printf ' %q' "${calibration_command[@]}"; printf '\n'
-            printf 'DRY RUN: sbatch --dependency=afterok:<calibration-job> --partition=%q --qos=%q --nodes=1 --ntasks=1 --cpus-per-task=%q --gres=gpu:1 --time=00:20:00 --wrap %q\n' "${PARTITION}" "${QOS}" "${CPUS_PER_TASK}" "cd ${PROJECT_DIR} && exec ${continuation}"
+            printf 'DRY RUN: sbatch --dependency=afterok:<calibration-job> --partition=%q --qos=debug --nodes=1 --ntasks=1 --cpus-per-task=1 --gres=gpu:1 --time=00:20:00 --wrap %q\n' "${PARTITION}" "cd ${PROJECT_DIR} && exec ${continuation}"
             continue
         fi
-        debug_submission=$("${debug_command[@]}")
-        calibration_command[3]="--dependency=afterok:${debug_submission%%;*}"
         calibration_submission=$("${calibration_command[@]}")
-        sbatch --parsable --job-name="mof5-${model}-production-plan" \
+        planner_submission=$(sbatch --parsable --job-name="mof5-${LOADING}ch4-${model}-production-plan" \
             --dependency="afterok:${calibration_submission%%;*}" \
-            --partition="${PARTITION}" --qos="${QOS}" --nodes=1 --ntasks=1 \
-            --cpus-per-task="${CPUS_PER_TASK}" --gres=gpu:1 --time=00:20:00 \
+            --partition="${PARTITION}" --qos=debug --nodes=1 --ntasks=1 \
+            --cpus-per-task=1 --gres=gpu:1 --time=00:20:00 \
             --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out" \
-            --wrap="cd ${PROJECT_DIR} && exec ${continuation}" >/dev/null
-        echo "Submitted ${model} debug ${debug_submission%%;*}, calibration ${calibration_submission%%;*}, and dependent production planner"
+            --wrap="cd ${PROJECT_DIR} && exec ${continuation}")
+        echo "Submitted ${model} pipeline: debug-QOS calibration ${calibration_submission%%;*} -> debug-QOS production planner ${planner_submission%%;*}"
+        echo "The planner submits the independent production jobs under QOS ${QOS}."
     done
 }
 
 if ((!DRY_RUN)); then
     mkdir -p "${SLURM_OUTPUT_DIR}"
 fi
-if [[ -z "${PRODUCTION_AFTER_CALIBRATION}" ]] && ((!DEBUG && !CALIBRATION)); then
+if [[ -z "${PRODUCTION_AFTER_CALIBRATION}" ]] && ((!DEBUG && !CALIBRATION && !RESUME)); then
     submit_automatic_pipeline
     exit 0
 fi
@@ -328,6 +352,42 @@ if [[ -n "${PRODUCTION_AFTER_CALIBRATION}" ]]; then
     else
         estimate_production_wall_time
     fi
+fi
+
+
+wall_time_seconds() {
+    local specification=$1
+    local days=0
+    local clock=${specification}
+    local hours
+    local minutes
+    local seconds
+    local extra
+
+    if [[ "${clock}" == *-* ]]; then
+        days=${clock%%-*}
+        clock=${clock#*-}
+    fi
+    IFS=: read -r hours minutes seconds extra <<< "${clock}"
+    if [[ -n "${extra:-}" || ! "${days}" =~ ^[0-9]+$ \
+        || ! "${hours:-}" =~ ^[0-9]+$ || ! "${minutes:-}" =~ ^[0-9]+$ \
+        || ! "${seconds:-}" =~ ^[0-9]+$ || "${minutes}" -ge 60 \
+        || "${seconds}" -ge 60 ]]; then
+        echo "error: invalid wall time: ${specification}" >&2
+        return 2
+    fi
+    printf '%s\n' "$((days * 86400 + hours * 3600 + minutes * 60 + seconds))"
+}
+
+
+segment_seconds=""
+if ((AUTO_RESUME && !DEBUG && !CALIBRATION)); then
+    allocation_seconds=$(wall_time_seconds "${WALL_TIME}")
+    if ((allocation_seconds <= AUTO_RESUME_BUFFER_SECONDS)); then
+        echo "error: automatic resume requires a wall time longer than ${AUTO_RESUME_BUFFER_SECONDS} seconds" >&2
+        exit 2
+    fi
+    segment_seconds=$((allocation_seconds - AUTO_RESUME_BUFFER_SECONDS))
 fi
 for index in "${!CONFIGS[@]}"; do
     config="${CONFIGS[index]}"
@@ -345,14 +405,19 @@ for index in "${!CONFIGS[@]}"; do
     fi
     output_dir="output/classical/${stage}/${LOADING}ch4/${stem}"
     output_prefix="${stem}${prefix_suffix}"
+    final_restart="${output_dir}/${output_prefix}.restart.final"
+    if ((RESUME)) && [[ -f "${final_restart}" ]]; then
+        echo "Skipping completed production run: ${stem}"
+        continue
+    fi
     command=(
         sbatch --parsable
-        --job-name="mof5-${run_model}-npt-${temperature}K-r${replica_tag}"
+        --job-name="mof5-${LOADING}ch4-${run_model}-npt-${temperature}K-r${replica_tag}"
         --partition="${PARTITION}" --qos="${QOS}"
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1 --time="${WALL_TIME}"
         --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
-        --export="ALL,MOF_STAGE=md,MOF_CONFIG=${config},MOF_STEPS=${STEPS},MOF_OUTPUT_DIR=${output_dir},MOF_PREFIX=${output_prefix},MOF_RESUME=${RESUME},MOF_RERUN=${rerun}"
+        --export="ALL,MOF_STAGE=md,MOF_CONFIG=${config},MOF_STEPS=${STEPS},MOF_OUTPUT_DIR=${output_dir},MOF_PREFIX=${output_prefix},MOF_RESUME=${RESUME},MOF_RERUN=${rerun},MOF_AUTO_RESUME=${AUTO_RESUME},MOF_MD_SEGMENT_SECONDS=${segment_seconds},MOF_SUBMIT_JOB_NAME=mof5-${LOADING}ch4-${run_model}-npt-${temperature}K-r${replica_tag},MOF_SUBMIT_PARTITION=${PARTITION},MOF_SUBMIT_QOS=${QOS},MOF_SUBMIT_TIME=${WALL_TIME},MOF_SUBMIT_CPUS=${CPUS_PER_TASK},MOF_SUBMIT_OUTPUT=${SLURM_OUTPUT_DIR}/slurm-%x-%j.out,MOF_RUNTIME_PATH=${GPU_RUNTIME}"
         "${GPU_RUNTIME}"
     )
     if ((DRY_RUN)); then

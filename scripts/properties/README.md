@@ -12,17 +12,33 @@ Run commands from the repository root:
 
 ```bash
 ./scripts/properties/submit_analysis.sh --model pet-mad --loading 100 \
-  --temperatures 100,200,300,400,500 --replicas 1
+  --replicas 1
 ./scripts/properties/submit_heat_capacity.sh --model pet-mad --loading 100 \
   --source-temperature 300 --replicas 1
 ./scripts/properties/submit_hybrid_analysis.sh --model pet-mad --loading 100 \
-  --temperatures 100,200,300,400,500 --replicas 1
+  --replicas 1
 ```
+
+Trajectory-analysis output is grouped automatically by loading. For example,
+`--loading 100` writes below `output/analysis/100ch4/`; an explicit
+`--analysis-dir` remains available when a custom location is needed.
 
 The first command produces trajectory diagnostics. The second relaxes selected
 structures and computes harmonic Hessians. The third combines classical
 enthalpy derivatives with the harmonic quantum correction. Their reusable
 implementations live in `mof_heat_capacity/analysis/`.
+
+Hybrid NPZ and CSV outputs contain the classical term, harmonic correction,
+and final approximate $C_P$ in both gravimetric $J g^{-1} K^{-1}$ and
+volumetric $J cm^{-3} K^{-1}$ units. The volumetric values use the loaded NPT
+mean volume and cell mass at each temperature; the accompanying JSON notes the
+uncertainty assumptions.
+
+Classical analysis and hybrid assembly default to the same 200–400 K grid in
+25 K steps as MD submission. Interior enthalpy derivatives are centered; the
+200 and 400 K values use second-order one-sided estimates. The independently
+configurable harmonic diagnostic grid remains broader because normal-mode
+$C_V(T)$ is evaluated analytically and does not require neighboring MD runs.
 
 This workflow is independent of the simulation commands: results may be
 copied into the documented `output/` layout or selected explicitly where the

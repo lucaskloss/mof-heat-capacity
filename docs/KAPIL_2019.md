@@ -6,13 +6,14 @@ Quantum and Anharmonic Fluctuations*, J. Chem. Theory Comput. **15**,
 3237–3249 (2019), into a focused workflow for this project. The sources are the
 [supplied article PDF](<Kapil et al. - 2019 - Modeling the Structural and Thermal Properties of Loaded Metal-Organic Frameworks. An Interplay of Q.pdf>),
 the [open preprint](https://arxiv.org/abs/1901.03770), and the
-[Supporting Information](https://acs.figshare.com/articles/journal_contribution/Modeling_the_Structural_and_Thermal_Properties_of_Loaded_Metal_Organic_Frameworks_An_Interplay_of_Quantum_and_Anharmonic_Fluctuations/8061587).
+[supplied Supporting Information](ct8b01297_si_001.pdf), also available from
+the [ACS data record](https://acs.figshare.com/articles/journal_contribution/Modeling_the_Structural_and_Thermal_Properties_of_Loaded_Metal_Organic_Frameworks_An_Interplay_of_Quantum_and_Anharmonic_Fluctuations/8061587).
 
 The objective is **not** to reproduce every simulation in the paper with an
 MLIP. It is to calculate the heat capacity of methane-loaded MOF-5 efficiently,
 using automatic-differentiation Hessians for the quantum correction and
 ordinary classical MD for the anharmonic guest motion. Full-system PIMD is a
-reference method, not the default production method.
+reference method from the paper and is not part of this production workflow.
 
 ## Decision in one paragraph
 
@@ -136,6 +137,51 @@ Do not label an NVT energy-fluctuation result as $C_P$, and do not silently
 mix per-framework, per-loaded-system, molar, volumetric, and mass-normalized
 terms.
 
+## Supporting Information checks relevant to this workflow
+
+The Supporting Information adds several useful controls without changing the
+hybrid approximation implemented here:
+
+- Section S6.1 confirms that the loaded harmonic comparison used five local
+  minima obtained by optimizing five different Monte Carlo snapshots of
+  MOF-5 with 100 methane molecules. Their harmonic curves were similar. This
+  supports comparing corrections from several minima, but does not establish
+  that an arbitrary insertion, one minimum, or a different MLIP is sufficient.
+- Section S6.2 compares flexible-cell and isotropic MTK sampling in Yaff with
+  isotropic BZP sampling in i-PI for the 100-methane system. The resulting
+  classical $C_P(T)$ curves were not significantly affected by cell-shape
+  sampling for that rigid framework and force field. This is useful evidence
+  for a barostat-sensitivity check, not a substitute for validating the MLIP
+  stress and the LAMMPS NPT implementation used here.
+- Section S3 derives direct thermodynamic and operator double-virial heat-
+  capacity estimators for Suzuki–Chin PIMD. They require bead-level quantum
+  estimators and additional derivative evaluations. They are reference
+  methods from the paper and are intentionally not implemented here. They do
+  not apply to the present one-bead classical MD analysis, which differentiates
+  $⟨E_{\mathrm{tot}}+P_{\mathrm{ext}}V⟩$ across temperatures.
+- Section S6.3 decomposes the paper's force-field result by reevaluating each
+  trajectory snapshot for the host alone and guests alone, then defining the
+  host–guest potential contribution as the total minus those two terms. This
+  is a diagnostic decomposition, not part of the hybrid correction. Applying
+  it to a many-body MLIP requires separate validation of host-only and
+  guest-only predictions and must not be interpreted as a unique atomic or
+  pairwise energy decomposition.
+- Section S6.4 defines volumetric heat capacity as $C_P(T)$ divided by the
+  corresponding molar volume. Equivalently, for this project's gravimetric
+  output,
+
+  $$
+  C_{P,\mathrm{vol}}(T)
+  = \rho(T) C_{P,\mathrm{grav}}(T),
+  \qquad
+  \rho(T)=\frac{m_{\mathrm{cell}}}{\langle V\rangle_T}.
+  $$
+
+  The hybrid assembler records both normalizations using the production NPT
+  mean volume. The paper's volumetric curve had a minimum near 175 K; that
+  temperature is a result of its force field and loading, not a target that
+  this MLIP calculation is required to reproduce.
+
 ## Focused production workflow
 
 ### 1. Lock and validate the MLIP
@@ -175,10 +221,10 @@ non-overlapping insertion is only an initial condition, not adsorption
 equilibration. Use adsorption/Monte Carlo equilibration when available, or
 demonstrate that classical MD loses memory of the initial placements.
 
-The paper optimized five independently prepared 100-CH4 configurations into
+The paper optimized five Monte Carlo snapshots of the 100-CH4 system into
 different local minima and found little sensitivity in their harmonic curves.
-Use this as a starting convergence design, not as proof that one MLIP minimum is
-enough. Start with two or three independent minima, compare their quantum
+Use this as a starting convergence design, not as proof that one MLIP minimum
+is enough. Start with two or three independent minima, compare their quantum
 corrections, and expand only if the spread is material.
 
 ### 4. Run classical MD only for loaded MOF-5
@@ -189,6 +235,12 @@ resolve the heat-capacity curve. Include independent methane placements and
 velocity seeds. Determine equilibration and production lengths from energy,
 temperature, methane-site occupancy/diffusion, and autocorrelation diagnostics,
 not from the short repository smoke test.
+
+The default campaign uses 200, 225, 250, 275, 300, 325, 350, 375, and 400 K.
+This keeps the reported range at and above the approximate 200 K reliability
+boundary found for the paper's 100-methane system and provides a uniform 25 K
+enthalpy grid. This range is still a project choice rather than a validation of
+the hybrid approximation for a different MLIP or loading.
 
 For fixed-cell NVT, obtain
 
@@ -253,7 +305,7 @@ For every loading and temperature:
 2. add the mean loaded-Hessian quantum correction to the classical loaded-MD
    result;
 3. only then divide by the total mass of that loaded simulation cell for
-   J g$^{-1}$ K$^{-1}$, or by its volume for a volumetric result;
+   $J g^{-1} K^{-1}$, or use its NPT mean volume for a volumetric result;
 4. retain the empty harmonic curve as a separately normalized reference;
 5. report statistical uncertainty from MD and sensitivity to the optimized
    minimum and numerical Hessian settings.
@@ -299,8 +351,8 @@ Validation should therefore include, in order of increasing cost:
    mobility and host–guest energy with temperature;
 4. compare the final hybrid curve with experiment or published results while
    clearly identifying the different potential;
-5. if quantitative accuracy below 200 K is required, run a few targeted PIMD
-   calculations as validation rather than the paper's full PIMD campaign.
+5. treat results below 200 K as outside the present classical-hybrid production
+   scope rather than extrapolating the approximation into that regime.
 
 Agreement with the paper is not expected numerically merely because its
 temperatures or loadings are reused: PET-MAD and QuickFF define different

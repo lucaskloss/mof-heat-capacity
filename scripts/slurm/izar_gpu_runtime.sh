@@ -27,6 +27,15 @@ MOF_OUTPUT_DIR="${MOF_OUTPUT_DIR:-}"
 MOF_PREFIX="${MOF_PREFIX:-}"
 MOF_RERUN="${MOF_RERUN:-0}"
 MOF_RESUME="${MOF_RESUME:-0}"
+MOF_AUTO_RESUME="${MOF_AUTO_RESUME:-0}"
+MOF_MD_SEGMENT_SECONDS="${MOF_MD_SEGMENT_SECONDS:-}"
+MOF_SUBMIT_JOB_NAME="${MOF_SUBMIT_JOB_NAME:-}"
+MOF_SUBMIT_PARTITION="${MOF_SUBMIT_PARTITION:-}"
+MOF_SUBMIT_QOS="${MOF_SUBMIT_QOS:-}"
+MOF_SUBMIT_TIME="${MOF_SUBMIT_TIME:-}"
+MOF_SUBMIT_CPUS="${MOF_SUBMIT_CPUS:-}"
+MOF_SUBMIT_OUTPUT="${MOF_SUBMIT_OUTPUT:-}"
+MOF_RUNTIME_PATH="${MOF_RUNTIME_PATH:-}"
 MOF_TIMING_FILE="${MOF_TIMING_FILE:-}"
 MOF_HEAT_FRAMES="${MOF_HEAT_FRAMES:-}"
 MOF_HEAT_TRAJECTORY="${MOF_HEAT_TRAJECTORY:-}"
@@ -218,9 +227,62 @@ PY
 }
 
 
+submit_md_continuation() {
+    local numeric_restart_found=0
+    local restart_path
+    local restart_suffix
+    local value
+    local submission
+    local required=(
+        MOF_CONFIG MOF_OUTPUT_DIR MOF_PREFIX MOF_MD_SEGMENT_SECONDS
+        MOF_SUBMIT_JOB_NAME MOF_SUBMIT_PARTITION MOF_SUBMIT_QOS
+        MOF_SUBMIT_TIME MOF_SUBMIT_CPUS MOF_SUBMIT_OUTPUT MOF_RUNTIME_PATH
+    )
+    local -a command
+
+    for value in "${required[@]}"; do
+        if [[ -z "${!value}" ]]; then
+            echo "error: automatic MD continuation requires ${value}" >&2
+            return 2
+        fi
+    done
+    if ! command -v sbatch >/dev/null 2>&1; then
+        echo "error: sbatch is unavailable; cannot submit MD continuation" >&2
+        return 2
+    fi
+    for restart_path in "${MOF_OUTPUT_DIR}/${MOF_PREFIX}.restart."*; do
+        [[ -e "${restart_path}" ]] || continue
+        restart_suffix=${restart_path##*.}
+        if [[ "${restart_suffix}" =~ ^[0-9]+$ ]]; then
+            numeric_restart_found=1
+            break
+        fi
+    done
+    if ((!numeric_restart_found)); then
+        echo "error: the MD segment ended without a numeric restart; refusing an automatic retry" >&2
+        return 2
+    fi
+    command=(
+        sbatch --parsable
+        --job-name="${MOF_SUBMIT_JOB_NAME}"
+        --partition="${MOF_SUBMIT_PARTITION}" --qos="${MOF_SUBMIT_QOS}"
+        --nodes=1 --ntasks=1 --cpus-per-task="${MOF_SUBMIT_CPUS}"
+        --gres=gpu:1 --time="${MOF_SUBMIT_TIME}"
+        --output="${MOF_SUBMIT_OUTPUT}"
+        --export="ALL,MOF_STAGE=md,MOF_CONFIG=${MOF_CONFIG},MOF_STEPS=${MOF_STEPS},MOF_OUTPUT_DIR=${MOF_OUTPUT_DIR},MOF_PREFIX=${MOF_PREFIX},MOF_RESUME=1,MOF_RERUN=0,MOF_AUTO_RESUME=1,MOF_MD_SEGMENT_SECONDS=${MOF_MD_SEGMENT_SECONDS},MOF_SUBMIT_JOB_NAME=${MOF_SUBMIT_JOB_NAME},MOF_SUBMIT_PARTITION=${MOF_SUBMIT_PARTITION},MOF_SUBMIT_QOS=${MOF_SUBMIT_QOS},MOF_SUBMIT_TIME=${MOF_SUBMIT_TIME},MOF_SUBMIT_CPUS=${MOF_SUBMIT_CPUS},MOF_SUBMIT_OUTPUT=${MOF_SUBMIT_OUTPUT},MOF_RUNTIME_PATH=${MOF_RUNTIME_PATH}"
+        "${MOF_RUNTIME_PATH}"
+    )
+    submission=$("${command[@]}")
+    echo "MD segment reached its safe wall-time boundary."
+    echo "Submitted continuation job ${submission%%;*} from the latest numeric restart."
+}
+
+
 run_md() {
     local command=(python -m mof_heat_capacity.simulation.md
         --config "${MOF_CONFIG}" --device cuda)
+    local exit_code
+    local final_restart
 
     if [[ -n "${MOF_STEPS}" ]]; then
         command+=(--steps "${MOF_STEPS}")
@@ -263,7 +325,36 @@ run_md() {
         exit 2
     fi
 
-    srun --ntasks=1 "${command[@]}"
+    case "${MOF_AUTO_RESUME,,}" in
+        1|true|yes)
+            if [[ ! "${MOF_MD_SEGMENT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
+                echo "error: MOF_MD_SEGMENT_SECONDS must be a positive integer when automatic resume is enabled" >&2
+                return 2
+            fi
+            set +e
+            timeout --signal=TERM --kill-after=120s "${MOF_MD_SEGMENT_SECONDS}s" \
+                srun --ntasks=1 "${command[@]}"
+            exit_code=$?
+            set -e
+            if ((exit_code == 124 || exit_code == 137)); then
+                final_restart="${MOF_OUTPUT_DIR}/${MOF_PREFIX}.restart.final"
+                if [[ -f "${final_restart}" ]]; then
+                    echo "Final restart exists at the segment boundary; no continuation is needed."
+                    return 0
+                fi
+                submit_md_continuation
+                return 0
+            fi
+            return "${exit_code}"
+            ;;
+        0|false|no)
+            srun --ntasks=1 "${command[@]}"
+            ;;
+        *)
+            echo "error: MOF_AUTO_RESUME must be 0/1, false/true, or no/yes" >&2
+            return 2
+            ;;
+    esac
 }
 
 

@@ -6,16 +6,16 @@ set -euo pipefail
 
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/.." && pwd)
+PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
 VALIDATE_PYTHON="${MOF_ANALYSIS_PYTHON:-${ENV_PREFIX}/bin/python}"
 RUNS=""
 MODEL="both"
 LOADINGS="100"
-TEMPERATURES="100,200,300,400,500"
+TEMPERATURES="200,225,250,275,300,325,350,375,400"
 REPLICAS="1"
 DISCARD_PS="100"
-ANALYSIS_DIR="output/analysis"
+ANALYSIS_DIR=""
 PARTITION="${MOF_ANALYSIS_PARTITION:-gpu}"
 QOS="${MOF_ANALYSIS_QOS:-normal}"
 WALL_TIME="${MOF_ANALYSIS_TIME:-01:15:00}"
@@ -105,11 +105,13 @@ Usage: scripts/properties/submit_analysis.sh [options]
 Options:
   --model NAME            pet-mad, pet-sol, or both (default: both).
   --loading LIST          Comma-separated positive methane counts (default: 100).
-  --temperatures LIST     Comma-separated temperatures in K.
+  --temperatures LIST     Comma-separated temperatures in K
+                          (default: 200 to 400 K in 25 K steps).
   --replicas LIST         Comma-separated replica numbers (default: 1).
   --runs PATTERN          Advanced: explicit run-name glob(s); overrides selectors.
   --discard-ps VALUE      Initial trajectory time to discard (default: 100 ps).
-  --analysis-dir PATH     Analysis output directory (default: output/analysis).
+  --analysis-dir PATH     Analysis output override (default:
+                          output/analysis/<loading>ch4).
   --partition NAME        Slurm partition (default: gpu).
   --qos NAME              Slurm QOS (default: normal).
   --time HH:MM:SS         Wall time (default: 01:15:00).
@@ -120,8 +122,8 @@ Options:
   -h, --help              Show this help.
 
 Izar's normal QOS requires one allocated GPU, although the analysis itself is
-CPU-based. By default the job analyzes loaded classical replica 1 across the
-100 K enthalpy grid for both MLIPs. Empty MOF-5 has no MD stage in the hybrid
+CPU-based. By default the job analyzes loaded classical replica 1 from 200 to
+400 K in 25 K steps for both MLIPs. Empty MOF-5 has no MD stage in the hybrid
 workflow.
 EOF
 }
@@ -168,11 +170,13 @@ if [[ -z "${RUNS}" ]]; then
     IFS=',' read -r -a TEMPERATURE_VALUES <<< "${TEMPERATURES}"
     IFS=',' read -r -a REPLICA_VALUES <<< "${REPLICAS}"
     RUN_PATTERNS=()
+    LOADING_LABELS=()
     for loading in "${LOADING_VALUES[@]}"; do
         if [[ ! "${loading}" =~ ^[1-9][0-9]*$ ]]; then
             echo "error: --loading must contain positive integers" >&2
             exit 2
         fi
+        LOADING_LABELS+=("${loading}ch4")
         for model_name in "${MODEL_NAMES[@]}"; do
             for temperature in "${TEMPERATURE_VALUES[@]}"; do
                 if [[ ! "${temperature}" =~ ^[1-9][0-9]*$ ]]; then
@@ -193,6 +197,12 @@ if [[ -z "${RUNS}" ]]; then
         done
     done
     RUNS=$(IFS=','; echo "${RUN_PATTERNS[*]}")
+    if [[ -z "${ANALYSIS_DIR}" ]]; then
+        ANALYSIS_DIR="output/analysis/$(IFS=-; echo "${LOADING_LABELS[*]}")"
+    fi
+elif [[ -z "${ANALYSIS_DIR}" ]]; then
+    echo "error: --analysis-dir is required when advanced --runs selection is used" >&2
+    exit 2
 fi
 
 

@@ -220,7 +220,7 @@ x_k=\frac{h c\tilde\nu_k}{k_B T}.
 $$
 
 Summing the modes and dividing by the total cell mass gives gravimetric
-$C_V$ in J g$^{-1}$ K$^{-1}$. High-frequency modes freeze out at low
+$C_V$ in $J g^{-1} K^{-1}$. High-frequency modes freeze out at low
 temperature; each active mode approaches $k_B$ in the classical high-
 temperature limit.
 
