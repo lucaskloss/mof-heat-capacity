@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 from ase.io import read
 
-from ..config import load_run_config
+from ..config import find_classical_output_file, find_loaded_config, load_run_config
 from .lammps import read_lammps_thermo
 from .statistics import AMU_TO_G, EV_TO_J, KB_EV_PER_K, summarize_series
 
@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
         help="Classical-MD grid (default: 200 to 400 K in 25 K steps)",
     )
     parser.add_argument("--configs-dir", type=Path, default=Path("configs"))
-    parser.add_argument("--hybrid-dir", type=Path, default=Path("output/hybrid"))
+    parser.add_argument("--hybrid-dir", type=Path, default=Path("output/post-processing/harmonic-correction"))
     parser.add_argument("--output", type=Path)
     parser.add_argument("--zero-threshold-cm1", type=float, default=1.0)
     parser.add_argument(
@@ -91,11 +91,13 @@ def _enthalpy_records(
     for replica in replicas:
         replica_tag = f"{replica:02d}"
         for requested_temperature in temperatures:
-            name = (
-                f"mof5-{loading}ch4-{model_label}-npt-"
-                f"{requested_temperature}K-rep{replica_tag}.toml"
+            path = find_loaded_config(
+                configs_dir,
+                model_label,
+                loading,
+                requested_temperature,
+                replica,
             )
-            path = configs_dir / name
             if not path.is_file():
                 raise FileNotFoundError(f"configuration not found: {path}")
             config = load_run_config(path)
@@ -105,7 +107,13 @@ def _enthalpy_records(
                 )
             if config.md_driver != "lammps" or config.md_ensemble != "npt-flexible":
                 raise ValueError(f"hybrid C_P requires classical NPT: {path}")
-            log_path = config.output_dir / f"{config.md_prefix}.lammps.log"
+            log_path = find_classical_output_file(
+                config, "md.lammps.log", f"{config.md_prefix}.lammps.log"
+            )
+            if log_path is None:
+                raise FileNotFoundError(
+                    f"completed LAMMPS thermo log not found for {config.name}"
+                )
             thermo = read_lammps_thermo(log_path)
             start_ps = config.equilibration_steps * config.timestep_fs / 1000.0
             mask = thermo["time_ps"] >= start_ps
@@ -192,6 +200,113 @@ def _volumetric_heat_capacity(
     return values, errors
 
 
+def plot_hybrid_heat_capacity(
+    path: Path,
+    *,
+    model_label: str,
+    loading: int,
+    temperatures: np.ndarray,
+    classical: np.ndarray,
+    classical_error: np.ndarray,
+    correction: np.ndarray,
+    correction_error: np.ndarray,
+    approximate: np.ndarray,
+    approximate_error: np.ndarray,
+    classical_vol: np.ndarray,
+    classical_error_vol: np.ndarray,
+    correction_vol: np.ndarray,
+    correction_error_vol: np.ndarray,
+    approximate_vol: np.ndarray,
+    approximate_error_vol: np.ndarray,
+) -> None:
+    """Plot classical, harmonic-correction, and final hybrid curves."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    figure, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharex=True)
+    series = (
+        (
+            axes[0],
+            classical,
+            classical_error,
+            correction,
+            correction_error,
+            approximate,
+            approximate_error,
+            r"Heat capacity ($J\,g^{-1}\,K^{-1}$)",
+        ),
+        (
+            axes[1],
+            classical_vol,
+            classical_error_vol,
+            correction_vol,
+            correction_error_vol,
+            approximate_vol,
+            approximate_error_vol,
+            r"Heat capacity ($J\,cm^{-3}\,K^{-1}$)",
+        ),
+    )
+    for (
+        axis,
+        classical_values,
+        classical_errors,
+        correction_values,
+        correction_errors,
+        approximate_values,
+        approximate_errors,
+        ylabel,
+    ) in series:
+        axis.plot(
+            temperatures,
+            classical_values,
+            marker="o",
+            linestyle="--",
+            label=r"Classical $C_P$",
+        )
+        axis.fill_between(
+            temperatures,
+            classical_values - classical_errors,
+            classical_values + classical_errors,
+            alpha=0.12,
+        )
+        axis.plot(
+            temperatures,
+            correction_values,
+            marker="o",
+            linestyle=":",
+            label="Harmonic correction",
+        )
+        axis.fill_between(
+            temperatures,
+            correction_values - correction_errors,
+            correction_values + correction_errors,
+            alpha=0.12,
+        )
+        axis.plot(
+            temperatures,
+            approximate_values,
+            marker="o",
+            linewidth=2.0,
+            label=r"Hybrid $C_P$",
+        )
+        axis.fill_between(
+            temperatures,
+            approximate_values - approximate_errors,
+            approximate_values + approximate_errors,
+            alpha=0.2,
+        )
+        axis.axhline(0.0, color="black", linewidth=0.7, alpha=0.4)
+        axis.set(xlabel="Temperature (K)", ylabel=ylabel)
+        axis.grid(alpha=0.2)
+        axis.legend(fontsize=8)
+    figure.suptitle(f"{model_label}, {loading} CH4")
+    figure.tight_layout()
+    figure.savefig(path, dpi=180)
+    plt.close(figure)
+
+
 def _harmonic_corrections(
     directory: Path,
     *,
@@ -201,87 +316,114 @@ def _harmonic_corrections(
     zero_threshold_cm1: float,
     max_near_zero_modes: int,
 ) -> tuple[np.ndarray, np.ndarray, list[dict]]:
-    paths = [directory / "hessians" / f"rep{replica:02d}.npz" for replica in replicas]
-    missing = [path for path in paths if not path.is_file()]
+    paths = {
+        (int(temperature), replica): directory
+        / "hessians"
+        / f"{temperature:g}K"
+        / f"rep{replica:02d}"
+        / "hessian.npz"
+        for temperature in temperatures
+        for replica in replicas
+    }
+    missing = [path for path in paths.values() if not path.is_file()]
     if missing:
         raise FileNotFoundError(
-            "missing requested loaded Hessian archive(s): "
+            "missing temperature-specific loaded Hessian archive(s): "
             + ", ".join(str(path) for path in missing)
         )
-    corrections = []
+    corrections = np.empty((len(replicas), len(temperatures)), dtype=float)
     records = []
     conversion = EV_TO_J / (expected_mass_amu * AMU_TO_G)
-    for path in paths:
-        with np.load(path, allow_pickle=False) as data:
-            frequencies = np.asarray(data["frequencies_cm1"], dtype=float)
-            trajectory = Path(str(np.asarray(data["trajectory"]).item()))
-            metadata = json.loads(str(np.asarray(data["metadata"]).item()))
-        if metadata.get("frequency_convention") != "signed":
-            raise ValueError(
-                f"Hessian archive lacks signed frequencies and cannot prove that "
-                f"its structure is a minimum; recompute it: {path}"
+    for temperature_index, temperature in enumerate(temperatures):
+        for replica_index, replica in enumerate(replicas):
+            path = paths[(int(temperature), replica)]
+            with np.load(path, allow_pickle=False) as data:
+                frequencies = np.asarray(data["frequencies_cm1"], dtype=float)
+                trajectory = Path(str(np.asarray(data["trajectory"]).item()))
+                metadata = json.loads(str(np.asarray(data["metadata"]).item()))
+            if metadata.get("frequency_convention") != "signed":
+                raise ValueError(
+                    f"Hessian archive lacks signed frequencies and cannot prove that "
+                    f"its structure is a minimum; recompute it: {path}"
+                )
+            if frequencies.ndim == 2:
+                if frequencies.shape[0] != 1:
+                    raise ValueError(f"expected one optimized frame in {path}")
+                frequencies = frequencies[0]
+            minimum_directory = (
+                directory
+                / "minima"
+                / f"{temperature:g}K"
+                / f"rep{replica:02d}"
             )
-        if frequencies.ndim == 2:
-            if frequencies.shape[0] != 1:
-                raise ValueError(f"expected one optimized frame in {path}")
-            frequencies = frequencies[0]
-        relaxation_path = trajectory.with_suffix(".relax.json")
-        if not relaxation_path.is_file():
-            raise FileNotFoundError(
-                f"relaxation provenance is missing for Hessian input: {relaxation_path}"
+            optimized_path = minimum_directory / "optimized.extxyz"
+            relaxation_path = minimum_directory / "optimized.relax.json"
+            if not optimized_path.is_file():
+                raise FileNotFoundError(f"optimized Hessian input is missing: {optimized_path}")
+            if not relaxation_path.is_file():
+                raise FileNotFoundError(
+                    "relaxation provenance is missing for Hessian input: "
+                    f"{relaxation_path}"
+                )
+            relaxation = json.loads(relaxation_path.read_text())
+            if not relaxation.get("fixed_cell", False):
+                raise ValueError(
+                    f"Hessian input was not relaxed at fixed cell: {trajectory}"
+                )
+            if (
+                relaxation["final_max_force_eV_per_A"]
+                > relaxation["fmax_target_eV_per_A"]
+            ):
+                raise ValueError(f"Hessian input relaxation is unconverged: {trajectory}")
+            current_mass = float(read(optimized_path).get_masses().sum())
+            if not math.isclose(current_mass, expected_mass_amu, rel_tol=1e-10):
+                raise ValueError(f"Hessian and classical-MD masses differ: {path}")
+            imaginary = frequencies < -zero_threshold_cm1
+            if np.any(imaginary):
+                raise ValueError(
+                    f"optimized Hessian contains {np.count_nonzero(imaginary)} imaginary "
+                    f"mode(s) below {-zero_threshold_cm1:g} cm^-1: {path}"
+                )
+            near_zero = np.abs(frequencies) <= zero_threshold_cm1
+            if np.count_nonzero(near_zero) > max_near_zero_modes:
+                raise ValueError(
+                    f"optimized Hessian contains {np.count_nonzero(near_zero)} near-zero "
+                    f"mode(s), exceeding the allowed {max_near_zero_modes}: {path}"
+                )
+            positive = frequencies[frequencies > zero_threshold_cm1]
+            x = HC_OVER_K_CM_K * positive / temperature
+            decay = np.exp(-x)
+            quantum_eV_per_K = KB_EV_PER_K * np.sum(
+                x**2 * decay / (1.0 - decay) ** 2
             )
-        relaxation = json.loads(relaxation_path.read_text())
-        if not relaxation.get("fixed_cell", False):
-            raise ValueError(f"Hessian input was not relaxed at fixed cell: {trajectory}")
-        if relaxation["final_max_force_eV_per_A"] > relaxation["fmax_target_eV_per_A"]:
-            raise ValueError(f"Hessian input relaxation is unconverged: {trajectory}")
-        current_mass = float(read(trajectory).get_masses().sum())
-        if not math.isclose(current_mass, expected_mass_amu, rel_tol=1e-10):
-            raise ValueError(f"Hessian and classical-MD masses differ: {path}")
-        imaginary = frequencies < -zero_threshold_cm1
-        if np.any(imaginary):
-            raise ValueError(
-                f"optimized Hessian contains {np.count_nonzero(imaginary)} imaginary "
-                f"mode(s) below {-zero_threshold_cm1:g} cm^-1: {path}"
+            classical_eV_per_K = KB_EV_PER_K * len(positive)
+            corrections[replica_index, temperature_index] = (
+                quantum_eV_per_K - classical_eV_per_K
+            ) * conversion
+            records.append(
+                {
+                    "temperature_K": float(temperature),
+                    "replica": replica,
+                    "source": str(path),
+                    "optimized_structure": str(optimized_path),
+                    "archived_trajectory": str(trajectory),
+                    "relaxation": str(relaxation_path),
+                    "relaxation_steps": int(relaxation["steps"]),
+                    "final_max_force_eV_per_A": float(
+                        relaxation["final_max_force_eV_per_A"]
+                    ),
+                    "retained_modes": int(len(positive)),
+                    "imaginary_modes": int(np.count_nonzero(imaginary)),
+                    "near_zero_modes": int(np.count_nonzero(near_zero)),
+                    "minimum_frequency_cm1": float(frequencies.min()),
+                    "maximum_frequency_cm1": float(frequencies.max()),
+                    "hessian_metadata": metadata,
+                }
             )
-        near_zero = np.abs(frequencies) <= zero_threshold_cm1
-        if np.count_nonzero(near_zero) > max_near_zero_modes:
-            raise ValueError(
-                f"optimized Hessian contains {np.count_nonzero(near_zero)} near-zero "
-                f"mode(s), exceeding the allowed {max_near_zero_modes}: {path}"
-            )
-        active = frequencies > zero_threshold_cm1
-        positive = frequencies[active]
-        x = HC_OVER_K_CM_K * positive[:, None] / temperatures[None, :]
-        decay = np.exp(-x)
-        quantum_eV_per_K = KB_EV_PER_K * np.sum(
-            x**2 * decay / (1.0 - decay) ** 2,
-            axis=0,
-        )
-        classical_eV_per_K = KB_EV_PER_K * len(positive)
-        correction = (quantum_eV_per_K - classical_eV_per_K) * conversion
-        corrections.append(correction)
-        records.append(
-            {
-                "source": str(path),
-                "relaxation": str(relaxation_path),
-                "relaxation_steps": int(relaxation["steps"]),
-                "final_max_force_eV_per_A": float(
-                    relaxation["final_max_force_eV_per_A"]
-                ),
-                "retained_modes": int(len(positive)),
-                "imaginary_modes": int(np.count_nonzero(imaginary)),
-                "near_zero_modes": int(np.count_nonzero(near_zero)),
-                "minimum_frequency_cm1": float(frequencies.min()),
-                "maximum_frequency_cm1": float(frequencies.max()),
-                "hessian_metadata": metadata,
-            }
-        )
-    array = np.asarray(corrections)
-    mean = array.mean(axis=0)
+    mean = corrections.mean(axis=0)
     error = (
-        array.std(axis=0, ddof=1) / math.sqrt(len(array))
-        if len(array) > 1
+        corrections.std(axis=0, ddof=1) / math.sqrt(len(replicas))
+        if len(replicas) > 1
         else np.zeros_like(mean)
     )
     return mean, error, records
@@ -351,7 +493,7 @@ def run(args: argparse.Namespace) -> Path:
         approximate, approximate_error, density, density_error
     )
 
-    output = args.output or loaded_dir / "hybrid-heat-capacity.npz"
+    output = args.output or loaded_dir / "heat-capacity.npz"
     output = output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
@@ -445,7 +587,27 @@ def run(args: argparse.Namespace) -> Path:
         )
         + "\n"
     )
+    plot_path = output.with_suffix(".png")
+    plot_hybrid_heat_capacity(
+        plot_path,
+        model_label=args.model_label,
+        loading=args.loading,
+        temperatures=temperatures,
+        classical=classical_cp,
+        classical_error=classical_error,
+        correction=correction,
+        correction_error=correction_error,
+        approximate=approximate,
+        approximate_error=approximate_error,
+        classical_vol=classical_cp_vol,
+        classical_error_vol=classical_error_vol,
+        correction_vol=correction_vol,
+        correction_error_vol=correction_error_vol,
+        approximate_vol=approximate_vol,
+        approximate_error_vol=approximate_error_vol,
+    )
     print(f"Saved hybrid heat capacity: {output}")
+    print(f"Saved hybrid heat-capacity plot: {plot_path}")
     return output
 
 

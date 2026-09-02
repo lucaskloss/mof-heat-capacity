@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ase import io
 
+from ..config import loaded_config_path
 from ..io import write_lammps_data, write_structure_pdb
 from ..structures.methane import insert_molecules
 
@@ -99,22 +100,20 @@ def render_config(
         f"{temperature}K-rep{replica:02d}"
     )
     template_name = "mof5-100ch4-hybrid-npt-300K-rep01"
-    trajectory_suffix = ".lammpstrj"
     rendered = template
     rendered = replace_once(
         rendered,
-        f'output_dir = "../output/classical/production/100ch4/{template_name}"',
-        f'output_dir = "../output/classical/production/{loading}ch4/{base_name}"',
-    )
-    rendered = replace_once(
-        rendered,
-        f'trajectory_file = "{template_name}{trajectory_suffix}"',
-        f'trajectory_file = "{base_name}{trajectory_suffix}"',
+        (
+            'output_dir = "../output/md/production/'
+            'REPLACE_WITH_MODEL_LABEL/100ch4/300K/rep01"'
+        ),
+        f'output_dir = "../output/md/production/{model_label}/{loading}ch4/'
+        f'{temperature}K/rep{replica:02d}"',
     )
     rendered = rendered.replace(template_name, base_name)
     rendered = replace_once(
         rendered,
-        'path = "../output/structures/mof5-100ch4-seed2025.pdb"',
+        'path = "../output/md/structures/100ch4/300K/rep01/structure.pdb"',
         f'path = "../{structure_path.relative_to(PROJECT_DIR)}"',
     )
     rendered = replace_once(rendered, "temperature_K = 300.0", f"temperature_K = {temperature}.0")
@@ -208,12 +207,12 @@ def main() -> None:
     for temperature in selected_temperatures:
         for replica in range(1, replicas + 1):
             seed = args.seed_base + temperature * 100 + replica
-            structure_stem = (
-                f"mof5-{args.loading}ch4-npt-"
-                f"{temperature}K-rep{replica:02d}-seed{seed}"
+            structure_dir = (
+                PROJECT_DIR / "output" / "md" / "structures" / f"{args.loading}ch4"
+                / f"{temperature}K" / f"rep{replica:02d}"
             )
-            structure_path = PROJECT_DIR / "output" / "structures" / f"{structure_stem}.pdb"
-            data_path = structure_path.with_suffix(".data")
+            structure_path = structure_dir / "structure.pdb"
+            data_path = structure_dir / "structure.data"
             name, config_text = render_config(
                 template,
                 temperature=temperature,
@@ -224,10 +223,21 @@ def main() -> None:
                 structure_path=structure_path,
                 args=args,
             )
-            config_path = PROJECT_DIR / "configs" / f"{name}.toml"
+            config_path = loaded_config_path(
+                PROJECT_DIR / "configs",
+                str(preset["label"]),
+                args.loading,
+                temperature,
+                replica,
+            )
+            historical_config_path = PROJECT_DIR / "configs" / f"{name}.toml"
+            config_text = config_text.replace('"../', '"../../../')
             print(f"{config_path.relative_to(PROJECT_DIR)} -> {structure_path.relative_to(PROJECT_DIR)}")
             if args.dry_run:
                 count += 1
+                continue
+            if historical_config_path.is_file() and args.skip_existing:
+                print(f"Keeping historical configuration: {historical_config_path}")
                 continue
             if config_path.exists() and args.skip_existing:
                 print(f"Keeping existing configuration: {config_path}")
@@ -257,6 +267,7 @@ def main() -> None:
                         minimum=args.min_distance,
                         seed=seed,
                     )
+            config_path.parent.mkdir(parents=True, exist_ok=True)
             config_path.write_text(config_text)
             count += 1
     print(f"Prepared {count} loaded classical-NPT run specifications")

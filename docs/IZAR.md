@@ -28,8 +28,18 @@ forces, and restart before interpreting the final results.
 Production output is organized as:
 
 ```text
-output/classical/production/<loading>ch4/<run-name>/
+output/md/production/<model>/<loading>ch4/<temperature>K/repNN/
 ```
+
+The corresponding generated configuration is:
+
+```text
+configs/<model>/<loading>ch4/<temperature>K-repNN.toml
+```
+
+The model directory is the generated MLIP label, such as
+`pet-mad-1.5-s-40nn` or `pet-sol-s-best`. Existing runs in the former
+loading-first layout remain discoverable and resumable.
 
 `--resume` remains available for manual recovery. It continues production from
 the latest numeric LAMMPS restart toward the TOML's absolute step target.
@@ -46,8 +56,17 @@ use the property commands documented in
 
 Check equilibration, temperature and enthalpy stationarity, autocorrelation,
 effective sample counts, density/cell behavior, forces, framework stability,
-and methane mobility. The analysis itself is CPU-based, although Izar's normal
-QOS may require allocating one GPU.
+and methane mobility. Each trajectory is analyzed by a separate Slurm job; a
+dependent job assembles the campaign-level summaries after all of them succeed.
+These jobs use the production-appropriate `normal` QOS by default; `debug` is
+reserved for testing. The analysis itself is CPU-based, although Izar's normal
+QOS requires allocating one GPU.
+
+Trajectory diagnostics use the matching model-first layout:
+
+```text
+output/post-processing/trajectory-analysis/<model>/<loading>ch4/<temperature>K/repNN/
+```
 
 ## 3. Relax minima and compute Hessians
 
@@ -85,9 +104,9 @@ for inspection but are never consumed automatically by hybrid assembly.
 Outputs are stored below:
 
 ```text
-output/hybrid/<model>/<loading>ch4/minima/
-output/hybrid/<model>/<loading>ch4/hessians/
-output/hybrid/<model>/0ch4/
+output/post-processing/harmonic-correction/<model>/<loading>ch4/minima/<temperature>K/repNN/
+output/post-processing/harmonic-correction/<model>/<loading>ch4/hessians/<temperature>K/repNN/
+output/post-processing/harmonic-correction/<model>/0ch4/
 ```
 
 The empty result is a reference and Hessian-pipeline check. The correction in
@@ -98,7 +117,8 @@ the loaded heat capacity uses the complete loaded-system spectra.
 After every requested temperature/replica and loaded Hessian is complete, the
 hybrid command differentiates replica-averaged classical NPT enthalpy and adds
 the loaded harmonic quantum-minus-classical correction. It writes NPZ, CSV,
-and JSON provenance below `output/hybrid/<model>/<loading>ch4/`.
+and JSON provenance below
+`output/post-processing/harmonic-correction/<model>/<loading>ch4/`.
 
 ## Troubleshooting
 

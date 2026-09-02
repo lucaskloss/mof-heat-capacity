@@ -258,19 +258,22 @@ subtracted from the loaded spectrum in the current hybrid formula.
 
 ## Files and provenance
 
-For each selected loaded replica, the property workflow normally creates:
+For each selected loaded temperature and replica, the property workflow
+normally creates:
 
-- `minima/repNN.optimized.extxyz`: the single optimized Hessian input;
-- `minima/repNN.optimized.optimizer.traj`: the optimization history;
-- `minima/repNN.optimized.log`: the optimizer log;
-- `minima/repNN.optimized.relax.json`: fixed-cell flag, force target, final
+- `minima/TEMPERATUREK/repNN/optimized.extxyz`: the optimized Hessian input;
+- `minima/TEMPERATUREK/repNN/optimized.optimizer.traj`: optimization history;
+- `minima/TEMPERATUREK/repNN/optimized.relax.log`: the optimizer log;
+- `minima/TEMPERATUREK/repNN/optimized.relax.json`: fixed-cell flag, force target, final
   force, energies, optimizer, and step count;
-- `hessians/repNN.npz`: signed frequencies, diagnostic harmonic $C_V$,
+- `hessians/TEMPERATUREK/repNN/hessian.npz`: signed frequencies and harmonic $C_V$,
   temperature grid, model path, frame selection, and Hessian settings.
 
-The empty reference has the same layout below `0ch4/`, using `empty` instead
-of `repNN`. The final hybrid NPZ, CSV, and JSON record the classical term, the
-harmonic correction, uncertainties, and the Hessian provenance consumed.
+The empty reference uses the same concise role filenames below `0ch4/`, without
+a redundant temperature or replica directory. The final hybrid NPZ, CSV, and JSON record the classical term, the
+harmonic correction, uncertainties, and the Hessian provenance consumed. At
+each classical-MD temperature, hybrid assembly uses the Hessian obtained by
+quenching the final structure from that same temperature.
 
 Important Hessian-archive fields are:
 

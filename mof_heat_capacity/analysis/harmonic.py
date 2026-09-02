@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..config import RunConfig, load_run_config
+from ..config import RunConfig, find_classical_output_file, load_run_config
 from .lammps import read_lammps_thermo
 
 
@@ -327,9 +327,13 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
             "shadow derivatives require a dense PET Hessian path, not this sparse workflow"
         )
 
-    trajectory_path = (
-        args.trajectory or config.output_dir / config.md_trajectory_file
-    )
+    trajectory_path = args.trajectory
+    if trajectory_path is None:
+        trajectory_path = find_classical_output_file(
+            config, "trajectory.lammpstrj", config.md_trajectory_file
+        )
+        if trajectory_path is None:
+            raise FileNotFoundError(f"trajectory is missing for {config.name}")
     trajectory_path = trajectory_path.expanduser().resolve()
     if not trajectory_path.is_file():
         raise FileNotFoundError(f"trajectory not found: {trajectory_path}")
@@ -383,7 +387,11 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
             )
         if config.md_driver != "lammps":
             raise ValueError("--frame-times-ps currently requires a LAMMPS trajectory")
-        thermo_log = config.output_dir / f"{config.md_prefix}.lammps.log"
+        thermo_log = find_classical_output_file(
+            config, "md.lammps.log", f"{config.md_prefix}.lammps.log"
+        )
+        if thermo_log is None:
+            raise FileNotFoundError(f"LAMMPS thermo log is missing for {config.name}")
         thermo = read_lammps_thermo(thermo_log)
         indices, selected_times_ps = select_time_indices(
             args.frame_times_ps,

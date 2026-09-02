@@ -23,9 +23,29 @@ production planners submit 18 independent MD jobs: one job for every
 production planners are additional pipeline jobs and are not part of that
 production count.
 
-The reusable implementation lives in `mof_heat_capacity/simulation/`. Run
-configurations are kept in the shared `configs/` directory because they also
-record the model and harmonic settings needed to interpret existing results.
+Simulation outputs are separated first by MLIP and then by loading:
+
+```text
+output/md/production/pet-mad-1.5-s-40nn/50ch4/<temperature>K/repNN/
+output/md/production/pet-sol-s-best/50ch4/<temperature>K/repNN/
+```
+
+Calibration and manual debug stages use the same model/loading hierarchy below
+`output/md/calibration/` and `output/md/debug/`. Historical output locations
+remain readable so that already-running campaigns can finish safely. Run
+directories use concise role names such as `trajectory.lammpstrj`,
+`md.lammps.log`, and `md.final.data`; the directory supplies model, loading,
+temperature, and replica context.
+
+The reusable implementation lives in `mof_heat_capacity/simulation/`.
+Generated configurations follow the same hierarchy:
+
+```text
+configs/<model>/<loading>ch4/<temperature>K-repNN.toml
+```
+
+Reusable templates remain directly below `configs/`. Each generated TOML
+retains the unique full run name and the settings needed to interpret results.
 
 ## Commands
 

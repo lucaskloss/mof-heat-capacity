@@ -17,6 +17,7 @@ WALL_TIME="${MOF_ANALYSIS_TIME:-00:30:00}"
 CPUS_PER_TASK="${MOF_ANALYSIS_CPUS:-4}"
 ZERO_THRESHOLD_CM1="1.0"
 MAX_NEAR_ZERO_MODES=3
+AFTEROK=""
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${PROJECT_DIR}/output/slurm}"
 DRY_RUN=0
 
@@ -113,9 +114,13 @@ Options:
   --cpus N                CPUs per task (default: 4).
   --zero-threshold-cm1 X  Imaginary/near-zero cutoff (default: 1.0 cm^-1).
   --max-near-zero-modes N Maximum allowed near-zero modes (default: 3).
+  --afterok JOBS          Comma-separated upstream job IDs that must all succeed.
   --slurm-output-dir PATH Slurm log directory (default: output/slurm).
   --dry-run               Print submissions without calling sbatch.
   -h, --help              Show this help.
+
+Selecting --model both submits two independent Slurm jobs, one per MLIP. They
+have separate model-specific outputs and may run concurrently.
 EOF
 }
 
@@ -140,6 +145,7 @@ while (($#)); do
         --cpus) require_value "$@"; CPUS_PER_TASK="$2"; shift 2 ;;
         --zero-threshold-cm1) require_value "$@"; ZERO_THRESHOLD_CM1="$2"; shift 2 ;;
         --max-near-zero-modes) require_value "$@"; MAX_NEAR_ZERO_MODES="$2"; shift 2 ;;
+        --afterok) require_value "$@"; AFTEROK="$2"; shift 2 ;;
         --slurm-output-dir) require_value "$@"; SLURM_OUTPUT_DIR="$2"; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -162,6 +168,10 @@ fi
 if [[ ! "${ZERO_THRESHOLD_CM1}" =~ ^[0-9]+([.][0-9]+)?$ \
     || ! "${MAX_NEAR_ZERO_MODES}" =~ ^[0-9]+$ ]]; then
     echo "error: spectral thresholds must be non-negative numbers" >&2
+    exit 2
+fi
+if [[ -n "${AFTEROK}" && ! "${AFTEROK}" =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]]; then
+    echo "error: --afterok must contain comma-separated positive Slurm job IDs" >&2
     exit 2
 fi
 IFS=',' read -r -a REPLICA_VALUES <<< "${REPLICAS}"
@@ -211,15 +221,23 @@ fi
 
 
 cd "${PROJECT_DIR}"
+echo "Hybrid analysis campaign: ${#MODEL_LABELS[@]} independent model job(s)"
+DEPENDENCY_ARGUMENTS=()
+if [[ -n "${AFTEROK}" ]]; then
+    DEPENDENCY_ARGUMENTS+=("--dependency=afterok:${AFTEROK//,/:}")
+    echo "Upstream afterok jobs: ${AFTEROK}"
+fi
 for model_label in "${MODEL_LABELS[@]}"; do
-    output="output/hybrid/${model_label}/${LOADING}ch4/hybrid-heat-capacity.npz"
+    output="output/post-processing/harmonic-correction/${model_label}/${LOADING}ch4/heat-capacity.npz"
+    slurm_hybrid_dir="${SLURM_OUTPUT_DIR}/hybrid-analysis/${model_label}/${LOADING}ch4"
     command=(
         sbatch --parsable
         --job-name="mof5-hybrid-analysis-${model_label}"
+        "${DEPENDENCY_ARGUMENTS[@]}"
         --partition="${PARTITION}" --qos="${QOS}"
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1 --time="${WALL_TIME}"
-        --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
+        --output="${slurm_hybrid_dir}/%j.out"
         "${SCRIPT_DIR}/submit_hybrid_analysis.sh"
         --internal-hybrid-worker
         --model-label "${model_label}"
@@ -233,6 +251,7 @@ for model_label in "${MODEL_LABELS[@]}"; do
     if ((DRY_RUN)); then
         printf 'DRY RUN:'; printf ' %q' "${command[@]}"; printf '\n'
     else
+        mkdir -p "${slurm_hybrid_dir}"
         submission=$("${command[@]}")
         echo "Submitted ${model_label}: ${submission%%;*}"
     fi

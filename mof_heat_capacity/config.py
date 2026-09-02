@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 import tomllib
+
+
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+LOADED_RUN_PATTERN = re.compile(
+    r"^mof5-(?P<loading>[1-9][0-9]*)ch4-(?P<model>.+)-npt-"
+    r"(?P<temperature>[1-9][0-9]*)K-rep(?P<replica>[0-9]+)$"
+)
 
 
 @dataclass(frozen=True)
@@ -124,6 +132,86 @@ def load_run_config(path: Path) -> RunConfig:
     )
     _validate(config)
     return config
+
+
+def classical_output_directories(config: RunConfig) -> tuple[Path, ...]:
+    """Return concise, declared, and historical production directories."""
+    candidates = [config.output_dir]
+    match = LOADED_RUN_PATTERN.fullmatch(config.name)
+    if match:
+        root = PROJECT_DIR / "output" / "md" / "production"
+        historical_root = PROJECT_DIR / "output" / "classical" / "production"
+        candidates.extend(
+            (
+                root
+                / match.group("model")
+                / f"{match.group('loading')}ch4"
+                / f"{match.group('temperature')}K"
+                / f"rep{int(match.group('replica')):02d}",
+                root
+                / match.group("model")
+                / f"{match.group('loading')}ch4"
+                / config.name,
+                historical_root
+                / match.group("model")
+                / f"{match.group('loading')}ch4"
+                / config.name,
+                historical_root / f"{match.group('loading')}ch4" / config.name,
+            )
+        )
+    return tuple(dict.fromkeys(path.resolve() for path in candidates))
+
+
+def find_classical_output_file(config: RunConfig, *filenames: str) -> Path | None:
+    """Find any named output in the concise, declared, or historical directory."""
+    for directory in classical_output_directories(config):
+        for filename in filenames:
+            path = directory / filename
+            if path.is_file():
+                return path
+    return None
+
+
+def run_output_parts(config: RunConfig) -> tuple[str, str] | None:
+    """Return the contextual temperature/replica path for a loaded run."""
+    match = LOADED_RUN_PATTERN.fullmatch(config.name)
+    if match is None:
+        return None
+    return (
+        f"{match.group('temperature')}K",
+        f"rep{int(match.group('replica')):02d}",
+    )
+
+
+def loaded_config_path(
+    configs_dir: Path,
+    model: str,
+    loading: int,
+    temperature: int,
+    replica: int,
+) -> Path:
+    """Return the concise path for one generated loaded-run configuration."""
+    return (
+        configs_dir
+        / model
+        / f"{loading}ch4"
+        / f"{temperature}K-rep{replica:02d}.toml"
+    )
+
+
+def find_loaded_config(
+    configs_dir: Path,
+    model: str,
+    loading: int,
+    temperature: int,
+    replica: int,
+) -> Path:
+    """Find a concise generated config, falling back to its historical flat path."""
+    concise = loaded_config_path(configs_dir, model, loading, temperature, replica)
+    if concise.is_file():
+        return concise
+    name = f"mof5-{loading}ch4-{model}-npt-{temperature}K-rep{replica:02d}.toml"
+    return configs_dir / name
 
 
 def _table(data: dict, name: str) -> dict:

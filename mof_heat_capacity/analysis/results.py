@@ -8,11 +8,12 @@ import fnmatch
 import json
 import math
 from pathlib import Path
+import sys
 
 import numpy as np
 
 
-from ..config import load_run_config
+from ..config import find_classical_output_file, load_run_config, run_output_parts
 from .lammps import read_lammps_thermo
 from .statistics import (
     autocorrelation,
@@ -82,6 +83,17 @@ def parse_args() -> argparse.Namespace:
         help="Block length in saved frames; defaults to twice each series' tau_int",
     )
     parser.add_argument("--no-plots", action="store_true")
+    execution = parser.add_mutually_exclusive_group()
+    execution.add_argument(
+        "--run-only",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    execution.add_argument(
+        "--aggregate-only",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     return parser.parse_args()
 
 
@@ -116,10 +128,37 @@ def write_rows(path: Path, rows: list[dict], fieldnames: list[str] | None = None
         writer.writerows(rows)
 
 
+def aggregate_from_summary(summary: dict) -> dict:
+    statistics = summary["statistics"]
+    provenance = summary["simulation_provenance"]
+    model_path = provenance["checkpoint"] or provenance["exported_model"]
+    classical_cv = summary["classical_fluctuation_cv"]["cv_J_per_gK"]
+    if classical_cv is None:
+        classical_cv = float("nan")
+    return {
+        "run": summary["run"],
+        "model": Path(model_path).stem,
+        "methane_loading": summary["metadata"]["methane_molecules"],
+        "temperature_K": summary["target_temperature_K"],
+        "production_mean_temperature_K": statistics["temperature_K"]["mean"],
+        "temperature_tau_ps": statistics["temperature_K"][
+            "integrated_autocorrelation_time_ps"
+        ],
+        "potential_energy_eV": statistics["potential_energy_eV"]["mean"],
+        "energy_tau_ps": statistics["total_energy_eV"][
+            "integrated_autocorrelation_time_ps"
+        ],
+        "density_g_cm3": statistics["density_g_cm3"]["mean"],
+        "fixed_volume": summary["fixed_volume"],
+        "classical_cv_J_per_gK": classical_cv,
+        "warning_count": len(summary["warnings"]),
+    }
+
+
 def discover_runs(config_dir: Path, patterns: list[str]):
     selected = []
     skipped = []
-    for path in sorted(config_dir.glob("*.toml")):
+    for path in sorted(config_dir.rglob("*.toml")):
         try:
             config = load_run_config(path)
         except (KeyError, ValueError) as error:
@@ -127,8 +166,10 @@ def discover_runs(config_dir: Path, patterns: list[str]):
             continue
         if not any(fnmatch.fnmatch(config.name, pattern) for pattern in patterns):
             continue
-        trajectory = config.output_dir / config.md_trajectory_file
-        if trajectory.is_file():
+        trajectory = find_classical_output_file(
+            config, "trajectory.lammpstrj", config.md_trajectory_file
+        )
+        if trajectory is not None:
             selected.append((path, config, trajectory))
         else:
             skipped.append(
@@ -298,7 +339,8 @@ def plot_run(
     plt.close(figure)
 
 def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
-    run_output = args.analysis_dir / config.name
+    parts = run_output_parts(config)
+    run_output = args.analysis_dir.joinpath(*parts) if parts else args.analysis_dir / config.name
     run_output.mkdir(parents=True, exist_ok=True)
     duration_ps = config.md_steps * config.timestep_fs / 1000.0
     start_ps = production_start(args, duration_ps)
@@ -306,7 +348,11 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
     thermodynamic_series = None
     thermo_log = None
     if config.md_driver == "lammps":
-        thermo_log = trajectory.parent / f"{config.md_prefix}.lammps.log"
+        thermo_log = find_classical_output_file(
+            config, "md.lammps.log", f"{config.md_prefix}.lammps.log"
+        )
+        if thermo_log is None:
+            raise FileNotFoundError(f"LAMMPS thermo log is missing for {config.name}")
         thermodynamic_series = read_lammps_thermo(thermo_log)
     extracted = read_trajectory_observables(
         trajectory,
@@ -496,22 +542,7 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             correlation_time, msd_time, msd,
         )
 
-    model = config.checkpoint.stem if config.checkpoint else config.exported_model.stem
-    aggregate = {
-        "run": config.name,
-        "model": model,
-        "methane_loading": extracted["metadata"]["methane_molecules"],
-        "temperature_K": config.temperature_K,
-        "production_mean_temperature_K": statistics["temperature_K"]["mean"],
-        "temperature_tau_ps": statistics["temperature_K"]["integrated_autocorrelation_time_ps"],
-        "potential_energy_eV": statistics["potential_energy_eV"]["mean"],
-        "energy_tau_ps": statistics["total_energy_eV"]["integrated_autocorrelation_time_ps"],
-        "density_g_cm3": statistics["density_g_cm3"]["mean"],
-        "fixed_volume": fixed_volume,
-        "classical_cv_J_per_gK": classical_cv["cv_J_per_gK"],
-        "warning_count": len(warnings),
-    }
-    return summary, aggregate
+    return summary, aggregate_from_summary(summary)
 
 
 def workflow_requirements(summaries: list[dict]) -> dict:
@@ -607,6 +638,54 @@ def plot_sweep(path: Path, rows: list[dict]) -> None:
     plt.close(figure)
 
 
+def write_aggregate_outputs(
+    args: argparse.Namespace,
+    summaries: list[dict],
+    aggregate_rows: list[dict],
+    skipped: list[dict],
+) -> None:
+    write_rows(args.analysis_dir / "runs.csv", aggregate_rows)
+    write_json(
+        args.analysis_dir / "workflow_requirements.json",
+        workflow_requirements(summaries),
+    )
+    if not args.no_plots:
+        plot_sweep(args.analysis_dir / "temperature_sweep.png", aggregate_rows)
+    manifest = {
+        "analysis_directory": str(args.analysis_dir),
+        "completed_runs": [item["run"] for item in summaries],
+        "failed_runs": [],
+        "skipped_configs": skipped,
+        "settings": vars(args),
+    }
+    write_json(args.analysis_dir / "manifest.json", manifest)
+
+
+def aggregate_existing_runs(
+    args: argparse.Namespace,
+    runs: list[tuple],
+    skipped: list[dict],
+) -> None:
+    summaries = []
+    aggregate_rows = []
+    missing = []
+    for _, config, _ in runs:
+        parts = run_output_parts(config)
+        run_output = args.analysis_dir.joinpath(*parts) if parts else args.analysis_dir / config.name
+        summary_path = run_output / "summary.json"
+        if not summary_path.is_file():
+            missing.append(config.name)
+            continue
+        summary = json.loads(summary_path.read_text())
+        summaries.append(summary)
+        aggregate_rows.append(aggregate_from_summary(summary))
+    if missing:
+        raise FileNotFoundError(
+            "per-trajectory analysis output is missing for: " + ", ".join(missing)
+        )
+    write_aggregate_outputs(args, summaries, aggregate_rows, skipped)
+
+
 def main() -> None:
     args = parse_args()
     args.config_dir = args.config_dir.expanduser().resolve()
@@ -623,8 +702,21 @@ def main() -> None:
     runs, skipped = discover_runs(args.config_dir, patterns)
     if not runs:
         raise FileNotFoundError("no completed trajectories match --runs")
+    if args.run_only and len(runs) != 1:
+        raise ValueError("--run-only requires exactly one completed trajectory")
 
     args.analysis_dir.mkdir(parents=True, exist_ok=True)
+    if args.aggregate_only:
+        aggregate_existing_runs(args, runs, skipped)
+        print(f"Aggregate analysis written to {args.analysis_dir}")
+        return
+    if args.run_only:
+        path, config, trajectory = runs[0]
+        analyze_run(path, config, trajectory, args)
+        print(f"Finished {config.name}", flush=True)
+        print(f"Analysis written to {args.analysis_dir}")
+        return
+
     summaries = []
     aggregate_rows = []
     failures = []
@@ -640,13 +732,7 @@ def main() -> None:
         print(f"Finished {config.name}", flush=True)
 
     if aggregate_rows:
-        write_rows(args.analysis_dir / "runs.csv", aggregate_rows)
-        write_json(
-            args.analysis_dir / "workflow_requirements.json",
-            workflow_requirements(summaries),
-        )
-        if not args.no_plots:
-            plot_sweep(args.analysis_dir / "temperature_sweep.png", aggregate_rows)
+        write_aggregate_outputs(args, summaries, aggregate_rows, skipped)
     manifest = {
         "analysis_directory": str(args.analysis_dir),
         "completed_runs": [item["run"] for item in summaries],

@@ -169,6 +169,7 @@ prepare_campaign() {
 
 CONFIGS=()
 RUN_MODELS=()
+RUN_MODEL_LABELS=()
 RUN_TEMPERATURES=()
 RUN_REPLICAS=()
 for model_index in "${!MODELS[@]}"; do
@@ -180,9 +181,13 @@ for model_index in "${!MODELS[@]}"; do
         for ((replica=1; replica<=REPLICAS; replica++)); do
             printf -v replica_tag '%02d' "${replica}"
             stem="mof5-${LOADING}ch4-${MODEL_LABELS[model_index]}-npt-${temperature}K-rep${replica_tag}"
-            config="configs/${stem}.toml"
+            config="configs/${MODEL_LABELS[model_index]}/${LOADING}ch4/${temperature}K-rep${replica_tag}.toml"
+            if [[ ! -f "${config}" && -f "configs/${stem}.toml" ]]; then
+                config="configs/${stem}.toml"
+            fi
             CONFIGS+=("${config}")
             RUN_MODELS+=("${MODELS[model_index]}")
+            RUN_MODEL_LABELS+=("${MODEL_LABELS[model_index]}")
             RUN_TEMPERATURES+=("${temperature}")
             RUN_REPLICAS+=("${replica_tag}")
         done
@@ -283,8 +288,12 @@ PY
 submit_automatic_pipeline() {
     local model_index
     local model
+    local model_label
     local config
     local stem
+    local calibration_dir
+    local calibration_log_dir
+    local planner_log_dir
     local timing_file
     local calibration_submission
     local planner_submission
@@ -294,15 +303,22 @@ submit_automatic_pipeline() {
 
     for model_index in "${!MODELS[@]}"; do
         model=${MODELS[model_index]}
-        config="configs/mof5-${LOADING}ch4-${MODEL_LABELS[model_index]}-npt-${TEMPERATURES[0]}K-rep01.toml"
-        stem=$(basename "${config}" .toml)
-        timing_file="output/classical/calibration/${LOADING}ch4/${stem}/elapsed-seconds.txt"
+        model_label=${MODEL_LABELS[model_index]}
+        stem="mof5-${LOADING}ch4-${MODEL_LABELS[model_index]}-npt-${TEMPERATURES[0]}K-rep01"
+        config="configs/${MODEL_LABELS[model_index]}/${LOADING}ch4/${TEMPERATURES[0]}K-rep01.toml"
+        if [[ ! -f "${config}" && -f "configs/${stem}.toml" ]]; then
+            config="configs/${stem}.toml"
+        fi
+        calibration_dir="output/md/calibration/${model_label}/${LOADING}ch4/${TEMPERATURES[0]}K/rep01"
+        timing_file="${calibration_dir}/elapsed-seconds.txt"
+        calibration_log_dir="${SLURM_OUTPUT_DIR}/simulation/${model_label}/${LOADING}ch4/calibration"
+        planner_log_dir="${SLURM_OUTPUT_DIR}/simulation/${model_label}/${LOADING}ch4/planner"
         calibration_command=(
             sbatch --parsable --job-name="mof5-${LOADING}ch4-${model}-calibration"
             --partition="${PARTITION}" --qos=debug
             --nodes=1 --ntasks=1 --cpus-per-task=4 --gres=gpu:1 --time=01:00:00
-            --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
-            --export="ALL,MOF_STAGE=md,MOF_CONFIG=${config},MOF_STEPS=${CALIBRATION_STEPS},MOF_OUTPUT_DIR=output/classical/calibration/${LOADING}ch4/${stem},MOF_PREFIX=${stem}-calibration,MOF_RERUN=1,MOF_TIMING_FILE=${timing_file}"
+            --output="${calibration_log_dir}/%j.out"
+            --export="ALL,MOF_STAGE=md,MOF_CONFIG=${config},MOF_STEPS=${CALIBRATION_STEPS},MOF_OUTPUT_DIR=${calibration_dir},MOF_PREFIX=md-calibration,MOF_RERUN=1,MOF_TIMING_FILE=${timing_file}"
             "${GPU_RUNTIME}"
         )
         continuation_command=(
@@ -327,12 +343,13 @@ submit_automatic_pipeline() {
             printf 'DRY RUN: sbatch --dependency=afterok:<calibration-job> --partition=%q --qos=debug --nodes=1 --ntasks=1 --cpus-per-task=1 --gres=gpu:1 --time=00:20:00 --wrap %q\n' "${PARTITION}" "cd ${PROJECT_DIR} && exec ${continuation}"
             continue
         fi
+        mkdir -p "${calibration_log_dir}" "${planner_log_dir}"
         calibration_submission=$("${calibration_command[@]}")
         planner_submission=$(sbatch --parsable --job-name="mof5-${LOADING}ch4-${model}-production-plan" \
             --dependency="afterok:${calibration_submission%%;*}" \
             --partition="${PARTITION}" --qos=debug --nodes=1 --ntasks=1 \
             --cpus-per-task=1 --gres=gpu:1 --time=00:20:00 \
-            --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out" \
+            --output="${planner_log_dir}/%j.out" \
             --wrap="cd ${PROJECT_DIR} && exec ${continuation}")
         echo "Submitted ${model} pipeline: debug-QOS calibration ${calibration_submission%%;*} -> debug-QOS production planner ${planner_submission%%;*}"
         echo "The planner submits the independent production jobs under QOS ${QOS}."
@@ -392,9 +409,10 @@ fi
 for index in "${!CONFIGS[@]}"; do
     config="${CONFIGS[index]}"
     run_model="${RUN_MODELS[index]}"
+    model_label="${RUN_MODEL_LABELS[index]}"
     temperature="${RUN_TEMPERATURES[index]}"
     replica_tag="${RUN_REPLICAS[index]}"
-    stem=$(basename "${config}" .toml)
+    stem="mof5-${LOADING}ch4-${model_label}-npt-${temperature}K-rep${replica_tag}"
     stage=production
     prefix_suffix=""
     rerun=0
@@ -403,26 +421,39 @@ for index in "${!CONFIGS[@]}"; do
     elif ((CALIBRATION)); then
         stage=calibration; prefix_suffix=-calibration; rerun=1
     fi
-    output_dir="output/classical/${stage}/${LOADING}ch4/${stem}"
-    output_prefix="${stem}${prefix_suffix}"
+    output_dir="output/md/${stage}/${model_label}/${LOADING}ch4/${temperature}K/rep${replica_tag}"
+    historical_output_dir="output/classical/${stage}/${model_label}/${LOADING}ch4/${stem}"
+    legacy_output_dir="output/classical/${stage}/${LOADING}ch4/${stem}"
+    output_prefix="md${prefix_suffix}"
+    if [[ "${stage}" == "production" && -d "${historical_output_dir}" ]]; then
+        output_dir="${historical_output_dir}"
+        output_prefix="${stem}${prefix_suffix}"
+        echo "Using existing historical run directory: ${output_dir}"
+    elif [[ "${stage}" == "production" && -d "${legacy_output_dir}" ]]; then
+        output_dir="${legacy_output_dir}"
+        output_prefix="${stem}${prefix_suffix}"
+        echo "Using existing legacy run directory: ${output_dir}"
+    fi
     final_restart="${output_dir}/${output_prefix}.restart.final"
     if ((RESUME)) && [[ -f "${final_restart}" ]]; then
         echo "Skipping completed production run: ${stem}"
         continue
     fi
+    slurm_run_dir="${SLURM_OUTPUT_DIR}/simulation/${model_label}/${LOADING}ch4/${temperature}K/rep${replica_tag}"
     command=(
         sbatch --parsable
         --job-name="mof5-${LOADING}ch4-${run_model}-npt-${temperature}K-r${replica_tag}"
         --partition="${PARTITION}" --qos="${QOS}"
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1 --time="${WALL_TIME}"
-        --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
-        --export="ALL,MOF_STAGE=md,MOF_CONFIG=${config},MOF_STEPS=${STEPS},MOF_OUTPUT_DIR=${output_dir},MOF_PREFIX=${output_prefix},MOF_RESUME=${RESUME},MOF_RERUN=${rerun},MOF_AUTO_RESUME=${AUTO_RESUME},MOF_MD_SEGMENT_SECONDS=${segment_seconds},MOF_SUBMIT_JOB_NAME=mof5-${LOADING}ch4-${run_model}-npt-${temperature}K-r${replica_tag},MOF_SUBMIT_PARTITION=${PARTITION},MOF_SUBMIT_QOS=${QOS},MOF_SUBMIT_TIME=${WALL_TIME},MOF_SUBMIT_CPUS=${CPUS_PER_TASK},MOF_SUBMIT_OUTPUT=${SLURM_OUTPUT_DIR}/slurm-%x-%j.out,MOF_RUNTIME_PATH=${GPU_RUNTIME}"
+        --output="${slurm_run_dir}/%j.out"
+        --export="ALL,MOF_STAGE=md,MOF_CONFIG=${config},MOF_STEPS=${STEPS},MOF_OUTPUT_DIR=${output_dir},MOF_PREFIX=${output_prefix},MOF_RESUME=${RESUME},MOF_RERUN=${rerun},MOF_AUTO_RESUME=${AUTO_RESUME},MOF_MD_SEGMENT_SECONDS=${segment_seconds},MOF_SUBMIT_JOB_NAME=mof5-${LOADING}ch4-${run_model}-npt-${temperature}K-r${replica_tag},MOF_SUBMIT_PARTITION=${PARTITION},MOF_SUBMIT_QOS=${QOS},MOF_SUBMIT_TIME=${WALL_TIME},MOF_SUBMIT_CPUS=${CPUS_PER_TASK},MOF_SUBMIT_OUTPUT=${slurm_run_dir}/%j.out,MOF_RUNTIME_PATH=${GPU_RUNTIME}"
         "${GPU_RUNTIME}"
     )
     if ((DRY_RUN)); then
         printf 'DRY RUN:'; printf ' %q' "${command[@]}"; printf '\n'
     else
+        mkdir -p "${slurm_run_dir}"
         submission=$("${command[@]}")
         echo "Submitted ${temperature} K replica ${replica_tag}: ${submission%%;*}"
     fi

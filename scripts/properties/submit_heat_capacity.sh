@@ -10,7 +10,7 @@ PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 GPU_RUNTIME="${PROJECT_DIR}/scripts/slurm/izar_gpu_runtime.sh"
 MODEL="pet-mad"
 LOADING=100
-SOURCE_TEMPERATURE=300
+SOURCE_TEMPERATURES="300"
 REPLICAS="1"
 EMPTY_STRUCTURE="input/mof5.pdb"
 INCLUDE_EMPTY=1
@@ -40,8 +40,9 @@ Usage: scripts/properties/submit_heat_capacity.sh [options]
 Options:
   --model NAME            pet-mad, pet-sol, or both (default: pet-mad).
   --loading N             Positive methane loading (default: 100).
-  --source-temperature N  Loaded-MD temperature used to choose quench inputs
-                          (default: 300 K; not a Hessian temperature).
+  --source-temperature N  One loaded-MD temperature used to choose quench inputs.
+  --source-temperatures L Comma-separated loaded-MD temperatures to quench
+                          (default: 300; these label structures, not C_V points).
   --replicas LIST         Independent loaded replicas to quench (default: 1).
   --empty-structure PATH  Equilibrated empty MOF-5 structure (default: input/mof5.pdb).
   --skip-empty            Do not submit the one empty-reference Hessian per model.
@@ -64,10 +65,11 @@ Options:
   --dry-run               Validate inputs and print all submissions.
   -h, --help              Show this help.
 
-Each loaded task reads the final structure from one completed classical MD
-replica, relaxes it at fixed cell with the same MLIP, and computes one AD
-Hessian from the resulting minimum. Empty MOF-5 is relaxed directly from the
-supplied equilibrated structure; no empty-MOF MD trajectory is used.
+Each loaded temperature/replica gets an independent task. It reads the final
+structure from completed classical MD, relaxes it at fixed cell with the same
+MLIP, and computes one AD Hessian from the resulting minimum. Empty MOF-5 is
+relaxed directly from the supplied equilibrated structure; no empty-MOF MD
+trajectory is used.
 
 Before submitting Hessian work, the command automatically submits a lightweight
 GPU/JAX preflight for each selected model. Every relaxation/Hessian job depends
@@ -88,7 +90,8 @@ while (($#)); do
     case "$1" in
         --model) require_value "$@"; MODEL="$2"; shift 2 ;;
         --loading) require_value "$@"; LOADING="$2"; shift 2 ;;
-        --source-temperature) require_value "$@"; SOURCE_TEMPERATURE="$2"; shift 2 ;;
+        --source-temperature) require_value "$@"; SOURCE_TEMPERATURES="$2"; shift 2 ;;
+        --source-temperatures) require_value "$@"; SOURCE_TEMPERATURES="$2"; shift 2 ;;
         --replicas) require_value "$@"; REPLICAS="$2"; shift 2 ;;
         --empty-structure) require_value "$@"; EMPTY_STRUCTURE="$2"; shift 2 ;;
         --skip-empty) INCLUDE_EMPTY=0; shift ;;
@@ -123,10 +126,6 @@ case "${MODEL}" in
 esac
 if [[ ! "${LOADING}" =~ ^[1-9][0-9]*$ ]]; then
     echo "error: --loading must be a positive methane count" >&2
-    exit 2
-fi
-if [[ ! "${SOURCE_TEMPERATURE}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "error: --source-temperature must be a positive integer" >&2
     exit 2
 fi
 if [[ ! "${RELAX_STEPS}" =~ ^[1-9][0-9]*$ \
@@ -212,6 +211,24 @@ for replica in "${REPLICA_VALUES[@]}"; do
     SEEN_REPLICAS[${replica}]=1
 done
 
+IFS=',' read -r -a SOURCE_TEMPERATURE_VALUES <<< "${SOURCE_TEMPERATURES}"
+if ((${#SOURCE_TEMPERATURE_VALUES[@]} == 0)); then
+    echo "error: --source-temperatures must not be empty" >&2
+    exit 2
+fi
+declare -A SEEN_SOURCE_TEMPERATURES=()
+previous_source_temperature=0
+for source_temperature in "${SOURCE_TEMPERATURE_VALUES[@]}"; do
+    if [[ ! "${source_temperature}" =~ ^[1-9][0-9]*$ \
+        || -n "${SEEN_SOURCE_TEMPERATURES[${source_temperature}]:-}" \
+        || "${source_temperature}" -le "${previous_source_temperature}" ]]; then
+        echo "error: --source-temperatures must contain unique, increasing positive integers" >&2
+        exit 2
+    fi
+    SEEN_SOURCE_TEMPERATURES[${source_temperature}]=1
+    previous_source_temperature="${source_temperature}"
+done
+
 
 CONFIGS=()
 INPUTS=()
@@ -219,47 +236,69 @@ RELAXED=()
 HESSIANS=()
 LABELS=()
 ALLOW_SUBSETS=()
+MODEL_KEYS=()
+declare -A MODEL_PREFLIGHT_CONFIGS=()
 cd "${PROJECT_DIR}"
 for model_name in "${MODEL_NAMES[@]}"; do
     carrier_config=""
-    for replica in "${REPLICA_VALUES[@]}"; do
-        printf -v replica_tag '%02d' "${replica}"
-        run="mof5-${LOADING}ch4-${model_name}-npt-${SOURCE_TEMPERATURE}K-rep${replica_tag}"
-        config="configs/${run}.toml"
-        trajectory="output/classical/production/${LOADING}ch4/${run}/${run}.final.data"
-        if [[ ! -f "${config}" || ! -f "${trajectory}" ]]; then
-            echo "error: completed loaded run is required: ${config} and ${trajectory}" >&2
-            exit 2
-        fi
-        carrier_config="${carrier_config:-${config}}"
-        base="output/hybrid/${model_name}/${LOADING}ch4"
-        relaxed="${base}/minima/rep${replica_tag}.optimized.extxyz"
-        if ((CONTINUE_LOADED)); then
-            if [[ ! -f "${relaxed}" ]]; then
-                echo "error: loaded minimum to continue is missing: ${relaxed}" >&2
+    for source_temperature in "${SOURCE_TEMPERATURE_VALUES[@]}"; do
+        for replica in "${REPLICA_VALUES[@]}"; do
+            printf -v replica_tag '%02d' "${replica}"
+            run="mof5-${LOADING}ch4-${model_name}-npt-${source_temperature}K-rep${replica_tag}"
+            config="configs/${model_name}/${LOADING}ch4/${source_temperature}K-rep${replica_tag}.toml"
+            [[ -f "${config}" ]] || config="configs/${run}.toml"
+            trajectory="output/md/production/${model_name}/${LOADING}ch4/${source_temperature}K/rep${replica_tag}/md.final.data"
+            classical_trajectory="output/classical/production/${model_name}/${LOADING}ch4/${source_temperature}K/rep${replica_tag}/md.final.data"
+            historical_trajectory="output/classical/production/${model_name}/${LOADING}ch4/${run}/${run}.final.data"
+            legacy_trajectory="output/classical/production/${LOADING}ch4/${run}/${run}.final.data"
+            if [[ ! -f "${trajectory}" && -f "${classical_trajectory}" ]]; then
+                trajectory="${classical_trajectory}"
+            elif [[ ! -f "${trajectory}" && -f "${historical_trajectory}" ]]; then
+                trajectory="${historical_trajectory}"
+            elif [[ ! -f "${trajectory}" && -f "${legacy_trajectory}" ]]; then
+                trajectory="${legacy_trajectory}"
+            fi
+            if [[ ! -f "${config}" || ! -f "${trajectory}" ]]; then
+                echo "error: completed loaded run is required: ${config} and ${trajectory}" >&2
                 exit 2
             fi
-            relaxation_input="${relaxed}"
-        else
-            relaxation_input="${trajectory}"
-        fi
-        CONFIGS+=("${config}")
-        INPUTS+=("${relaxation_input}")
-        RELAXED+=("${relaxed}")
-        hessian_suffix="${HESSIAN_TAG:+.${HESSIAN_TAG}}"
-        HESSIANS+=("${base}/hessians/rep${replica_tag}${hessian_suffix}.npz")
-        LABELS+=("${LOADING}ch4-r${replica_tag}")
-        ALLOW_SUBSETS+=(0)
+            carrier_config="${carrier_config:-${config}}"
+            base="output/post-processing/harmonic-correction/${model_name}/${LOADING}ch4"
+            relaxed="${base}/minima/${source_temperature}K/rep${replica_tag}/optimized.extxyz"
+            if ((CONTINUE_LOADED)); then
+                optimizer_trajectory="${relaxed%.extxyz}.optimizer.traj"
+                if [[ -f "${relaxed}" ]]; then
+                    relaxation_input="${relaxed}"
+                elif [[ -f "${optimizer_trajectory}" ]]; then
+                    relaxation_input="${optimizer_trajectory}"
+                else
+                    echo "error: loaded minimum or optimizer trajectory to continue is missing: ${relaxed}" >&2
+                    exit 2
+                fi
+            else
+                relaxation_input="${trajectory}"
+            fi
+            CONFIGS+=("${config}")
+            INPUTS+=("${relaxation_input}")
+            RELAXED+=("${relaxed}")
+            hessian_suffix="${HESSIAN_TAG:+.${HESSIAN_TAG}}"
+            HESSIANS+=("${base}/hessians/${source_temperature}K/rep${replica_tag}/hessian${hessian_suffix}.npz")
+            LABELS+=("${model_name}-${LOADING}ch4-${source_temperature}K-r${replica_tag}")
+            ALLOW_SUBSETS+=(0)
+            MODEL_KEYS+=("${model_name}")
+        done
     done
+    MODEL_PREFLIGHT_CONFIGS[${model_name}]="${carrier_config}"
     if ((INCLUDE_EMPTY)); then
-        base="output/hybrid/${model_name}/0ch4"
+        base="output/post-processing/harmonic-correction/${model_name}/0ch4"
         CONFIGS+=("${carrier_config}")
         INPUTS+=("${EMPTY_STRUCTURE}")
-        RELAXED+=("${base}/minima/empty.optimized.extxyz")
+        RELAXED+=("${base}/minima/optimized.extxyz")
         hessian_suffix="${HESSIAN_TAG:+.${HESSIAN_TAG}}"
-        HESSIANS+=("${base}/hessians/empty${hessian_suffix}.npz")
-        LABELS+=("empty")
+        HESSIANS+=("${base}/hessians/hessian${hessian_suffix}.npz")
+        LABELS+=("${model_name}-empty")
         ALLOW_SUBSETS+=(1)
+        MODEL_KEYS+=("${model_name}")
     fi
 done
 
@@ -280,7 +319,7 @@ done
 
 
 echo "Hybrid Hessian campaign: ${#CONFIGS[@]} fixed-cell relaxation/Hessian task(s)"
-echo "Loaded source: ${LOADING} CH4 at ${SOURCE_TEMPERATURE} K; replicas ${REPLICAS}"
+echo "Loaded sources: ${LOADING} CH4 at ${SOURCE_TEMPERATURES} K; replicas ${REPLICAS}"
 echo "Harmonic grid: ${CV_TEMPERATURES} K; fmax=${FMAX} eV/A; optimizer=${OPTIMIZER}"
 echo "Hessian overrides: dtype=${HESSIAN_DTYPE:-config}; hops=${HESSIAN_HOPS:-config}; chunk=${HESSIAN_CHUNK_SIZE:-config}"
 echo "Hessian output: ${HESSIAN_TAG:-canonical}"
@@ -295,29 +334,26 @@ if ((!DRY_RUN)); then
 fi
 
 declare -A HESSIAN_DEBUG_JOBS=()
-declare -A HESSIAN_DEBUG_SEEN=()
-for config in "${CONFIGS[@]}"; do
-    if [[ -n "${HESSIAN_DEBUG_SEEN[${config}]:-}" ]]; then
-        continue
-    fi
-    HESSIAN_DEBUG_SEEN[${config}]=1
+for model_name in "${MODEL_NAMES[@]}"; do
+    config="${MODEL_PREFLIGHT_CONFIGS[${model_name}]}"
     debug_command=(
         sbatch --parsable
-        --job-name="mof5-hessian-debug-$(basename "${config}" .toml)"
+        --job-name="mof5-hessian-debug-${model_name}-${LOADING}ch4"
         --partition="${PARTITION}" --qos="${QOS}"
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1 --time=00:15:00
-        --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
+        --output="${SLURM_OUTPUT_DIR}/hessian/${model_name}/${LOADING}ch4/preflight/%j.out"
         --export="ALL,MOF_STAGE=hessian-debug,MOF_CONFIG=${config}"
         "${GPU_RUNTIME}"
     )
     if ((DRY_RUN)); then
         printf 'DRY RUN:'; printf ' %q' "${debug_command[@]}"; printf '\n'
-        HESSIAN_DEBUG_JOBS[${config}]="<hessian-debug-job>"
+        HESSIAN_DEBUG_JOBS[${model_name}]="<hessian-debug-job>"
     else
+        mkdir -p "${SLURM_OUTPUT_DIR}/hessian/${model_name}/${LOADING}ch4/preflight"
         submission=$("${debug_command[@]}")
-        HESSIAN_DEBUG_JOBS[${config}]=${submission%%;*}
-        echo "Submitted Hessian preflight for ${config}: ${submission%%;*}"
+        HESSIAN_DEBUG_JOBS[${model_name}]=${submission%%;*}
+        echo "Submitted Hessian preflight for ${model_name}: ${submission%%;*}"
     fi
 done
 
@@ -328,26 +364,36 @@ for index in "${!CONFIGS[@]}"; do
     hessian="${HESSIANS[index]}"
     label="${LABELS[index]}"
     allow_subset="${ALLOW_SUBSETS[index]}"
+    model_name="${MODEL_KEYS[index]}"
     relax_overwrite="${OVERWRITE}"
     heat_overwrite="${OVERWRITE}"
     if ((HESSIAN_ONLY)); then
         relax_overwrite=0
         heat_overwrite=1
     fi
+    if [[ "${hessian}" == *"/0ch4/"* ]]; then
+        slurm_hessian_dir="${SLURM_OUTPUT_DIR}/hybrid-hessian/${model_name}/0ch4"
+    else
+        hessian_parent=$(dirname "${hessian}")
+        hessian_replica=$(basename "${hessian_parent}")
+        hessian_temperature=$(basename "$(dirname "${hessian_parent}")")
+        slurm_hessian_dir="${SLURM_OUTPUT_DIR}/hybrid-hessian/${model_name}/${LOADING}ch4/${hessian_temperature}/${hessian_replica}"
+    fi
     command=(
         sbatch --parsable
         --job-name="mof5-hybrid-${label}"
-        --dependency="afterok:${HESSIAN_DEBUG_JOBS[${config}]}"
+        --dependency="afterok:${HESSIAN_DEBUG_JOBS[${model_name}]}"
         --partition="${PARTITION}" --qos="${QOS}"
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1 --time="${WALL_TIME}"
-        --output="${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
+        --output="${slurm_hessian_dir}/%j.out"
         --export="ALL,MOF_STAGE=relax-and-heat-capacity,MOF_CONFIG=${config},MOF_RELAX_INPUT=${input},MOF_RELAX_INDEX=-1,MOF_RELAX_OUTPUT=${relaxed},MOF_RELAX_FMAX=${FMAX},MOF_RELAX_STEPS=${RELAX_STEPS},MOF_RELAX_OPTIMIZER=${OPTIMIZER},MOF_RELAX_ALLOW_ELEMENT_SUBSET=${allow_subset},MOF_RELAX_OVERWRITE=${relax_overwrite},MOF_HEAT_TEMPERATURES=${CV_TEMPERATURES},MOF_HEAT_OUTPUT=${hessian},MOF_HEAT_DTYPE=${HESSIAN_DTYPE},MOF_HEAT_HOPS=${HESSIAN_HOPS},MOF_HEAT_CHUNK_SIZE=${HESSIAN_CHUNK_SIZE},MOF_HEAT_OVERWRITE=${heat_overwrite}"
         "${GPU_RUNTIME}"
     )
     if ((DRY_RUN)); then
         printf 'DRY RUN:'; printf ' %q' "${command[@]}"; printf '\n'
     else
+        mkdir -p "${slurm_hessian_dir}"
         submission=$("${command[@]}")
         echo "Submitted ${label}: ${submission%%;*}"
     fi
