@@ -77,10 +77,7 @@ paths must always refer to the same trained potential.
 
 For Cartesian coordinates $\mathbf R$, the force-constant matrix is
 
-$$
-H_{i\alpha,j\beta}
-= \frac{\partial^2 E}{\partial R_{i\alpha}\,\partial R_{j\beta}}.
-$$
+$$H_{i\alpha,j\beta} = \frac{\partial^2 E}{\partial R_{i\alpha}\,\partial R_{j\beta}}. $$
 
 The implementation in
 [`compute_frame_hessian()`](../mof_heat_capacity/analysis/harmonic.py) follows
@@ -182,10 +179,7 @@ force-constant acoustic sum rule. The latter forces a uniform translation to
 have zero restoring force. It then constructs the mass-weighted dynamical
 matrix
 
-$$
-D_{i\alpha,j\beta}
-= \frac{H_{i\alpha,j\beta}}{\sqrt{m_i m_j}},
-$$
+$$D_{i\alpha,j\beta} = \frac{H_{i\alpha,j\beta}}{\sqrt{m_i m_j}}, $$
 
 diagonalizes $D$, and converts its eigenvalues $\omega^2$ to frequencies
 in cm$^{-1}$.
@@ -212,12 +206,7 @@ precision, sparsity, or model consistency instead.
 For each retained positive mode, SADMOF evaluates the quantum harmonic
 oscillator contribution
 
-$$
-C_{V,k}^{\mathrm{qn}}(T)
-= k_B\frac{x_k^2 e^{-x_k}}{(1-e^{-x_k})^2},
-\qquad
-x_k=\frac{h c\tilde\nu_k}{k_B T}.
-$$
+$$C_{V,k}^{\mathrm{qn}}(T) = k_B\frac{x_k^2 e^{-x_k}}{(1-e^{-x_k})^2}, \qquad x_k=\frac{h c\tilde\nu_k}{k_B T}. $$
 
 Summing the modes and dividing by the total cell mass gives gravimetric
 $C_V$ in $J g^{-1} K^{-1}$. High-frequency modes freeze out at low
@@ -229,11 +218,7 @@ diagnostic. It is not inserted unchanged into the final result. Hybrid
 assembly reloads the signed frequencies, applies its validated common mode
 mask, and recomputes both terms
 
-$$
-\Delta C^{\mathrm{har}}(T)
-= C_{V,\mathrm{qn}}^{\mathrm{har}}(T)
-- C_{V,\mathrm{cl}}^{\mathrm{har}}.
-$$
+$$\Delta C^{\mathrm{har}}(T) = C_{V,\mathrm{qn}}^{\mathrm{har}}(T) - C_{V,\mathrm{cl}}^{\mathrm{har}}. $$
 
 There are intentionally two thresholds to recognize when comparing files.
 SADMOF's direct diagnostic curve drops modes below its default
@@ -246,11 +231,7 @@ quantity.
 It then combines this correction with the loaded classical NPT enthalpy
 derivative:
 
-$$
-C_P^{\mathrm{approx}}(T)
-= \frac{d\langle E_{\mathrm{tot}}+P_{\mathrm{ext}}V\rangle}{dT}
-+ \Delta C^{\mathrm{har}}(T).
-$$
+$$C_P^{\mathrm{approx}}(T) = \frac{d\langle E_{\mathrm{tot}}+P_{\mathrm{ext}}V\rangle}{dT} + \Delta C^{\mathrm{har}}(T). $$
 
 The loaded Hessians determine the correction used in this expression. The
 empty-MOF Hessian is a separate reference and pipeline check; it is not

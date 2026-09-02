@@ -39,14 +39,7 @@ $\mathbf f$ produced by all preceding layers. Let $\mathbf F$ collect the
 last-layer features of the training structures. Metatrain uses the regularized
 LLPR variance
 
-$$
-\sigma_*^2
-=\alpha^2\mathbf f_*^\mathrm{T}
- \left(
-   \mathbf F^\mathrm{T}\mathbf F+\varsigma^2\mathbf I
- \right)^{-1}
- \mathbf f_*.
-$$
+$$\sigma_*^2 =\alpha^2\mathbf f_*^\mathrm{T} \left( \mathbf F^\mathrm{T}\mathbf F+\varsigma^2\mathbf I \right)^{-1} \mathbf f_*. $$
 
 Here:
 
@@ -368,34 +361,17 @@ mixed into either model's calibrated LLPR variance.
 
 For member $i$ on frame $t$, define
 
-$$
-\Delta V_t^{(i)}=V_t^{(i)}-\bar V_t,
-$$
+$$\Delta V_t^{(i)}=V_t^{(i)}-\bar V_t, $$
 
-$$
-H_t^{(i)}=K_t+V_t^{(i)}+P_\mathrm{ext}V_{\mathrm{cell},t}.
-$$
+$$H_t^{(i)}=K_t+V_t^{(i)}+P_\mathrm{ext}V_{\mathrm{cell},t}. $$
 
 At fixed $T$, exact reweighting gives
 
-$$
-\left\langle H^{(i)}\right\rangle_{V^{(i)}}
-=\frac{
-  \left\langle e^{-\beta\Delta V^{(i)}}H^{(i)}\right\rangle_{\bar V}
- }{
-  \left\langle e^{-\beta\Delta V^{(i)}}\right\rangle_{\bar V}
- }.
-$$
+$$\left\langle H^{(i)}\right\rangle_{V^{(i)}} =\frac{ \left\langle e^{-\beta\Delta V^{(i)}}H^{(i)}\right\rangle_{\bar V} }{ \left\langle e^{-\beta\Delta V^{(i)}}\right\rangle_{\bar V} }. $$
 
 For the large MOF system, first-order cumulant expansion is likely more stable,
 
-$$
-\left\langle H^{(i)}\right\rangle_{V^{(i)}}
-\approx
-\left\langle H^{(i)}\right\rangle_{\bar V}
--\beta\,\mathrm{Cov}_{\bar V}
-\left(H^{(i)},\Delta V^{(i)}\right).
-$$
+$$\left\langle H^{(i)}\right\rangle_{V^{(i)}} \approx \left\langle H^{(i)}\right\rangle_{\bar V} -\beta\,\mathrm{Cov}_{\bar V} \left(H^{(i)},\Delta V^{(i)}\right). $$
 
 Estimate means and covariances with correlation-aware blocks. Constant
 member-energy offsets cancel in normalized exponential weights and in the CEA
@@ -405,10 +381,7 @@ stability.
 At each temperature, retain one reweighted mean enthalpy for every member. Apply
 the same temperature derivative to each complete member curve,
 
-$$
-C_{P,\mathrm{cl}}^{(i)}(T)
-=\frac{d\left\langle H^{(i)}\right\rangle_{V^{(i)}}}{dT},
-$$
+$$C_{P,\mathrm{cl}}^{(i)}(T) =\frac{d\left\langle H^{(i)}\right\rangle_{V^{(i)}}}{dT}, $$
 
 and take the member spread afterward. Do not independently draw an LLPR error
 at each temperature before differentiating; that loses member correlations and
@@ -418,11 +391,7 @@ can seriously distort the heat-capacity band.
 
 Compute the normalized weights and an effective sample count such as
 
-$$
-N_\mathrm{eff}^{(i)}
-=\frac{\left(\sum_t w_t^{(i)}\right)^2}
-       {\sum_t\left(w_t^{(i)}\right)^2}.
-$$
+$$N_\mathrm{eff}^{(i)} =\frac{\left(\sum_t w_t^{(i)}\right)^2} {\sum_t\left(w_t^{(i)}\right)^2}. $$
 
 This diagnostic is not a guarantee, but a very small $N_\mathrm{eff}$ clearly
 shows that exact reweighting is dominated by a few frames. Compare exact and

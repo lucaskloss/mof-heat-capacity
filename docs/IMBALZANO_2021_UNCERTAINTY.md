@@ -59,16 +59,9 @@ subsampled without replacement into $M$ smaller sets. One model is trained on
 each set. For a property $y(\mathcal A)$ of configuration $\mathcal A$, the
 committee prediction and raw sample variance are
 
-$$
-\bar y(\mathcal A)
-= \frac{1}{M}\sum_{i=1}^{M}y^{(i)}(\mathcal A),
-$$
+$$\bar y(\mathcal A) = \frac{1}{M}\sum_{i=1}^{M}y^{(i)}(\mathcal A), $$
 
-$$
-\sigma^2(\mathcal A)
-= \frac{1}{M-1}\sum_{i=1}^{M}
-  \left|y^{(i)}(\mathcal A)-\bar y(\mathcal A)\right|^2.
-$$
+$$\sigma^2(\mathcal A) = \frac{1}{M-1}\sum_{i=1}^{M} \left|y^{(i)}(\mathcal A)-\bar y(\mathcal A)\right|^2. $$
 
 The mean is the best committee prediction. The spread is only a raw uncertainty
 indicator until it has been calibrated against reference calculations.
@@ -81,34 +74,16 @@ distribution is approximately correct but its width needs a global scale
 factor $\alpha$. With many committee members, the maximum-likelihood estimate
 is
 
-$$
-\alpha^2
-= \frac{1}{N_{\mathrm{val}}}
-  \sum_{\mathcal A\in\mathrm{val}}
-  \frac{|y_{\mathrm{ref}}(\mathcal A)-\bar y(\mathcal A)|^2}
-       {\sigma^2(\mathcal A)}.
-$$
+$$\alpha^2 = \frac{1}{N_{\mathrm{val}}} \sum_{\mathcal A\in\mathrm{val}} \frac{|y_{\mathrm{ref}}(\mathcal A)-\bar y(\mathcal A)|^2} {\sigma^2(\mathcal A)}. $$
 
 For a finite committee this expression is biased. Under the paper's Gaussian
 assumptions, its corrected estimator is
 
-$$
-\alpha^2
-= -\frac{1}{M}
-  + \frac{M-3}{M-1}\frac{1}{N_{\mathrm{val}}}
-  \sum_{\mathcal A\in\mathrm{val}}
-  \frac{|y_{\mathrm{ref}}(\mathcal A)-\bar y(\mathcal A)|^2}
-       {\sigma^2(\mathcal A)}.
-$$
+$$\alpha^2 = -\frac{1}{M} + \frac{M-3}{M-1}\frac{1}{N_{\mathrm{val}}} \sum_{\mathcal A\in\mathrm{val}} \frac{|y_{\mathrm{ref}}(\mathcal A)-\bar y(\mathcal A)|^2} {\sigma^2(\mathcal A)}. $$
 
 The members are then rescaled around their unchanged mean,
 
-$$
-y^{(i)}(\mathcal A)
-\leftarrow
-\bar y(\mathcal A)
-+\alpha\left[y^{(i)}(\mathcal A)-\bar y(\mathcal A)\right].
-$$
+$$y^{(i)}(\mathcal A) \leftarrow \bar y(\mathcal A) +\alpha\left[y^{(i)}(\mathcal A)-\bar y(\mathcal A)\right]. $$
 
 This rescaling preserves the central prediction and adjusts the committee
 spread to match observed validation errors.
@@ -135,24 +110,14 @@ configuration later, but it does not stop the current trajectory from failing.
 
 The paper considers a delta-learning model
 
-$$
-V^{(i)}(\mathcal A)
-=V_b(\mathcal A)+V_\delta^{(i)}(\mathcal A),
-$$
+$$V^{(i)}(\mathcal A) =V_b(\mathcal A)+V_\delta^{(i)}(\mathcal A), $$
 
 where $V_b$ is a cheaper, less accurate, but robust baseline and the committee
 learns the correction to a higher reference level. If $\sigma(\mathcal A)$ is
 the calibrated uncertainty of the ML correction and $\sigma_b$ estimates the
 baseline error, dynamics can use
 
-$$
-U(\mathcal A)
-=V_b(\mathcal A)
-+\lambda(\mathcal A)\bar V_\delta(\mathcal A),
-\qquad
-\lambda(\mathcal A)
-=\frac{\sigma_b^2}{\sigma_b^2+\sigma^2(\mathcal A)}.
-$$
+$$U(\mathcal A) =V_b(\mathcal A) +\lambda(\mathcal A)\bar V_\delta(\mathcal A), \qquad \lambda(\mathcal A) =\frac{\sigma_b^2}{\sigma_b^2+\sigma^2(\mathcal A)}. $$
 
 In familiar regions, $\sigma\ll\sigma_b$, so $\lambda\approx1$ and the full ML
 correction is active. In extrapolative regions, $\lambda\rightarrow0$ and the
@@ -175,13 +140,7 @@ potential must explicitly be $U$ rather than the high-level committee mean.
 
 For an observable $a(\mathbf q)$ in the canonical ensemble,
 
-$$
-\langle a\rangle_V
-=\frac{\int a(\mathbf q)e^{-\beta V(\mathbf q)}d\mathbf q}
-       {\int e^{-\beta V(\mathbf q)}d\mathbf q},
-\qquad
-\beta=\frac{1}{k_BT}.
-$$
+$$\langle a\rangle_V =\frac{\int a(\mathbf q)e^{-\beta V(\mathbf q)}d\mathbf q} {\int e^{-\beta V(\mathbf q)}d\mathbf q}, \qquad \beta=\frac{1}{k_BT}. $$
 
 Changing the potential from $\bar V$ to $V^{(i)}$ has two effects:
 
@@ -200,18 +159,11 @@ capture both effects, but multiplies the sampling cost by $M$.
 Run a trajectory with the committee-mean potential $\bar V$ and evaluate every
 member energy on each saved frame. Define
 
-$$
-r^{(i)}(\mathbf q)
-=\exp\left[-\beta\left(V^{(i)}(\mathbf q)-\bar V(\mathbf q)\right)\right].
-$$
+$$r^{(i)}(\mathbf q) =\exp\left[-\beta\left(V^{(i)}(\mathbf q)-\bar V(\mathbf q)\right)\right]. $$
 
 Then the equilibrium average that would be obtained under member $i$ is
 
-$$
-\langle a^{(j)}\rangle_{V^{(i)}}
-=\frac{\left\langle r^{(i)}a^{(j)}\right\rangle_{\bar V}}
-       {\left\langle r^{(i)}\right\rangle_{\bar V}}.
-$$
+$$\langle a^{(j)}\rangle_{V^{(i)}} =\frac{\left\langle r^{(i)}a^{(j)}\right\rangle_{\bar V}} {\left\langle r^{(i)}\right\rangle_{\bar V}}. $$
 
 Here $i$ indexes the potential models and $j$ optionally indexes a separate
 committee of observable models. For an ordinary structural observable there
@@ -227,9 +179,7 @@ those frames.
 
 The variance of the exponential weights grows rapidly with the variance of
 
-$$
-h^{(i)}=\beta\left(V^{(i)}-\bar V\right),
-$$
+$$h^{(i)}=\beta\left(V^{(i)}-\bar V\right), $$
 
 which generally grows with system size. A few frames can then dominate the
 weighted average, giving a formally exact but statistically useless estimate.
@@ -240,13 +190,7 @@ methane molecules.
 
 The authors recommend a first-order cumulant expansion (CEA),
 
-$$
-\langle a^{(j)}\rangle_{V^{(i)}}
-\approx
-\langle a^{(j)}\rangle_{\bar V}
--\beta\,\mathrm{Cov}_{\bar V}
-\left(a^{(j)},V^{(i)}-\bar V\right).
-$$
+$$\langle a^{(j)}\rangle_{V^{(i)}} \approx \langle a^{(j)}\rangle_{\bar V} -\beta\,\mathrm{Cov}_{\bar V} \left(a^{(j)},V^{(i)}-\bar V\right). $$
 
 This is a linear-response expression. It is more statistically stable because
 it replaces exponential weights by a covariance. Its derivation assumes that
@@ -264,41 +208,23 @@ much if it is nearly uncorrelated with the observable of interest.
 If there are $M'$ models for the observable as well as $M$ potential models,
 the paper separates two contributions:
 
-$$
-\sigma_a^2
-=\frac{1}{M'-1}\sum_j
-\left|\langle a^{(j)}\rangle_{\bar V}-\bar{\bar a}\right|^2,
-$$
+$$\sigma_a^2 =\frac{1}{M'-1}\sum_j \left|\langle a^{(j)}\rangle_{\bar V}-\bar{\bar a}\right|^2, $$
 
 which is uncertainty in predicting the observable on configurations, and
 
-$$
-\sigma_{aV}^2
-\approx\frac{\beta^2}{M-1}\sum_i
-\left|\mathrm{Cov}_{\bar V}
-\left(a,V^{(i)}-\bar V\right)\right|^2,
-$$
+$$\sigma_{aV}^2 \approx\frac{\beta^2}{M-1}\sum_i \left|\mathrm{Cov}_{\bar V} \left(a,V^{(i)}-\bar V\right)\right|^2, $$
 
 which is uncertainty caused by the potential changing phase-space sampling.
 For large committees, the total model variance is approximately
 
-$$
-\widetilde\sigma^2\approx\sigma_a^2+\sigma_{aV}^2.
-$$
+$$\widetilde\sigma^2\approx\sigma_a^2+\sigma_{aV}^2. $$
 
 The paper gives finite-$M,M'$ prefactors for small committees. If only a best
 prediction and pointwise uncertainty are available, rather than individual
 committee members and their correlations, exact reweighting is impossible.
 The authors derive the conservative upper bound
 
-$$
-\sigma_{\langle a\rangle}
-\leq
-\langle\sigma_a\rangle
-+\beta\left\langle
-  |\langle a\rangle-a|\,\sigma_V
-\right\rangle.
-$$
+$$\sigma_{\langle a\rangle} \leq \langle\sigma_a\rangle +\beta\left\langle |\langle a\rangle-a|\,\sigma_V \right\rangle. $$
 
 Their liquid-gallium example shows that this bound can substantially
 overestimate the uncertainty. Retaining member-by-member predictions is much
@@ -323,20 +249,11 @@ apply the method to heat capacity, NPT enthalpy derivatives, or MLIP Hessians.
 
 This repository estimates the classical loaded-system contribution as
 
-$$
-C_{P,\mathrm{cl}}(T)
-=\frac{d\langle H\rangle}{dT},
-\qquad
-H=E_{\mathrm{tot}}+P_{\mathrm{ext}}V,
-$$
+$$C_{P,\mathrm{cl}}(T) =\frac{d\langle H\rangle}{dT}, \qquad H=E_{\mathrm{tot}}+P_{\mathrm{ext}}V, $$
 
 and then adds a loaded-system harmonic quantum correction,
 
-$$
-C_P^{\mathrm{hybrid}}(T)
-=C_{P,\mathrm{cl}}(T)
-+\Delta C_{\mathrm{qn-cl}}^{\mathrm{har}}(T).
-$$
+$$C_P^{\mathrm{hybrid}}(T) =C_{P,\mathrm{cl}}(T) +\Delta C_{\mathrm{qn-cl}}^{\mathrm{har}}(T). $$
 
 The current autocorrelation, replica, temperature-derivative, and
 minimum-to-minimum error estimates are not the MLIP uncertainty studied by
@@ -361,9 +278,7 @@ For each temperature and loading:
    standard deviation.
 5. Form the physical enthalpy for each member,
 
-   $$
-   H^{(i)}=K+V^{(i)}+P_{\mathrm{ext}}V_{\mathrm{cell}}.
-   $$
+   $$ H^{(i)}=K+V^{(i)}+P_{\mathrm{ext}}V_{\mathrm{cell}}. $$
 
    Thermostat and barostat extended-system energies are not part of this
    physical enthalpy. Classical momenta have the same distribution for every
@@ -372,20 +287,11 @@ For each temperature and loading:
 6. Estimate $\langle H^{(i)}\rangle_{V^{(i)}}$ from the mean-potential
    trajectory. The direct paper adaptation is either
 
-   $$
-   \frac{\left\langle
-     e^{-\beta(V^{(i)}-\bar V)}H^{(i)}
-   \right\rangle_{\bar V}}
-   {\left\langle e^{-\beta(V^{(i)}-\bar V)}\right\rangle_{\bar V}}
-   $$
+   $$ \frac{\left\langle e^{-\beta(V^{(i)}-\bar V)}H^{(i)} \right\rangle_{\bar V}} {\left\langle e^{-\beta(V^{(i)}-\bar V)}\right\rangle_{\bar V}} $$
 
    or, more robustly for this large system,
 
-   $$
-   \langle H^{(i)}\rangle_{\bar V}
-   -\beta\,\mathrm{Cov}_{\bar V}
-   \left(H^{(i)},V^{(i)}-\bar V\right).
-   $$
+   $$ \langle H^{(i)}\rangle_{\bar V} -\beta\,\mathrm{Cov}_{\bar V} \left(H^{(i)},V^{(i)}-\bar V\right). $$
 
 7. Apply the same temperature fit or finite-difference operator separately to
    each member's reweighted enthalpy curve. The spread of the resulting
@@ -421,11 +327,7 @@ questions here:
 If member-specific Hessians are feasible, form the complete hybrid curve for
 each member before taking the spread,
 
-$$
-C_P^{(i)}(T)
-=C_{P,\mathrm{cl}}^{(i)}(T)
-+\Delta C_{\mathrm{qn-cl}}^{\mathrm{har},(i)}(T).
-$$
+$$C_P^{(i)}(T) =C_{P,\mathrm{cl}}^{(i)}(T) +\Delta C_{\mathrm{qn-cl}}^{\mathrm{har},(i)}(T). $$
 
 This retains covariance between the classical and harmonic responses of one
 potential. Adding their marginal variances in quadrature assumes independence

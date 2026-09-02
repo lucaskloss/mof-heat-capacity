@@ -58,14 +58,7 @@ requirements for the MLIP workflow defined here.
 For a loaded system $L=\mathrm{MOF\text{-}5}+x\mathrm{CH_4}$, Kapil et al.
 propose
 
-$$
-C^{\mathrm{approx}}(T;L)
-= C^{\mathrm{anh}}_{\mathrm{cl}}(T;L)
-+ \left[
-    C^{\mathrm{har}}_{\mathrm{qn}}(T;L)
-    - C^{\mathrm{har}}_{\mathrm{cl}}(L)
-  \right].
-$$
+$$C^{\mathrm{approx}}(T;L) = C^{\mathrm{anh}}_{\mathrm{cl}}(T;L) + \left[ C^{\mathrm{har}}_{\mathrm{qn}}(T;L) - C^{\mathrm{har}}_{\mathrm{cl}}(L) \right]. $$
 
 All three terms refer to the **same loaded composition and the same MLIP**:
 
@@ -75,12 +68,7 @@ All three terms refer to the **same loaded composition and the same MLIP**:
 - $C^{\mathrm{har}}_{\mathrm{qn}}$ comes from the normal-mode frequencies of
   an optimized loaded structure. For each retained mode,
 
-  $$
-  C_{\mathrm{qn},i}^{\mathrm{har}}(T)
-  = k_B\left(\frac{\hbar\omega_i}{k_BT}\right)^2
-    \frac{\exp(\hbar\omega_i/k_BT)}
-         {[\exp(\hbar\omega_i/k_BT)-1]^2}.
-  $$
+  $$ C_{\mathrm{qn},i}^{\mathrm{har}}(T) = k_B\left(\frac{\hbar\omega_i}{k_BT}\right)^2 \frac{\exp(\hbar\omega_i/k_BT)} {[\exp(\hbar\omega_i/k_BT)-1]^2}. $$
 
 - $C^{\mathrm{har}}_{\mathrm{cl}}$ is the classical harmonic limit for the
   identical set of retained modes: $k_B$ per unconstrained vibrational mode.
@@ -88,11 +76,7 @@ All three terms refer to the **same loaded composition and the same MLIP**:
 
 It is clearest to calculate and store the bracket as a quantum correction,
 
-$$
-\Delta C^{\mathrm{har}}_{\mathrm{qn-cl}}(T;L)
-= C^{\mathrm{har}}_{\mathrm{qn}}(T;L)
-- C^{\mathrm{har}}_{\mathrm{cl}}(L),
-$$
+$$\Delta C^{\mathrm{har}}_{\mathrm{qn-cl}}(T;L) = C^{\mathrm{har}}_{\mathrm{qn}}(T;L) - C^{\mathrm{har}}_{\mathrm{cl}}(L), $$
 
 and then add it to the classical MD result. This correction is normally
 negative because classical mechanics over-populates high-frequency modes.
@@ -170,12 +154,7 @@ hybrid approximation implemented here:
   corresponding molar volume. Equivalently, for this project's gravimetric
   output,
 
-  $$
-  C_{P,\mathrm{vol}}(T)
-  = \rho(T) C_{P,\mathrm{grav}}(T),
-  \qquad
-  \rho(T)=\frac{m_{\mathrm{cell}}}{\langle V\rangle_T}.
-  $$
+  $$ C_{P,\mathrm{vol}}(T) = \rho(T) C_{P,\mathrm{grav}}(T), \qquad \rho(T)=\frac{m_{\mathrm{cell}}}{\langle V\rangle_T}. $$
 
   The hybrid assembler records both normalizations using the production NPT
   mean volume. The paper's volumetric curve had a minimum near 175 K; that
@@ -244,10 +223,7 @@ the hybrid approximation for a different MLIP or loading.
 
 For fixed-cell NVT, obtain
 
-$$
-C^{\mathrm{anh}}_{V,\mathrm{cl}}
-= \frac{\langle E^2\rangle-\langle E\rangle^2}{k_BT^2},
-$$
+$$C^{\mathrm{anh}}_{V,\mathrm{cl}} = \frac{\langle E^2\rangle-\langle E\rangle^2}{k_BT^2}, $$
 
 with the correct treatment of constrained or removed degrees of freedom. As a
 cross-check, fit the replica-averaged $\langle E\rangle(T)$ and differentiate
@@ -255,10 +231,7 @@ it.
 
 For NPT, use $H=E+P_{\mathrm{ext}}V$ and estimate
 
-$$
-C^{\mathrm{anh}}_{P,\mathrm{cl}}(T)
-= \frac{d\langle H\rangle}{dT}.
-$$
+$$C^{\mathrm{anh}}_{P,\mathrm{cl}}(T) = \frac{d\langle H\rangle}{dT}. $$
 
 A centered difference requires simulations at $T-\Delta T$ and
 $T+\Delta T$. Kapil et al. used $\Delta T=25$ K for their PIMD enthalpy

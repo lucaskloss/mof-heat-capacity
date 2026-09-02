@@ -3,11 +3,7 @@
 This repository implements a focused, economical workflow for methane-loaded
 MOF-5:
 
-$$
-C_P^{\mathrm{approx}}(T)
-= \frac{d\langle E+P_{\mathrm{ext}}V\rangle_{\mathrm{cl}}}{dT}
-+ C_{\mathrm{qn}}^{\mathrm{har}}(T)-C_{\mathrm{cl}}^{\mathrm{har}}.
-$$
+$$C_P^{\mathrm{approx}}(T) = \frac{d\langle E+P_{\mathrm{ext}}V\rangle_{\mathrm{cl}}}{dT} + C_{\mathrm{qn}}^{\mathrm{har}}(T)-C_{\mathrm{cl}}^{\mathrm{har}}. $$
 
 Classical NPT molecular dynamics of the **loaded** material captures methane
 and host--guest anharmonicity. Automatic-differentiation Hessians of optimized

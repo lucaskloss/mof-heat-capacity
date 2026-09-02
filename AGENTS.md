@@ -101,4 +101,8 @@ wall-time requests. Keep MD, Hessian, and hybrid assembly as separate jobs.
 - Keep functions focused, use `Path` for filesystem paths, and preserve clear
   validation and error messages. Use blank lines to separate imports,
   constants, functions, validation, file preparation, and runtime execution.
-- Use `$$...$$` for equations in Markdown instead of `\[...\]` to avoid conflicts with the Markdown parser. Also use `$...$` for inline expressions, especially when writing units like `$J g^{-1} K^{-1}$`.
+- Use `$$...$$` for equations in Markdown instead of `\[...\]` to avoid conflicts with the Markdown parser.
+  Put each complete display equation, including both `$$` delimiters, on one source line: GitHub does
+  not recognize the newline-spanning form used here and can parse a continuation beginning with `+`
+  or `-` as a list item. Also use `$...$` for inline expressions, especially when writing units like
+  `$J g^{-1} K^{-1}$`.
