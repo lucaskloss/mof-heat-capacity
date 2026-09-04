@@ -46,6 +46,14 @@ def parse_args() -> argparse.Namespace:
         help="Maximum modes allowed within the zero-frequency threshold",
     )
     parser.add_argument("--bootstrap-samples", type=int, default=10000)
+    parser.add_argument(
+        "--model-uncertainty",
+        type=Path,
+        help=(
+            "Trajectory-analysis model_uncertainty_heat_capacity.npz to add as "
+            "a separate classical MLIP uncertainty contribution"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -200,6 +208,61 @@ def _volumetric_heat_capacity(
     return values, errors
 
 
+def _classical_model_uncertainty(
+    path: Path | None, temperatures: np.ndarray
+) -> tuple[np.ndarray, dict | None]:
+    """Load the CEA committee spread produced by trajectory analysis."""
+    if path is None:
+        return np.zeros_like(temperatures), None
+    source = path.expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f"model-uncertainty archive not found: {source}")
+    with np.load(source, allow_pickle=False) as data:
+        required = {
+            "temperatures_K",
+            "cea_cp_mean_J_per_gK",
+            "cea_cp_model_standard_deviation_J_per_gK",
+            "direct_effective_samples",
+            "dimensionless_delta_variance",
+            "model_sha256",
+        }
+        missing = sorted(required.difference(data.files))
+        if missing:
+            raise ValueError(
+                f"model-uncertainty archive is missing {', '.join(missing)}: {source}"
+            )
+        source_temperatures = np.asarray(data["temperatures_K"], dtype=float)
+        if source_temperatures.shape != temperatures.shape or not np.allclose(
+            source_temperatures, temperatures, rtol=0.0, atol=1e-12
+        ):
+            raise ValueError(
+                "model-uncertainty temperatures do not match hybrid temperatures: "
+                f"{source}"
+            )
+        model_error = np.asarray(
+            data["cea_cp_model_standard_deviation_J_per_gK"], dtype=float
+        )
+        committee_mean = np.asarray(data["cea_cp_mean_J_per_gK"], dtype=float)
+        effective_samples = np.asarray(data["direct_effective_samples"], dtype=float)
+        h_variance = np.asarray(data["dimensionless_delta_variance"], dtype=float)
+        model_sha256 = str(np.asarray(data["model_sha256"]).item())
+    if model_error.shape != temperatures.shape or not np.all(np.isfinite(model_error)):
+        raise ValueError(f"invalid CEA model uncertainty in {source}")
+    if np.any(model_error < 0.0):
+        raise ValueError(f"negative CEA model uncertainty in {source}")
+    return model_error, {
+        "source": str(source),
+        "model_sha256": model_sha256,
+        "cea_committee_mean_cp_J_per_gK": committee_mean.tolist(),
+        "minimum_direct_effective_samples_by_temperature": np.min(
+            effective_samples, axis=0
+        ).tolist(),
+        "maximum_dimensionless_delta_variance_by_temperature": np.max(
+            h_variance, axis=0
+        ).tolist(),
+    }
+
+
 def plot_hybrid_heat_capacity(
     path: Path,
     *,
@@ -218,6 +281,7 @@ def plot_hybrid_heat_capacity(
     correction_error_vol: np.ndarray,
     approximate_vol: np.ndarray,
     approximate_error_vol: np.ndarray,
+    model_uncertainty_included: bool,
 ) -> None:
     """Plot classical, harmonic-correction, and final hybrid curves."""
     import matplotlib
@@ -296,6 +360,11 @@ def plot_hybrid_heat_capacity(
             approximate_values - approximate_errors,
             approximate_values + approximate_errors,
             alpha=0.2,
+            label=(
+                r"Combined $\pm 1\sigma$"
+                if model_uncertainty_included
+                else r"Sampling $\pm 1$ SE"
+            ),
         )
         axis.axhline(0.0, color="black", linewidth=0.7, alpha=0.4)
         axis.set(xlabel="Temperature (K)", ylabel=ylabel)
@@ -468,6 +537,31 @@ def run(args: argparse.Namespace) -> Path:
     conversion = EV_TO_J / (mass_amu * AMU_TO_G)
     classical_cp = cp_eV_per_K * conversion
     classical_error = sampled_cp.std(axis=0, ddof=1) * conversion
+    classical_model_error, model_uncertainty_record = _classical_model_uncertainty(
+        args.model_uncertainty, temperatures
+    )
+    if model_uncertainty_record is not None:
+        if min(
+            model_uncertainty_record[
+                "minimum_direct_effective_samples_by_temperature"
+            ]
+        ) < 20.0:
+            print(
+                "WARNING: direct committee reweighting has fewer than 20 effective "
+                "frames at one or more temperatures"
+            )
+        if max(
+            model_uncertainty_record[
+                "maximum_dimensionless_delta_variance_by_temperature"
+            ]
+        ) >= 1.0:
+            print(
+                "WARNING: var[beta Delta V] >= 1 for one or more committee members; "
+                "first-order CEA may be inaccurate"
+            )
+    classical_combined_uncertainty = np.hypot(
+        classical_error, classical_model_error
+    )
 
     loaded_dir = args.hybrid_dir / args.model_label / f"{args.loading}ch4"
     correction, correction_error, hessian_records = _harmonic_corrections(
@@ -480,6 +574,9 @@ def run(args: argparse.Namespace) -> Path:
     )
     approximate = classical_cp + correction
     approximate_error = np.hypot(classical_error, correction_error)
+    approximate_combined_uncertainty = np.hypot(
+        approximate_error, classical_model_error
+    )
     mass_g = mass_amu * AMU_TO_G
     density = mass_g / (volume_A3 * ANGSTROM3_TO_CM3)
     density_error = density * volume_error_A3 / volume_A3
@@ -492,6 +589,23 @@ def run(args: argparse.Namespace) -> Path:
     approximate_vol, approximate_error_vol = _volumetric_heat_capacity(
         approximate, approximate_error, density, density_error
     )
+    classical_model_error_vol = classical_model_error * density
+    classical_combined_uncertainty_vol = np.hypot(
+        classical_error_vol, classical_model_error_vol
+    )
+    approximate_combined_uncertainty_vol = np.hypot(
+        approximate_error_vol, classical_model_error_vol
+    )
+    reported_model_error = (
+        classical_model_error
+        if model_uncertainty_record is not None
+        else np.full_like(classical_model_error, np.nan)
+    )
+    reported_model_error_vol = (
+        classical_model_error_vol
+        if model_uncertainty_record is not None
+        else np.full_like(classical_model_error_vol, np.nan)
+    )
 
     output = args.output or loaded_dir / "heat-capacity.npz"
     output = output.expanduser().resolve()
@@ -501,20 +615,29 @@ def run(args: argparse.Namespace) -> Path:
         temperatures_K=temperatures,
         classical_anharmonic_cp_J_per_gK=classical_cp,
         classical_anharmonic_cp_standard_error_J_per_gK=classical_error,
+        classical_anharmonic_cp_model_standard_deviation_J_per_gK=reported_model_error,
+        classical_anharmonic_cp_combined_standard_uncertainty_J_per_gK=classical_combined_uncertainty,
         harmonic_quantum_correction_J_per_gK=correction,
         harmonic_quantum_correction_standard_error_J_per_gK=correction_error,
         approximate_cp_J_per_gK=approximate,
         approximate_cp_standard_error_J_per_gK=approximate_error,
+        approximate_cp_model_standard_deviation_J_per_gK=reported_model_error,
+        approximate_cp_combined_standard_uncertainty_J_per_gK=approximate_combined_uncertainty,
         mean_volume_A3=volume_A3,
         mean_volume_standard_error_A3=volume_error_A3,
         density_g_per_cm3=density,
         density_standard_error_g_per_cm3=density_error,
         classical_anharmonic_cp_J_per_cm3K=classical_cp_vol,
         classical_anharmonic_cp_standard_error_J_per_cm3K=classical_error_vol,
+        classical_anharmonic_cp_model_standard_deviation_J_per_cm3K=reported_model_error_vol,
+        classical_anharmonic_cp_combined_standard_uncertainty_J_per_cm3K=classical_combined_uncertainty_vol,
         harmonic_quantum_correction_J_per_cm3K=correction_vol,
         harmonic_quantum_correction_standard_error_J_per_cm3K=correction_error_vol,
         approximate_cp_J_per_cm3K=approximate_vol,
         approximate_cp_standard_error_J_per_cm3K=approximate_error_vol,
+        approximate_cp_model_standard_deviation_J_per_cm3K=reported_model_error_vol,
+        approximate_cp_combined_standard_uncertainty_J_per_cm3K=approximate_combined_uncertainty_vol,
+        model_uncertainty_included=model_uncertainty_record is not None,
         total_mass_amu=mass_amu,
     )
     csv_path = output.with_suffix(".csv")
@@ -525,20 +648,28 @@ def run(args: argparse.Namespace) -> Path:
                 "temperature_K",
                 "classical_anharmonic_cp_J_per_gK",
                 "classical_cp_standard_error_J_per_gK",
+                "classical_cp_model_standard_deviation_J_per_gK",
+                "classical_cp_combined_standard_uncertainty_J_per_gK",
                 "harmonic_quantum_correction_J_per_gK",
                 "harmonic_correction_standard_error_J_per_gK",
                 "approximate_cp_J_per_gK",
                 "approximate_cp_standard_error_J_per_gK",
+                "approximate_cp_model_standard_deviation_J_per_gK",
+                "approximate_cp_combined_standard_uncertainty_J_per_gK",
                 "mean_volume_A3",
                 "mean_volume_standard_error_A3",
                 "density_g_per_cm3",
                 "density_standard_error_g_per_cm3",
                 "classical_anharmonic_cp_J_per_cm3K",
                 "classical_cp_standard_error_J_per_cm3K",
+                "classical_cp_model_standard_deviation_J_per_cm3K",
+                "classical_cp_combined_standard_uncertainty_J_per_cm3K",
                 "harmonic_quantum_correction_J_per_cm3K",
                 "harmonic_correction_standard_error_J_per_cm3K",
                 "approximate_cp_J_per_cm3K",
                 "approximate_cp_standard_error_J_per_cm3K",
+                "approximate_cp_model_standard_deviation_J_per_cm3K",
+                "approximate_cp_combined_standard_uncertainty_J_per_cm3K",
             ]
         )
         writer.writerows(
@@ -546,20 +677,28 @@ def run(args: argparse.Namespace) -> Path:
                 temperatures,
                 classical_cp,
                 classical_error,
+                reported_model_error,
+                classical_combined_uncertainty,
                 correction,
                 correction_error,
                 approximate,
                 approximate_error,
+                reported_model_error,
+                approximate_combined_uncertainty,
                 volume_A3,
                 volume_error_A3,
                 density,
                 density_error,
                 classical_cp_vol,
                 classical_error_vol,
+                reported_model_error_vol,
+                classical_combined_uncertainty_vol,
                 correction_vol,
                 correction_error_vol,
                 approximate_vol,
                 approximate_error_vol,
+                reported_model_error_vol,
+                approximate_combined_uncertainty_vol,
                 strict=True,
             )
         )
@@ -574,6 +713,7 @@ def run(args: argparse.Namespace) -> Path:
                 "max_near_zero_modes": args.max_near_zero_modes,
                 "classical_md_records": md_records,
                 "hessian_records": hessian_records,
+                "classical_model_uncertainty": model_uncertainty_record,
                 "notes": [
                     "Classical term is d<Etot + Pext*V>/dT from loaded NPT MD.",
                     "Harmonic correction is C_qn_har - C_cl_har for identical retained modes.",
@@ -581,6 +721,9 @@ def run(args: argparse.Namespace) -> Path:
                     "Temperature spacing is a heat-capacity convergence parameter.",
                     "Volumetric values use the production NPT mean volume at each temperature.",
                     "Volumetric uncertainty propagation neglects covariance between heat capacity and volume.",
+                    "MLIP committee uncertainty, when supplied, applies only to the classical NPT term.",
+                    "Combined uncertainty is the quadrature sum of classical sampling, loaded-minimum/Hessian sampling, and classical committee spread; this assumes those contributions are independent.",
+                    "The PET-JAX harmonic correction does not currently include member-resolved MLIP uncertainty.",
                 ],
             },
             indent=2,
@@ -594,17 +737,18 @@ def run(args: argparse.Namespace) -> Path:
         loading=args.loading,
         temperatures=temperatures,
         classical=classical_cp,
-        classical_error=classical_error,
+        classical_error=classical_combined_uncertainty,
         correction=correction,
         correction_error=correction_error,
         approximate=approximate,
-        approximate_error=approximate_error,
+        approximate_error=approximate_combined_uncertainty,
         classical_vol=classical_cp_vol,
-        classical_error_vol=classical_error_vol,
+        classical_error_vol=classical_combined_uncertainty_vol,
         correction_vol=correction_vol,
         correction_error_vol=correction_error_vol,
         approximate_vol=approximate_vol,
-        approximate_error_vol=approximate_error_vol,
+        approximate_error_vol=approximate_combined_uncertainty_vol,
+        model_uncertainty_included=model_uncertainty_record is not None,
     )
     print(f"Saved hybrid heat capacity: {output}")
     print(f"Saved hybrid heat-capacity plot: {plot_path}")

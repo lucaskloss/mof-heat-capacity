@@ -1,7 +1,7 @@
 # Molecular-dynamics simulations
 
 This folder is the user-facing Bash entry point and guide for the loaded MOF-5
-classical-NPT campaign. It writes structures, generated TOML files,
+classical-NPT campaign. By default it writes structures, generated TOML files,
 trajectories, restarts, and logs under the repository-level `output/`
 directory. It does not run property analysis.
 
@@ -11,11 +11,40 @@ Run commands from the repository root:
 ./scripts/md/submit_loaded_md.sh --model both --loading 50 --replicas 1
 ```
 
+## Scratch storage on Izar
+
+Large trajectories and restart files should be kept on SCITAS scratch rather
+than in home. When `$SCRATCH` is defined, the submission script defaults to
+`${SCRATCH}/mof-heat-capacity/output`. To use a different scratch location,
+set one shared output root in the login shell:
+
+```bash
+export MOF_OUTPUT_ROOT="${SCRATCH}/mof-heat-capacity/output"
+export MOF_SLURM_OUTPUT_DIR="${MOF_OUTPUT_ROOT}/slurm"
+```
+
+`submit_loaded_md.sh`, automatic continuations, and heat-capacity submission
+then use this location for MD data and Slurm logs. The setting is inherited by
+the Slurm workers. Keep it set for all later analysis commands so they find the
+scratch-resident trajectories. Existing repository `output/` data can be
+copied with `rsync -a --info=progress2 output/ "${MOF_OUTPUT_ROOT}/"`; verify
+the copy before removing the home-folder source.
+
 The default production grid is 200 to 400 K in 25 K steps. This spacing
 provides neighboring enthalpy averages for numerical differentiation while
 keeping the hybrid approximation in the temperature range where Kapil et al.
 found it reliable for their 100-methane system. Use `--temperatures` to run an
 explicit convergence or scope-extension grid.
+
+Production runs use 1,000,000 steps at 0.5 fs (500 ps), including the 200,000
+step (100 ps) equilibration period. To remove equilibration frames from
+existing trajectories without making a full temporary copy, first inspect then
+apply:
+
+```bash
+./scripts/md/truncate_trajectories.sh
+./scripts/md/truncate_trajectories.sh --apply
+```
 
 With both MLIPs, the nine-temperature default grid, and one replica, the two
 production planners submit 18 independent MD jobs: one job for every

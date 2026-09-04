@@ -73,6 +73,7 @@ def run_classical_npt(
     """Run fully flexible 1-bar NPT with LAMMPS MTTK/NHC dynamics."""
     _validate_npt_model(config)
     active_steps = config.md_steps if steps is None else steps
+    active_equilibration_steps = min(config.equilibration_steps, active_steps)
     active_output = config.output_dir if output_dir is None else output_dir.resolve()
     active_prefix = config.md_prefix if prefix is None else Path(prefix).name
     if active_steps < 1:
@@ -116,6 +117,7 @@ def run_classical_npt(
         thermostat_chain_length=config.thermostat_chain_length,
         barostat_tau_fs=config.barostat_tau_fs,
         steps=active_steps,
+        equilibration_steps=active_equilibration_steps,
         output_stride=config.output_stride,
         restart_stride=config.restart_stride,
         seed=config.random_seed,

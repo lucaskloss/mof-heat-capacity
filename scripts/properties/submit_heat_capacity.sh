@@ -28,7 +28,13 @@ PARTITION="${MOF_HEAT_PARTITION:-gpu}"
 QOS="${MOF_HEAT_QOS:-normal}"
 WALL_TIME="${MOF_HEAT_TIME:-08:00:00}"
 CPUS_PER_TASK="${MOF_HEAT_CPUS:-8}"
-SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${PROJECT_DIR}/output/slurm}"
+DEFAULT_OUTPUT_ROOT="${SCRATCH:+${SCRATCH}/mof-heat-capacity/output}"
+OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT:-${PROJECT_DIR}/output}}"
+if [[ "${OUTPUT_ROOT}" != /* ]]; then
+    OUTPUT_ROOT="${PROJECT_DIR}/${OUTPUT_ROOT}"
+fi
+export MOF_OUTPUT_ROOT="${OUTPUT_ROOT}"
+SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
 OVERWRITE=0
 DRY_RUN=0
 
@@ -74,6 +80,13 @@ trajectory is used.
 Before submitting Hessian work, the command automatically submits a lightweight
 GPU/JAX preflight for each selected model. Every relaxation/Hessian job depends
 on its model's preflight succeeding.
+
+This command estimates minimum-to-minimum sampling of the harmonic correction
+through independent replicas. It does not propagate the metatomic/LLPR
+committee because member-resolved models are unavailable in the PET-JAX
+Hessian path. Run submit_analysis.sh --model-uncertainty for the classical
+committee spread and pass that result to submit_hybrid_analysis.sh
+--model-uncertainty.
 EOF
 }
 
@@ -247,7 +260,7 @@ for model_name in "${MODEL_NAMES[@]}"; do
             run="mof5-${LOADING}ch4-${model_name}-npt-${source_temperature}K-rep${replica_tag}"
             config="configs/${model_name}/${LOADING}ch4/${source_temperature}K-rep${replica_tag}.toml"
             [[ -f "${config}" ]] || config="configs/${run}.toml"
-            trajectory="output/md/production/${model_name}/${LOADING}ch4/${source_temperature}K/rep${replica_tag}/md.final.data"
+            trajectory="${OUTPUT_ROOT}/md/production/${model_name}/${LOADING}ch4/${source_temperature}K/rep${replica_tag}/md.final.data"
             classical_trajectory="output/classical/production/${model_name}/${LOADING}ch4/${source_temperature}K/rep${replica_tag}/md.final.data"
             historical_trajectory="output/classical/production/${model_name}/${LOADING}ch4/${run}/${run}.final.data"
             legacy_trajectory="output/classical/production/${LOADING}ch4/${run}/${run}.final.data"

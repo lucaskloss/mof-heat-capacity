@@ -89,6 +89,7 @@ def write_classical_npt_lammps_input(
     thermostat_chain_length: int,
     barostat_tau_fs: float,
     steps: int,
+    equilibration_steps: int,
     output_stride: int,
     restart_stride: int,
     seed: int,
@@ -113,6 +114,13 @@ def write_classical_npt_lammps_input(
     log_command = (
         f"log {thermo_path} append\n" if restart_path else f"log {thermo_path}\n"
     )
+    equilibration_command = ""
+    if equilibration_steps:
+        equilibration_command = (
+            "variable current_step equal step\n"
+            f"if \"${{current_step}} < {equilibration_steps}\" then \"run {equilibration_steps} upto\"\n"
+            "variable current_step delete\n"
+        )
     input_path.write_text(
         "units metal\n"
         "atom_style atomic\n"
@@ -134,6 +142,7 @@ def write_classical_npt_lammps_input(
         "pxy pxz pyz vol density lx ly lz xy xz yz\n"
         "thermo_modify flush yes\n"
         f"{log_command}"
+        f"{equilibration_command}"
         f"dump production all custom {output_stride} {trajectory_path} "
         "id element xu yu zu vx vy vz fx fy fz\n"
         "dump_modify production element C H O Zn sort id first yes "

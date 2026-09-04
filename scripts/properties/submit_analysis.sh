@@ -22,6 +22,11 @@ WALL_TIME="${MOF_ANALYSIS_TIME:-01:15:00}"
 CPUS_PER_TASK="${MOF_ANALYSIS_CPUS:-4}"
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${PROJECT_DIR}/output/slurm}"
 NO_PLOTS=0
+MODEL_UNCERTAINTY=0
+UNCERTAINTY_MODEL=""
+UNCERTAINTY_STRIDE=20
+UNCERTAINTY_BATCH_SIZE=4
+UNCERTAINTY_CENTRAL_TOLERANCE_EV=0.01
 DRY_RUN=0
 
 
@@ -30,6 +35,11 @@ run_analysis_worker() {
     local discard_ps="100"
     local analysis_dir="output/post-processing/trajectory-analysis"
     local no_plots=0
+    local model_uncertainty=0
+    local uncertainty_model=""
+    local uncertainty_stride=20
+    local uncertainty_batch_size=4
+    local uncertainty_central_tolerance_eV=0.01
     local run_only=0
     local aggregate_only=0
 
@@ -40,6 +50,11 @@ run_analysis_worker() {
             --discard-ps) discard_ps="$2"; shift 2 ;;
             --analysis-dir) analysis_dir="$2"; shift 2 ;;
             --no-plots) no_plots=1; shift ;;
+            --model-uncertainty) model_uncertainty=1; shift ;;
+            --uncertainty-model) uncertainty_model="$2"; shift 2 ;;
+            --uncertainty-stride) uncertainty_stride="$2"; shift 2 ;;
+            --uncertainty-batch-size) uncertainty_batch_size="$2"; shift 2 ;;
+            --uncertainty-central-tolerance-eV) uncertainty_central_tolerance_eV="$2"; shift 2 ;;
             --run-only) run_only=1; shift ;;
             --aggregate-only) aggregate_only=1; shift ;;
             *) echo "error: unknown analysis-worker argument: $1" >&2; exit 2 ;;
@@ -51,6 +66,9 @@ run_analysis_worker() {
         exit 2
     fi
     if [[ ! "${discard_ps}" =~ ^[0-9]+([.][0-9]+)?$ \
+        || ! "${uncertainty_stride}" =~ ^[1-9][0-9]*$ \
+        || ! "${uncertainty_batch_size}" =~ ^[1-9][0-9]*$ \
+        || ! "${uncertainty_central_tolerance_eV}" =~ ^[0-9]+([.][0-9]+)?$ \
         || -z "${runs}" || -z "${analysis_dir}" ]] \
         || ((run_only && aggregate_only)); then
         echo "error: invalid internal analysis-worker arguments" >&2
@@ -87,7 +105,11 @@ run_analysis_worker() {
     echo "Run selection:   ${runs}"
     echo "Discard:         ${discard_ps} ps"
     echo "Analysis output: ${analysis_dir}"
-    echo "GPU allocated:   1 (required by Izar normal QOS; analysis is CPU-based)"
+    if ((model_uncertainty)); then
+        echo "Model UQ:        enabled (configured energy ensemble)"
+    else
+        echo "Model UQ:        disabled"
+    fi
 
     local command=(
         "${analysis_python}" -m mof_heat_capacity.analysis.results
@@ -97,6 +119,17 @@ run_analysis_worker() {
     )
     if ((no_plots)); then
         command+=(--no-plots)
+    fi
+    if ((model_uncertainty)); then
+        command+=(
+            --model-uncertainty
+            --uncertainty-stride "${uncertainty_stride}"
+            --uncertainty-batch-size "${uncertainty_batch_size}"
+            --uncertainty-central-tolerance-eV "${uncertainty_central_tolerance_eV}"
+        )
+        if [[ -n "${uncertainty_model}" ]]; then
+            command+=(--uncertainty-model "${uncertainty_model}")
+        fi
     fi
     if ((run_only)); then
         command+=(--run-only)
@@ -133,12 +166,23 @@ Options:
   --cpus N                CPUs for each trajectory-analysis job (default: 4).
   --slurm-output-dir PATH Slurm log directory (default: output/slurm).
   --no-plots              Skip PNG generation.
+  --model-uncertainty     Evaluate energy_ensemble on production frames and
+                          propagate model uncertainty into classical C_P.
+  --uncertainty-model PATH
+                          Calibrated ensemble model override; use with one MLIP.
+  --uncertainty-stride N  Use every Nth production frame for UQ (default: 20).
+  --uncertainty-batch-size N
+                          Structures per model-inference batch (default: 4).
+  --uncertainty-central-tolerance-eV VALUE
+                          Maximum centered ensemble-mean/MD energy residual
+                          (default: 0.01 eV).
   --dry-run               Validate inputs and print the sbatch commands.
   -h, --help              Show this help.
 
 The trajectory jobs use Izar's shortest production QOS, normal, by default and
-allocate one GPU, although the analysis itself is CPU-based. Each selected
-trajectory is analyzed in its own Slurm job. A small dependent job assembles
+allocate one GPU. Standard diagnostics are CPU-based; optional ensemble
+inference uses that GPU. Each selected trajectory is analyzed in its own Slurm
+job. A small dependent job assembles
 the combined CSV, manifest, and temperature-sweep plot. By default, loaded
 classical replica 1 is selected from 200 to 400 K in 25 K steps for both MLIPs.
 Empty MOF-5 has no MD stage in the hybrid workflow.
@@ -169,6 +213,11 @@ while (($#)); do
         --cpus) require_value "$@"; CPUS_PER_TASK="$2"; shift 2 ;;
         --slurm-output-dir) require_value "$@"; SLURM_OUTPUT_DIR="$2"; shift 2 ;;
         --no-plots) NO_PLOTS=1; shift ;;
+        --model-uncertainty) MODEL_UNCERTAINTY=1; shift ;;
+        --uncertainty-model) require_value "$@"; UNCERTAINTY_MODEL="$2"; shift 2 ;;
+        --uncertainty-stride) require_value "$@"; UNCERTAINTY_STRIDE="$2"; shift 2 ;;
+        --uncertainty-batch-size) require_value "$@"; UNCERTAINTY_BATCH_SIZE="$2"; shift 2 ;;
+        --uncertainty-central-tolerance-eV) require_value "$@"; UNCERTAINTY_CENTRAL_TOLERANCE_EV="$2"; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -223,6 +272,16 @@ if [[ ! "${CPUS_PER_TASK}" =~ ^[1-9][0-9]*$ ]]; then
     echo "error: --cpus must be a positive integer" >&2
     exit 2
 fi
+if [[ ! "${UNCERTAINTY_STRIDE}" =~ ^[1-9][0-9]*$ \
+    || ! "${UNCERTAINTY_BATCH_SIZE}" =~ ^[1-9][0-9]*$ \
+    || ! "${UNCERTAINTY_CENTRAL_TOLERANCE_EV}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "error: invalid uncertainty stride, batch size, or central tolerance" >&2
+    exit 2
+fi
+if [[ -n "${UNCERTAINTY_MODEL}" && ! "${MODEL_UNCERTAINTY}" -eq 1 ]]; then
+    echo "error: --uncertainty-model requires --model-uncertainty" >&2
+    exit 2
+fi
 if [[ -z "${RUNS}" || -z "${ANALYSIS_DIR}" || -z "${SLURM_OUTPUT_DIR}" ]]; then
     echo "error: run pattern and output directories must not be empty" >&2
     exit 2
@@ -243,7 +302,7 @@ fi
 
 cd "${PROJECT_DIR}"
 selection_output=$(
-"${VALIDATE_PYTHON}" - "${RUNS}" <<'PY'
+"${VALIDATE_PYTHON}" - "${RUNS}" "${MODEL_UNCERTAINTY}" "${UNCERTAINTY_MODEL}" <<'PY'
 from pathlib import Path
 import fnmatch
 import re
@@ -254,12 +313,45 @@ from mof_heat_capacity.analysis.results import discover_runs
 from mof_heat_capacity.config import find_classical_output_file
 
 patterns = [item.strip() for item in sys.argv[1].split(",") if item.strip()]
+model_uncertainty = bool(int(sys.argv[2]))
+uncertainty_model = Path(sys.argv[3]).expanduser().resolve() if sys.argv[3] else None
 if not patterns:
     raise SystemExit("error: --runs must contain at least one glob pattern")
 runs, _ = discover_runs(Path("configs"), patterns)
 if not runs:
     raise SystemExit("error: no completed trajectories match --runs")
 selected_names = [config.name for _, config, _ in runs]
+if model_uncertainty:
+    try:
+        import metatomic.torch as metatomic_torch
+    except ImportError as error:
+        raise SystemExit(
+            "error: --model-uncertainty requires metatomic.torch in the analysis environment"
+        ) from error
+    checked = set()
+    required_outputs = {"energy", "energy_ensemble"}
+    configured_models = {config.exported_model.resolve() for _, config, _ in runs}
+    if uncertainty_model is not None and len(configured_models) != 1:
+        raise SystemExit(
+            "error: one --uncertainty-model override cannot analyze multiple MLIPs; "
+            "submit each --model separately"
+        )
+    for _, config, _ in runs:
+        model_path = uncertainty_model or config.exported_model.resolve()
+        if model_path in checked:
+            continue
+        if not model_path.is_file():
+            raise SystemExit(f"error: uncertainty model is missing: {model_path}")
+        model = metatomic_torch.load_atomistic_model(str(model_path))
+        outputs = set(model.capabilities().outputs)
+        missing = sorted(required_outputs.difference(outputs))
+        if missing:
+            raise SystemExit(
+                f"error: {model_path} cannot propagate model uncertainty; "
+                "missing output(s): " + ", ".join(missing)
+            )
+        del model
+        checked.add(model_path)
 missing_patterns = [
     pattern for pattern in patterns
     if not any(fnmatch.fnmatch(name, pattern) for name in selected_names)
@@ -355,6 +447,17 @@ for record in "${SELECTED_RUN_RECORDS[@]}"; do
     if ((NO_PLOTS)); then
         command+=(--no-plots)
     fi
+    if ((MODEL_UNCERTAINTY)); then
+        command+=(
+            --model-uncertainty
+            --uncertainty-stride "${UNCERTAINTY_STRIDE}"
+            --uncertainty-batch-size "${UNCERTAINTY_BATCH_SIZE}"
+            --uncertainty-central-tolerance-eV "${UNCERTAINTY_CENTRAL_TOLERANCE_EV}"
+        )
+        if [[ -n "${UNCERTAINTY_MODEL}" ]]; then
+            command+=(--uncertainty-model "${UNCERTAINTY_MODEL}")
+        fi
+    fi
     if ((DRY_RUN)); then
         printf 'DRY RUN:'; printf ' %q' "${command[@]}"; printf '\n'
     else
@@ -396,6 +499,17 @@ for group_key in "${GROUP_KEYS[@]}"; do
     )
     if ((NO_PLOTS)); then
         aggregate_command+=(--no-plots)
+    fi
+    if ((MODEL_UNCERTAINTY)); then
+        aggregate_command+=(
+            --model-uncertainty
+            --uncertainty-stride "${UNCERTAINTY_STRIDE}"
+            --uncertainty-batch-size "${UNCERTAINTY_BATCH_SIZE}"
+            --uncertainty-central-tolerance-eV "${UNCERTAINTY_CENTRAL_TOLERANCE_EV}"
+        )
+        if [[ -n "${UNCERTAINTY_MODEL}" ]]; then
+            aggregate_command+=(--uncertainty-model "${UNCERTAINTY_MODEL}")
+        fi
     fi
     if ((DRY_RUN)); then
         printf 'DRY RUN:'; printf ' %q' "${aggregate_command[@]}"; printf '\n'

@@ -16,6 +16,8 @@ import numpy as np
 from ..config import find_classical_output_file, load_run_config, run_output_parts
 from .lammps import read_lammps_thermo
 from .statistics import (
+    AMU_TO_G,
+    EV_TO_J,
     autocorrelation,
     classical_fluctuation_heat_capacity,
     running_mean,
@@ -25,6 +27,7 @@ from .trajectory import (
     methane_mean_squared_displacement,
     read_trajectory_observables,
 )
+from .uncertainty import committee_standard_deviation, evaluate_trajectory_committee
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
@@ -82,6 +85,43 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help="Block length in saved frames; defaults to twice each series' tau_int",
     )
+    parser.add_argument(
+        "--model-uncertainty",
+        action="store_true",
+        help=(
+            "Evaluate the configured exported model's energy ensemble and propagate "
+            "it by direct reweighting and the first-order CEA"
+        ),
+    )
+    parser.add_argument(
+        "--uncertainty-model",
+        type=Path,
+        help=(
+            "Calibrated energy-ensemble export; defaults to the configured MD "
+            "model, which must already expose energy_ensemble"
+        ),
+    )
+    parser.add_argument(
+        "--uncertainty-stride",
+        type=int,
+        default=20,
+        help="Analyze every Nth production frame for model uncertainty (default: 20)",
+    )
+    parser.add_argument(
+        "--uncertainty-batch-size",
+        type=int,
+        default=4,
+        help="Structures per ensemble inference batch (default: 4)",
+    )
+    parser.add_argument(
+        "--uncertainty-central-tolerance-eV",
+        type=float,
+        default=0.01,
+        help=(
+            "Maximum configuration-dependent ensemble-mean/MD energy residual "
+            "after removing a constant offset (default: 0.01 eV)"
+        ),
+    )
     parser.add_argument("--no-plots", action="store_true")
     execution = parser.add_mutually_exclusive_group()
     execution.add_argument(
@@ -135,6 +175,26 @@ def aggregate_from_summary(summary: dict) -> dict:
     classical_cv = summary["classical_fluctuation_cv"]["cv_J_per_gK"]
     if classical_cv is None:
         classical_cv = float("nan")
+    model_uncertainty = summary.get("model_uncertainty", {})
+    if model_uncertainty.get("available", False):
+        cea_enthalpy = np.asarray(
+            model_uncertainty["cea_mean_enthalpy_eV"], dtype=float
+        )
+        cea_enthalpy_mean = float(cea_enthalpy.mean())
+        cea_enthalpy_model_std = float(
+            committee_standard_deviation(cea_enthalpy)
+        )
+        minimum_direct_effective_samples = float(
+            np.min(model_uncertainty["direct_effective_samples"])
+        )
+        maximum_dimensionless_delta_variance = float(
+            np.max(model_uncertainty["dimensionless_delta_variance"])
+        )
+    else:
+        cea_enthalpy_mean = float("nan")
+        cea_enthalpy_model_std = float("nan")
+        minimum_direct_effective_samples = float("nan")
+        maximum_dimensionless_delta_variance = float("nan")
     return {
         "run": summary["run"],
         "model": Path(model_path).stem,
@@ -151,6 +211,10 @@ def aggregate_from_summary(summary: dict) -> dict:
         "density_g_cm3": statistics["density_g_cm3"]["mean"],
         "fixed_volume": summary["fixed_volume"],
         "classical_cv_J_per_gK": classical_cv,
+        "cea_enthalpy_mean_eV": cea_enthalpy_mean,
+        "cea_enthalpy_model_standard_deviation_eV": cea_enthalpy_model_std,
+        "minimum_direct_effective_samples": minimum_direct_effective_samples,
+        "maximum_dimensionless_delta_variance": maximum_dimensionless_delta_variance,
         "warning_count": len(summary["warnings"]),
     }
 
@@ -421,6 +485,62 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
                 f"trajectory uses {config.md_ensemble}."
             ),
         }
+    if args.model_uncertainty:
+        if config.md_driver != "lammps" or thermodynamic_series is None:
+            raise ValueError("model-uncertainty propagation currently requires LAMMPS data")
+        committee = evaluate_trajectory_committee(
+            trajectory,
+            thermodynamic_series,
+            production_mask,
+            model_path=args.uncertainty_model or config.exported_model,
+            device=config.device,
+            temperature_K=config.temperature_K,
+            pressure_bar=config.pressure_bar,
+            stride=args.uncertainty_stride,
+            batch_size=args.uncertainty_batch_size,
+            central_tolerance_eV=args.uncertainty_central_tolerance_eV,
+        )
+        committee_path = run_output / "model_uncertainty.npz"
+        np.savez(committee_path, **committee)
+        model_uncertainty = {
+            "available": True,
+            "method": "member-resolved direct reweighting and first-order CEA",
+            "source": str(committee_path),
+            "model_path": committee["model_path"],
+            "model_sha256": committee["model_sha256"],
+            "frame_stride": args.uncertainty_stride,
+            "sampled_frames": len(committee["frame"]),
+            "member_count": len(committee["cea_mean_enthalpy_eV"]),
+            "cea_mean_enthalpy_eV": committee["cea_mean_enthalpy_eV"],
+            "direct_mean_enthalpy_eV": committee["direct_mean_enthalpy_eV"],
+            "direct_effective_samples": committee["effective_samples"],
+            "dimensionless_delta_variance": committee[
+                "dimensionless_delta_variance"
+            ],
+            "ensemble_mean_residual_rms_eV": committee[
+                "ensemble_mean_residual_rms_eV"
+            ],
+            "logged_energy_residual_rms_eV": committee[
+                "logged_energy_residual_rms_eV"
+            ],
+            "logged_energy_residual_max_abs_eV": committee[
+                "logged_energy_residual_max_abs_eV"
+            ],
+            "sampling_model_residual_rms_eV": committee[
+                "sampling_model_residual_rms_eV"
+            ],
+            "sampling_model_residual_max_abs_eV": committee[
+                "sampling_model_residual_max_abs_eV"
+            ],
+        }
+    else:
+        model_uncertainty = {
+            "available": False,
+            "reason": (
+                "Enable --model-uncertainty with a calibrated exported model that "
+                "provides energy_ensemble."
+            ),
+        }
     msd_time, msd = methane_mean_squared_displacement(
         structural["methane_com_unwrapped_A"],
         structural["time_ps"],
@@ -460,6 +580,19 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             "The configuration does not record stress validation; pressure must not be "
             "used for NPT conclusions."
         )
+    if model_uncertainty["available"]:
+        maximum_h_variance = max(model_uncertainty["dimensionless_delta_variance"])
+        minimum_effective_samples = min(model_uncertainty["direct_effective_samples"])
+        if maximum_h_variance >= 1.0:
+            warnings.append(
+                "At least one committee member has var[beta Delta V] >= 1; "
+                "first-order CEA may be inaccurate."
+            )
+        if minimum_effective_samples < 20.0:
+            warnings.append(
+                "At least one exact-reweighting member has fewer than 20 effective "
+                "frames; direct reweighting has poor overlap."
+            )
     for name, item in statistics.items():
         if abs(float(item["split_stationarity_z"])) > 2.0:
             warnings.append(f"{name} differs between production halves by more than 2 SE.")
@@ -495,6 +628,7 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             "standard_deviation_K": target_temperature_std,
         },
         "classical_fluctuation_cv": classical_cv,
+        "model_uncertainty": model_uncertainty,
         "warnings": warnings,
     }
     write_json(run_output / "summary.json", summary)
@@ -550,6 +684,10 @@ def workflow_requirements(summaries: list[dict]) -> dict:
     stress_valid = bool(summaries) and all(
         item["stress_model_validated"] for item in summaries
     )
+    model_uncertainty_available = bool(summaries) and all(
+        item.get("model_uncertainty", {}).get("available", False)
+        for item in summaries
+    )
     requirements = {
         "production_targets": [
             "Initial classical campaign: one 500 ps flexible-cell NPT run at "
@@ -570,12 +708,22 @@ def workflow_requirements(summaries: list[dict]) -> dict:
             "framework RMSD and reference-bond distortion",
             "host--methane and methane--methane distances/RDFs, methane COM MSD",
             "classical NVT energy-fluctuation C_V diagnostic",
+            (
+                "member-resolved direct and CEA model uncertainty for classical C_P"
+                if model_uncertainty_available
+                else None
+            ),
         ],
         "not_established_by_current_data": [
             "equilibrium density, thermal expansion, or NPT response" if all_fixed else None,
             "validated pressure/stress" if not stress_valid else None,
             "final hybrid C_p until the temperature grid and Hessians are complete",
             "uncertainty across independent initial conditions/seeds",
+            (
+                "propagated MLIP committee uncertainty"
+                if not model_uncertainty_available
+                else None
+            ),
             "host--guest interaction-energy decomposition",
             "complete cluster provenance such as Slurm job ID and resource usage",
         ],
@@ -590,6 +738,10 @@ def workflow_requirements(summaries: list[dict]) -> dict:
     }
     requirements["not_established_by_current_data"] = [
         item for item in requirements["not_established_by_current_data"]
+        if item is not None
+    ]
+    requirements["available_from_current_trajectories"] = [
+        item for item in requirements["available_from_current_trajectories"]
         if item is not None
     ]
     return requirements
@@ -638,6 +790,159 @@ def plot_sweep(path: Path, rows: list[dict]) -> None:
     plt.close(figure)
 
 
+def write_model_uncertainty_outputs(
+    args: argparse.Namespace, summaries: list[dict]
+) -> None:
+    """Differentiate member-resolved enthalpy curves and write MLIP error bars."""
+    available = [
+        bool(item.get("model_uncertainty", {}).get("available", False))
+        for item in summaries
+    ]
+    if not any(available):
+        return
+    if not all(available):
+        raise ValueError(
+            "model uncertainty is present for only part of the selected temperature grid"
+        )
+    hashes = {item["model_uncertainty"]["model_sha256"] for item in summaries}
+    member_counts = {
+        int(item["model_uncertainty"]["member_count"]) for item in summaries
+    }
+    masses = {float(item["metadata"]["total_mass_amu"]) for item in summaries}
+    if len(hashes) != 1 or len(member_counts) != 1:
+        raise ValueError(
+            "all temperatures and replicas must use the same persistent committee model"
+        )
+    if len(masses) != 1:
+        raise ValueError("model-uncertainty runs do not have a common system mass")
+
+    temperatures = np.asarray(
+        sorted({float(item["target_temperature_K"]) for item in summaries})
+    )
+    if len(temperatures) < 3:
+        return
+    member_count = member_counts.pop()
+    cea_enthalpy = np.empty((member_count, len(temperatures)), dtype=float)
+    direct_enthalpy = np.empty_like(cea_enthalpy)
+    direct_effective_samples = np.empty_like(cea_enthalpy)
+    dimensionless_delta_variance = np.empty_like(cea_enthalpy)
+    replica_counts = np.empty(len(temperatures), dtype=int)
+    for index, temperature in enumerate(temperatures):
+        selected = [
+            item
+            for item in summaries
+            if math.isclose(float(item["target_temperature_K"]), temperature)
+        ]
+        replica_counts[index] = len(selected)
+        cea_enthalpy[:, index] = np.mean(
+            [item["model_uncertainty"]["cea_mean_enthalpy_eV"] for item in selected],
+            axis=0,
+        )
+        direct_enthalpy[:, index] = np.mean(
+            [
+                item["model_uncertainty"]["direct_mean_enthalpy_eV"]
+                for item in selected
+            ],
+            axis=0,
+        )
+        direct_effective_samples[:, index] = np.min(
+            [
+                item["model_uncertainty"]["direct_effective_samples"]
+                for item in selected
+            ],
+            axis=0,
+        )
+        dimensionless_delta_variance[:, index] = np.max(
+            [
+                item["model_uncertainty"]["dimensionless_delta_variance"]
+                for item in selected
+            ],
+            axis=0,
+        )
+
+    conversion = EV_TO_J / (masses.pop() * AMU_TO_G)
+    cea_cp_by_member = (
+        np.gradient(cea_enthalpy, temperatures, axis=1, edge_order=2) * conversion
+    )
+    direct_cp_by_member = (
+        np.gradient(direct_enthalpy, temperatures, axis=1, edge_order=2) * conversion
+    )
+    cea_mean = cea_cp_by_member.mean(axis=0)
+    cea_model_error = committee_standard_deviation(cea_cp_by_member)
+    direct_mean = direct_cp_by_member.mean(axis=0)
+    direct_model_error = committee_standard_deviation(direct_cp_by_member)
+
+    archive_path = args.analysis_dir / "model_uncertainty_heat_capacity.npz"
+    np.savez(
+        archive_path,
+        temperatures_K=temperatures,
+        cea_enthalpy_by_member_eV=cea_enthalpy,
+        direct_enthalpy_by_member_eV=direct_enthalpy,
+        cea_cp_by_member_J_per_gK=cea_cp_by_member,
+        direct_cp_by_member_J_per_gK=direct_cp_by_member,
+        cea_cp_mean_J_per_gK=cea_mean,
+        cea_cp_model_standard_deviation_J_per_gK=cea_model_error,
+        direct_cp_mean_J_per_gK=direct_mean,
+        direct_cp_model_standard_deviation_J_per_gK=direct_model_error,
+        direct_effective_samples=direct_effective_samples,
+        dimensionless_delta_variance=dimensionless_delta_variance,
+        replica_counts=replica_counts,
+        model_sha256=next(iter(hashes)),
+    )
+    rows = []
+    for index, temperature in enumerate(temperatures):
+        rows.append(
+            {
+                "temperature_K": temperature,
+                "cea_cp_mean_J_per_gK": cea_mean[index],
+                "cea_cp_model_standard_deviation_J_per_gK": cea_model_error[index],
+                "direct_cp_mean_J_per_gK": direct_mean[index],
+                "direct_cp_model_standard_deviation_J_per_gK": direct_model_error[index],
+                "minimum_direct_effective_samples": direct_effective_samples[
+                    :, index
+                ].min(),
+                "maximum_dimensionless_delta_variance": dimensionless_delta_variance[
+                    :, index
+                ].max(),
+                "replicas": replica_counts[index],
+            }
+        )
+    write_rows(args.analysis_dir / "model_uncertainty_heat_capacity.csv", rows)
+
+    if not args.no_plots:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        figure, axis = plt.subplots(figsize=(7, 4.5))
+        axis.plot(temperatures, cea_mean, marker="o", label="CEA committee mean")
+        axis.fill_between(
+            temperatures,
+            cea_mean - cea_model_error,
+            cea_mean + cea_model_error,
+            alpha=0.25,
+            label=r"CEA model $\pm 1\sigma$",
+        )
+        axis.plot(
+            temperatures,
+            direct_mean,
+            marker="o",
+            linestyle="--",
+            alpha=0.7,
+            label="Direct reweighting",
+        )
+        axis.set(
+            xlabel="Temperature (K)",
+            ylabel=r"Classical $C_P$ ($J\,g^{-1}\,K^{-1}$)",
+        )
+        axis.grid(alpha=0.2)
+        axis.legend(fontsize=8)
+        figure.tight_layout()
+        figure.savefig(args.analysis_dir / "model_uncertainty_heat_capacity.png", dpi=180)
+        plt.close(figure)
+
+
 def write_aggregate_outputs(
     args: argparse.Namespace,
     summaries: list[dict],
@@ -645,6 +950,7 @@ def write_aggregate_outputs(
     skipped: list[dict],
 ) -> None:
     write_rows(args.analysis_dir / "runs.csv", aggregate_rows)
+    write_model_uncertainty_outputs(args, summaries)
     write_json(
         args.analysis_dir / "workflow_requirements.json",
         workflow_requirements(summaries),
@@ -690,12 +996,20 @@ def main() -> None:
     args = parse_args()
     args.config_dir = args.config_dir.expanduser().resolve()
     args.analysis_dir = args.analysis_dir.expanduser().resolve()
+    if args.uncertainty_model is not None:
+        args.uncertainty_model = args.uncertainty_model.expanduser().resolve()
     if args.host_atoms < 1 or args.structural_stride < 1 or args.rdf_stride < 1:
         raise ValueError("host atom count and strides must be positive")
     if args.rdf_stride % args.structural_stride:
         raise ValueError("--rdf-stride must be an integer multiple of --structural-stride")
     if args.block_size is not None and args.block_size < 2:
         raise ValueError("--block-size must be at least two")
+    if args.uncertainty_stride < 1 or args.uncertainty_batch_size < 1:
+        raise ValueError("uncertainty stride and batch size must be positive")
+    if args.uncertainty_central_tolerance_eV <= 0.0:
+        raise ValueError("uncertainty central-energy tolerance must be positive")
+    if args.uncertainty_model is not None and not args.model_uncertainty:
+        raise ValueError("--uncertainty-model requires --model-uncertainty")
     patterns = [item.strip() for item in args.runs.split(",") if item.strip()]
     if not patterns:
         raise ValueError("--runs must contain at least one glob pattern")
