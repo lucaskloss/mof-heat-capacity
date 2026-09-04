@@ -1,7 +1,7 @@
 # MLIP uncertainty from reweighting
 
-This document summarizes only the definitions and conclusions needed to use
-Eqs. (22) and (23) of G. Imbalzano *et al.*, *Uncertainty estimation for
+This document summarizes the definitions and conclusions needed to use
+Eqs. (22)--(25) of G. Imbalzano *et al.*, *Uncertainty estimation for
 molecular dynamics and sampling*, J. Chem. Phys. **154**, 074102 (2021),
 [doi:10.1063/5.0036522](https://doi.org/10.1063/5.0036522). The source is the
 [supplied article PDF](074102_1_online.pdf).
@@ -9,8 +9,8 @@ molecular dynamics and sampling*, J. Chem. Phys. **154**, 074102 (2021),
 The purpose of these equations is to estimate how uncertainty in machine-learned
 potentials changes a thermodynamic average. A committee affects both the value
 predicted for a saved configuration and the equilibrium probability of that
-configuration. Equations (22) and (23) include both effects without requiring
-one independent trajectory for every potential model.
+configuration. Reweighting and the cumulant expansion include both effects
+without requiring one independent trajectory for every potential model.
 
 ## Information required from earlier equations
 
@@ -88,6 +88,41 @@ $$\widetilde a=\frac{1}{M}\sum_{i=1}^{M}\left\langle a\right\rangle_{V^{(i)}}, \
 This is the most relevant form when the desired observable is evaluated
 directly on configurations and only the MLIP changes the sampled ensemble.
 
+## Equation (24): Cumulant Expansion Approximation (CEA)
+
+Direct reweighting uses exponential weights, so its statistical error can grow
+rapidly when the dimensionless energy difference
+$h^{(i)}=\beta[V^{(i)}-\bar V]$ fluctuates appreciably. This is especially relevant
+for a periodic MOF system, because the potential energy and hence the variance
+of $h^{(i)}$ are extensive. The first-order Cumulant Expansion Approximation
+(CEA), Eq. (24), avoids evaluating those exponential weights by expanding in
+$h^{(i)}$:
+
+$$\left\langle a\right\rangle_{V^{(i)}}\approx\left\langle a\right\rangle_{\bar V}-\beta\left[\left\langle a\left(V^{(i)}-\bar V\right)\right\rangle_{\bar V}-\left\langle a\right\rangle_{\bar V}\left\langle V^{(i)}-\bar V\right\rangle_{\bar V}\right]. $$
+
+Equivalently, defining $\Delta V^{(i)}=V^{(i)}-\bar V$, the correction is
+$-\beta\operatorname{cov}_{\bar V}(a,\Delta V^{(i)})$. For trajectory frames,
+evaluate the three averages in this expression as ordinary, *unweighted* time
+averages. Thus CEA needs the same member-resolved energies and observable
+values as direct reweighting, but no normalized frame weights.
+
+CEA is a controlled first-order approximation only when committee members are
+close on the sampled configurations, conventionally
+$\operatorname{var}_{\bar V}[h^{(i)}]\ll1$. Its correction has a variance that
+grows linearly, rather than exponentially, with the variance of $h^{(i)}$;
+this is its practical advantage for larger systems. Equation (25) further
+shows that the mean of the CEA member estimates agrees with the unweighted
+mean-potential result to first order.
+
+The approximation is not a cure for poor phase-space overlap and it discards
+higher-order terms. Treat it particularly cautiously for nonlinear observables
+constructed from fluctuations or ratios. A heat capacity, for example, is
+usually formed from energy fluctuations or a temperature derivative, so its
+member-resolved heat-capacity calculation must be performed first and CEA
+should be validated against direct reweighting where the latter has effective
+sample size. Do not infer CEA validity merely from a small uncertainty in a
+mean energy.
+
 ## What must be retained in practice
 
 For each saved frame of the trajectory driven by $\bar V$, retain or be able to
@@ -115,10 +150,95 @@ reweighted average curve for each member and applying the same derivative to
 each curve. This downstream heat-capacity propagation is a project adaptation;
 it is not derived by Eqs. (22) and (23) themselves.
 
+## How this project applies the method to heat capacity
+
+The project estimates the loaded-system hybrid heat capacity as
+
+$$C_{P,\mathrm{hyb}}(T)=C_{P,\mathrm{cl}}^{\mathrm{NPT}}(T)+C_{V,\mathrm{har}}^{\mathrm{qn}}(T)-C_{V,\mathrm{har}}^{\mathrm{cl}}(T). $$
+
+The committee method is applied only to the first term. For each selected NPT
+production frame $t$ and committee member $i$, trajectory analysis constructs
+
+$$\Delta V_t^{(i)}=V_t^{(i)}-\bar V_t, \qquad H_t^{(i)}=K_t+V_t^{(i)}+P_{\mathrm{ext}}V_{\mathrm{cell},t}. $$
+
+Here $\bar V_t$ is the central potential energy from the LAMMPS trajectory,
+$K_t$ is its kinetic energy, and the external-pressure term uses the saved NPT
+cell volume. The code evaluates both the normalized exponential estimate
+
+$$\left\langle H^{(i)}\right\rangle_i=\frac{\sum_t\exp[-\beta\Delta V_t^{(i)}]H_t^{(i)}}{\sum_t\exp[-\beta\Delta V_t^{(i)}]} $$
+
+and the first-order CEA estimate
+
+$$\left\langle H^{(i)}\right\rangle_i^{\mathrm{CEA}}=\left\langle H^{(i)}\right\rangle_{\bar V}-\beta\operatorname{cov}_{\bar V}\left(H^{(i)},\Delta V^{(i)}\right). $$
+
+CEA is the primary estimate for this large periodic system. Direct reweighting
+is retained as a diagnostic and accompanied by the member-wise effective
+sample count $N_{\mathrm{eff}}$. The analysis also records
+$\operatorname{var}(\beta\Delta V^{(i)})$; small $N_{\mathrm{eff}}$ warns that
+direct weights have collapsed, while a value not much smaller than one warns
+that the first-order CEA may be inaccurate. Neither diagnostic proves that the
+estimate is converged.
+
+Replica enthalpies are averaged member by member at each temperature. The same
+member index must come from the same persistent exported ensemble at every
+temperature and replica; the analysis verifies this with the model SHA-256.
+Only then is the temperature derivative applied:
+
+$$C_{P,\mathrm{cl}}^{(i)}(T)=\frac{d\left\langle H^{(i)}\right\rangle_i^{\mathrm{CEA}}}{dT}. $$
+
+The finite-difference stencil is identical to the central hybrid analysis:
+centered on interior temperatures and second-order one-sided at the endpoints.
+The sample standard deviation across the resulting member curves is the
+classical MLIP model uncertainty $sigma_{\mathrm{MLIP,cl}}(T)$ from Eq. (23).
+This preserves cross-temperature correlations; differentiating independently
+sampled scalar error bars would not.
+
+The workflow reports uncertainty components separately:
+
+- $sigma_{\mathrm{MD}}$ is the propagated standard error of the central NPT
+  enthalpy curve, including autocorrelation-aware within-run uncertainty and
+  between-replica uncertainty;
+- $sigma_{\mathrm{har}}$ is the standard error across independent loaded
+  minima for the harmonic correction; with one replica it is zero and does
+  not represent numerical Hessian convergence; and
+- $sigma_{\mathrm{MLIP,cl}}$ is the CEA committee standard deviation of the
+  classical heat capacity, not a standard error of its committee mean.
+
+When requested, the hybrid output additionally reports the quadrature summary
+
+$$\sigma_{\mathrm{hyb,combined}}(T)=\sqrt{\sigma_{\mathrm{MD}}^2(T)+\sigma_{\mathrm{har}}^2(T)+\sigma_{\mathrm{MLIP,cl}}^2(T)}. $$
+
+This combined band assumes that those three contributions are independent, so
+the individual arrays remain the authoritative outputs when that assumption is
+not justified. It still omits shared committee bias, electronic-structure
+reference error, finite-size effects, temperature-grid bias, and uncertainty
+in the harmonic model itself. For volumetric heat capacity, the existing
+density uncertainty is also propagated under a zero-covariance assumption.
+
+The command sequence is:
+
+```bash
+./scripts/properties/submit_analysis.sh --model pet-mad --loading 100 \
+  --replicas 1 --model-uncertainty \
+  --uncertainty-model models/pet-mad-1.5-s-llpr-ensemble.pt
+./scripts/properties/submit_heat_capacity.sh --model pet-mad --loading 100 \
+  --source-temperatures 200,225,250,275,300,325,350,375,400 --replicas 1
+./scripts/properties/submit_hybrid_analysis.sh --model pet-mad --loading 100 \
+  --replicas 1 --model-uncertainty
+```
+
+The first command writes `model_uncertainty_heat_capacity.npz` below the
+model/loading trajectory-analysis directory. The third command requires that
+archive and adds its CEA spread to the hybrid NPZ, CSV, JSON, and plot. The
+currently configured central PET-MAD and PET-SOL exports do not expose
+`energy_ensemble`; a separately calibrated ensemble export is therefore needed
+for the first command. The Hessian command cannot use that metatomic ensemble:
+the current harmonic implementation supports only PET-JAX/SADMOF and has no
+member-resolved LLPR-to-PET-JAX conversion.
+
 ## Scope deliberately omitted
 
-The weighted fallback potential, active-learning examples, cumulant-expansion
-approximation beginning with Eq. (24), later uncertainty decompositions, and
-the paper's applications are not required to define or evaluate Eqs. (22) and
-(23). They should be consulted separately only if direct reweighting has poor
-overlap or if a broader uncertainty method is needed.
+The weighted fallback potential, active-learning examples, later uncertainty
+decompositions, and the paper's applications are outside this note. CEA above
+is an approximation to Eq. (22), not a replacement for convergence checks or
+a broader uncertainty analysis.

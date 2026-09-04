@@ -22,12 +22,19 @@ if [[ -n "${MOF_MD_TIME:-}" ]]; then
     WALL_TIME_SET=1
 fi
 CPUS_PER_TASK="${MOF_MD_CPUS:-8}"
-SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${PROJECT_DIR}/output/slurm}"
+DEFAULT_OUTPUT_ROOT="${SCRATCH:+${SCRATCH}/mof-heat-capacity/output}"
+OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT:-${PROJECT_DIR}/output}}"
+if [[ "${OUTPUT_ROOT}" != /* ]]; then
+    OUTPUT_ROOT="${PROJECT_DIR}/${OUTPUT_ROOT}"
+fi
+export MOF_OUTPUT_ROOT="${OUTPUT_ROOT}"
+SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
 STEPS=""
 DEBUG=0
 CALIBRATION=0
 PRODUCTION_AFTER_CALIBRATION=""
 RESUME=0
+RERUN=0
 AUTO_RESUME=1
 DRY_RUN=0
 CALIBRATION_STEPS=1000
@@ -57,6 +64,8 @@ Options:
   --calibration        Manually submit an isolated 1000-step timing run.
   --resume             Submit only unfinished production runs, continuing from
                        their latest numeric LAMMPS restart.
+  --rerun              Restart production runs from their original structures,
+                       replacing any existing trajectory and LAMMPS log.
   --no-auto-resume     Do not automatically submit another production job when
                        an MD segment reaches its wall-time buffer.
   --dry-run            Prepare missing inputs, validate, and print the full pipeline.
@@ -89,6 +98,7 @@ while (($#)); do
         --production-after-calibration)
             require_value "$@"; PRODUCTION_AFTER_CALIBRATION="$2"; shift 2 ;;
         --resume) RESUME=1; shift ;;
+        --rerun) RERUN=1; shift ;;
         --no-auto-resume) AUTO_RESUME=0; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -120,8 +130,12 @@ if ((DEBUG && CALIBRATION)) || { [[ -n "${PRODUCTION_AFTER_CALIBRATION}" ]] && (
     echo "error: --debug, --calibration, and --production-after-calibration are mutually exclusive" >&2
     exit 2
 fi
-if ((DEBUG || CALIBRATION)) && ((RESUME)); then
-    echo "error: debug/calibration cannot be resumed" >&2
+if ((DEBUG || CALIBRATION)) && ((RESUME || RERUN)); then
+    echo "error: debug/calibration cannot be resumed or rerun" >&2
+    exit 2
+fi
+if ((RESUME && RERUN)); then
+    echo "error: --resume and --rerun are mutually exclusive" >&2
     exit 2
 fi
 if ((DEBUG)); then
@@ -309,7 +323,7 @@ submit_automatic_pipeline() {
         if [[ ! -f "${config}" && -f "configs/${stem}.toml" ]]; then
             config="configs/${stem}.toml"
         fi
-        calibration_dir="output/md/calibration/${model_label}/${LOADING}ch4/${TEMPERATURES[0]}K/rep01"
+        calibration_dir="${OUTPUT_ROOT}/md/calibration/${model_label}/${LOADING}ch4/${TEMPERATURES[0]}K/rep01"
         timing_file="${calibration_dir}/elapsed-seconds.txt"
         calibration_log_dir="${SLURM_OUTPUT_DIR}/simulation/${model_label}/${LOADING}ch4/calibration"
         planner_log_dir="${SLURM_OUTPUT_DIR}/simulation/${model_label}/${LOADING}ch4/planner"
@@ -336,6 +350,9 @@ submit_automatic_pipeline() {
         fi
         if ((!AUTO_RESUME)); then
             continuation_command+=(--no-auto-resume)
+        fi
+        if ((RERUN)); then
+            continuation_command+=(--rerun)
         fi
         printf -v continuation '%q ' "${continuation_command[@]}"
         if ((DRY_RUN)); then
@@ -420,8 +437,10 @@ for index in "${!CONFIGS[@]}"; do
         stage=debug; prefix_suffix=-debug; rerun=1
     elif ((CALIBRATION)); then
         stage=calibration; prefix_suffix=-calibration; rerun=1
+    elif ((RERUN)); then
+        rerun=1
     fi
-    output_dir="output/md/${stage}/${model_label}/${LOADING}ch4/${temperature}K/rep${replica_tag}"
+    output_dir="${OUTPUT_ROOT}/md/${stage}/${model_label}/${LOADING}ch4/${temperature}K/rep${replica_tag}"
     historical_output_dir="output/classical/${stage}/${model_label}/${LOADING}ch4/${stem}"
     legacy_output_dir="output/classical/${stage}/${LOADING}ch4/${stem}"
     output_prefix="md${prefix_suffix}"

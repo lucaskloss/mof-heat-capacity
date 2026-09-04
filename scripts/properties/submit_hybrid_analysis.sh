@@ -19,6 +19,8 @@ ZERO_THRESHOLD_CM1="1.0"
 MAX_NEAR_ZERO_MODES=3
 AFTEROK=""
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${PROJECT_DIR}/output/slurm}"
+ANALYSIS_DIR="output/post-processing/trajectory-analysis"
+MODEL_UNCERTAINTY=0
 DRY_RUN=0
 
 
@@ -30,6 +32,7 @@ run_hybrid_worker() {
     local output=""
     local zero_threshold=""
     local max_near_zero=""
+    local model_uncertainty=""
 
     shift
     while (($#)); do
@@ -41,6 +44,7 @@ run_hybrid_worker() {
             --output) output="$2"; shift 2 ;;
             --zero-threshold-cm1) zero_threshold="$2"; shift 2 ;;
             --max-near-zero-modes) max_near_zero="$2"; shift 2 ;;
+            --model-uncertainty) model_uncertainty="$2"; shift 2 ;;
             *) echo "error: unknown hybrid-worker argument: $1" >&2; exit 2 ;;
         esac
     done
@@ -81,14 +85,20 @@ run_hybrid_worker() {
     echo "Output:      ${output}"
     echo "GPU allocated: 1 (required by Izar normal QOS; assembly is CPU-based)"
 
-    srun --ntasks=1 "${analysis_python}" -m mof_heat_capacity.analysis.hybrid \
-        --model-label "${model_label}" \
-        --loading "${loading}" \
-        --replicas "${replicas}" \
-        --temperatures "${temperatures}" \
-        --output "${output}" \
-        --zero-threshold-cm1 "${zero_threshold}" \
+    local command=(
+        "${analysis_python}" -m mof_heat_capacity.analysis.hybrid
+        --model-label "${model_label}"
+        --loading "${loading}"
+        --replicas "${replicas}"
+        --temperatures "${temperatures}"
+        --output "${output}"
+        --zero-threshold-cm1 "${zero_threshold}"
         --max-near-zero-modes "${max_near_zero}"
+    )
+    if [[ -n "${model_uncertainty}" ]]; then
+        command+=(--model-uncertainty "${model_uncertainty}")
+    fi
+    srun --ntasks=1 "${command[@]}"
 }
 
 
@@ -115,6 +125,10 @@ Options:
   --zero-threshold-cm1 X  Imaginary/near-zero cutoff (default: 1.0 cm^-1).
   --max-near-zero-modes N Maximum allowed near-zero modes (default: 3).
   --afterok JOBS          Comma-separated upstream job IDs that must all succeed.
+  --model-uncertainty     Include the CEA committee spread produced by
+                          submit_analysis.sh --model-uncertainty.
+  --analysis-dir PATH     Trajectory-analysis root used to find that archive
+                          (default: output/post-processing/trajectory-analysis).
   --slurm-output-dir PATH Slurm log directory (default: output/slurm).
   --dry-run               Print submissions without calling sbatch.
   -h, --help              Show this help.
@@ -146,6 +160,8 @@ while (($#)); do
         --zero-threshold-cm1) require_value "$@"; ZERO_THRESHOLD_CM1="$2"; shift 2 ;;
         --max-near-zero-modes) require_value "$@"; MAX_NEAR_ZERO_MODES="$2"; shift 2 ;;
         --afterok) require_value "$@"; AFTEROK="$2"; shift 2 ;;
+        --model-uncertainty) MODEL_UNCERTAINTY=1; shift ;;
+        --analysis-dir) require_value "$@"; ANALYSIS_DIR="$2"; shift 2 ;;
         --slurm-output-dir) require_value "$@"; SLURM_OUTPUT_DIR="$2"; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -229,6 +245,7 @@ if [[ -n "${AFTEROK}" ]]; then
 fi
 for model_label in "${MODEL_LABELS[@]}"; do
     output="output/post-processing/harmonic-correction/${model_label}/${LOADING}ch4/heat-capacity.npz"
+    model_uncertainty_path="${ANALYSIS_DIR}/${model_label}/${LOADING}ch4/model_uncertainty_heat_capacity.npz"
     slurm_hybrid_dir="${SLURM_OUTPUT_DIR}/hybrid-analysis/${model_label}/${LOADING}ch4"
     command=(
         sbatch --parsable
@@ -248,6 +265,9 @@ for model_label in "${MODEL_LABELS[@]}"; do
         --zero-threshold-cm1 "${ZERO_THRESHOLD_CM1}"
         --max-near-zero-modes "${MAX_NEAR_ZERO_MODES}"
     )
+    if ((MODEL_UNCERTAINTY)); then
+        command+=(--model-uncertainty "${model_uncertainty_path}")
+    fi
     if ((DRY_RUN)); then
         printf 'DRY RUN:'; printf ' %q' "${command[@]}"; printf '\n'
     else

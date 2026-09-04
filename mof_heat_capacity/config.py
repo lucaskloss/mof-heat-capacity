@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import re
 import tomllib
@@ -13,6 +14,15 @@ LOADED_RUN_PATTERN = re.compile(
     r"^mof5-(?P<loading>[1-9][0-9]*)ch4-(?P<model>.+)-npt-"
     r"(?P<temperature>[1-9][0-9]*)K-rep(?P<replica>[0-9]+)$"
 )
+
+
+def output_root() -> Path:
+    """Return the configured output root, defaulting to the repository output tree."""
+    configured = os.environ.get("MOF_OUTPUT_ROOT")
+    if not configured:
+        return PROJECT_DIR / "output"
+    path = Path(configured).expanduser()
+    return path if path.is_absolute() else PROJECT_DIR / path
 
 
 @dataclass(frozen=True)
@@ -139,8 +149,8 @@ def classical_output_directories(config: RunConfig) -> tuple[Path, ...]:
     candidates = [config.output_dir]
     match = LOADED_RUN_PATTERN.fullmatch(config.name)
     if match:
-        root = PROJECT_DIR / "output" / "md" / "production"
-        historical_root = PROJECT_DIR / "output" / "classical" / "production"
+        root = output_root() / "md" / "production"
+        historical_root = output_root() / "classical" / "production"
         candidates.extend(
             (
                 root

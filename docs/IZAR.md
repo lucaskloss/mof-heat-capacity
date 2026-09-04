@@ -7,6 +7,16 @@ quantum correction. Empty MOF-5 does not receive an MD job.
 Run commands from the repository root on an Izar login node. CUDA validation
 belongs inside a Slurm allocation, not on the login node.
 
+Store trajectory and restart data on scratch, not in the home-folder checkout:
+
+```bash
+export MOF_OUTPUT_ROOT="${SCRATCH}/mof-heat-capacity/output"
+export MOF_SLURM_OUTPUT_DIR="${MOF_OUTPUT_ROOT}/slurm"
+```
+
+Set these variables before every MD, analysis, relaxation, or hybrid submission.
+They are inherited by submitted jobs and their automatic MD continuations.
+
 ## 1. Validate and submit loaded classical MD
 
 Use the MD submission command documented in
@@ -28,7 +38,7 @@ forces, and restart before interpreting the final results.
 Production output is organized as:
 
 ```text
-output/md/production/<model>/<loading>ch4/<temperature>K/repNN/
+${MOF_OUTPUT_ROOT}/md/production/<model>/<loading>ch4/<temperature>K/repNN/
 ```
 
 The corresponding generated configuration is:
