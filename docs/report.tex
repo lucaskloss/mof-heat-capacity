@@ -135,9 +135,12 @@ $(j,\bm n)\to i$ is included when
 \end{align}
 where $\bm n\in\mathbb Z^3$ identifies a periodic image and
 $r_{\mathrm c}$ is a cutoff. This construction removes dependence on the
-absolute origin. A smooth cutoff function $f_{\mathrm c}(r)$, which tends to
-zero continuously at $r_{\mathrm c}$, prevents discontinuous energy and force
-changes when a neighbor crosses the cutoff.
+absolute origin. A sufficiently smooth cutoff function $f_{\mathrm c}(r)$,
+whose value and relevant derivatives vanish at $r_{\mathrm c}$, suppresses a
+neighbor's contribution as it leaves the environment. Smooth forces and
+Hessians require consistent cutoff treatment throughout the network,
+including attention normalization and energy readout, rather than continuity
+of the cutoff value alone.
 
 Neural networks operate on fixed-width numerical representations. Chemical
 identity is therefore mapped from a discrete species label to a trainable
@@ -183,26 +186,45 @@ an atom can depend on paths extending up to $L$ graph hops. A readout map then
 converts the final features into the local energies in
 Eq.~\eqref{eq:mlip-energy}.
 
-The Point Edge Transformer (PET) used by PET-MAD is a particular GNN that
-stores a token $\bm f_{ij}^{(\ell)}\in\mathbb R^{d_{\mathrm{PET}}}$ on every
-directed edge rather than storing information only on atoms
-\cite{pet,petmad}. For the environment centered on atom $i$, PET encodes the
-neighbor species, relative Cartesian position, and incoming edge message into
-a token of the schematic form
+\subsubsection{Point Edge Transformer architecture}
+\label{sec:pet-architecture}
+
+The Point Edge Transformer (PET) introduced by Pozdnyakov and Ceriotti
+\cite{pet} is the architecture underlying the later PET-MAD potential
+\cite{petmad}. PET preserves a distinct latent message on each directed edge.
+For a central atom $i$, its transformer processes the incoming edge messages
+together and produces a separate outgoing message for each neighbor. This
+avoids compressing the entire neighborhood into a single atom representation
+before forming outgoing messages. Attention still performs weighted sums
+internally; the distinction is that the edge identities survive the update.
+
+In the original formulation (Ref.~\cite{pet}, Appendix A), neighbor species,
+relative Cartesian position, and an incoming message
+$\bm m_{j\to i}^{(\ell-1)}\in\mathbb R^{d_{\mathrm{PET}}}$ are encoded as
 \begin{align}
   \bm p_{ij}^{(\ell)}
-    &=\sigma\bigl(\bm W_r^{(\ell)}\bm r_{ij}\bigr),
+    &=\operatorname{SiLU}\bigl(\bm W_r^{(\ell)}\bm r_{ij}
+                                      +\bm b_r^{(\ell)}\bigr),
   \\
   \bm t_{ij}^{(\ell)}
     &=\mathrm{MLP}_\ell\!\left(
-      \bm f_{ji}^{(\ell-1)}\Vert
-      \bm E_Z^{(\ell)}[Z_j]\Vert
+      \bm m_{j\to i}^{(\ell-1)}\Vert
+      \bm E_n^{(\ell)}[Z_j]\Vert
       \bm p_{ij}^{(\ell)}\right),
   \label{eq:pet-token}
 \end{align}
-where $\Vert$ denotes concatenation and $\sigma$ is a nonlinear activation.
-In the first layer the incoming message is absent. A transformer mixes all
-tokens in one atomic environment by self-attention. For one attention head,
+where $\Vert$ denotes concatenation. Each ingredient has width
+$d_{\mathrm{PET}}$, and the MLP compresses their concatenation from
+$3d_{\mathrm{PET}}$ to $d_{\mathrm{PET}}$. In the first block the incoming
+message is absent, giving $2d_{\mathrm{PET}}$ input features. A separate
+central token, $\bm t_{i0}^{(\ell)}=\bm E_c^{(\ell)}[Z_i]$, uses a distinct
+species embedding. These are latent feature vectors with no prescribed
+rotation law. Later PET implementations can modify the encoding and feature
+dimensions; the project-specific settings are given in
+Section~\ref{sec:pet-implementation}.
+
+A transformer mixes the central and neighbor tokens within one environment.
+For one attention head, with $a,b$ indexing these tokens,
 \begin{align}
   \bm q_a&=\bm W_Q\bm t_a,
   &\bm k_b&=\bm W_K\bm t_b,
@@ -210,18 +232,50 @@ tokens in one atomic environment by self-attention. For one attention head,
   \\
   \alpha_{ab}
     &=\frac{\exp(\bm q_a^{\mathrm T}\bm k_b/\sqrt{d_k})
-                    f_{\mathrm c}(r_{ib})}
+                    c_b}
             {\sum_c\exp(\bm q_a^{\mathrm T}\bm k_c/\sqrt{d_k})
-                    f_{\mathrm c}(r_{ic})},
+                    c_c},
   &\bm y_a&=\sum_b\alpha_{ab}\bm v_b.
   \label{eq:self-attention}
 \end{align}
-Multi-head attention repeats this operation in several learned subspaces,
-followed by feed-forward layers and residual connections. Because no ordering
-of the neighbors enters Eq.~\eqref{eq:self-attention}, permuting the atoms
-permutes the edge outputs consistently. PET interprets these outputs as the
-messages for the next GNN layer and applies learned readout heads across edges
-and layers to form the total energy.
+where $c_0=1$ for the central token and $c_j=f_{\mathrm c}(r_{ij})$ for
+neighbor $j$. The cutoff enters before normalization, so a departing neighbor
+vanishes smoothly from both the weighted sum and its denominator.
+Multi-head attention repeats this operation in learned subspaces, followed
+by feed-forward layers and residual connections. No arbitrary neighbor order
+enters the calculation, so permuting neighbors permutes their output tokens
+consistently.
+
+Attention makes each neighbor token depend on the other neighbors, allowing
+many-body interactions within a single message-passing block. Adding
+attention layers increases local expressive power without extending that
+block's neighborhood. Adding message-passing blocks communicates information
+between environments and enlarges the receptive field. These are separate
+architecture choices: the water benchmark in Ref.~\cite{pet} shows that
+deeper local transformers can outperform a larger number of shallow
+message-passing blocks at fixed total attention-layer count. Local attention
+is quadratic in the number of tokens per environment, while the total cost
+remains approximately linear in atom count for a fixed architecture and
+bounded neighborhood size.
+
+The output neighbor tokens supply outgoing messages, updated with residual
+connections to preceding messages. Each block also contributes to the energy.
+For the summed-edge variant in the original paper,
+\begin{equation}
+  U_\theta=\sum_i b_{Z_i}
+  +\sum_{\ell=1}^{L}\sum_i\left[
+      H_c^{(\ell)}(\bm x_{i0}^{(\ell)})
+      +\sum_{j\in\mathcal N_i}f_{\mathrm c}(r_{ij})
+                         H_n^{(\ell)}(\bm x_{ij}^{(\ell)})\right],
+  \label{eq:pet-readout}
+\end{equation}
+where $\bm x_{i0}$ and $\bm x_{ij}$ are central and neighbor output tokens,
+$H_c$ and $H_n$ are learned readout heads, and $b_Z$ are fitted species
+baselines. Appendix A of Ref.~\cite{pet} also describes a cutoff-weighted
+average of edge predictions. The edge terms are many-body learned
+contributions, not physical pair energies. Contributions from all blocks
+enter the total, and cutoff weighting is required in the readout as well as
+in attention.
 
 \subsubsection{Physical symmetries}
 
@@ -243,9 +297,51 @@ aggregation enforce permutation invariance. Many MLIPs impose rotational
 symmetry exactly through invariant geometric descriptors or
 $E(3)$-equivariant features. PET instead processes Cartesian displacement
 vectors with an unconstrained transformer and learns rotational behavior from
-random rotational augmentation \cite{pet,petmad}. Thus the PET-MAD model used
-here is not intrinsically exactly rotation invariant, although its reported
-rotational discrepancies are small compared with its prediction errors.
+random rotational augmentation \cite{pet,petmad}. Thus the PET-MAD backbone
+is not intrinsically exactly rotation invariant. The PET-MAD publication
+reports rotational discrepancies usually smaller than its prediction errors
+\cite{petmad}; this is not a validation of the particular MOF-5 structures or
+checkpoint used here. For periodic structures, rotation tests must rotate
+both positions and cell vectors.
+
+\subsubsection{Exact rotational symmetrization with ECSE}
+
+The original PET paper also introduces the Equivariant Coordinate System
+Ensemble (ECSE), a separate construction that imposes exact rotational
+symmetry on a smooth, translation- and permutation-invariant backbone
+\cite{pet}. Each ordered noncollinear neighbor pair $(j,k)$ defines a local
+frame $\bm Q_{ijk}$ that rotates with the atomic environment. For a scalar
+local prediction, the symmetrized model is
+\begin{equation}
+  \varepsilon_i^{\mathrm{ECSE}}=
+    \frac{\sum_{j\ne k}w_{ijk}\,
+          \varepsilon_i^0(\bm Q_{ijk}^{\mathrm T}\mathcal N_i)}
+         {\sum_{j\ne k}w_{ijk}},
+  \label{eq:ecse}
+\end{equation}
+where the notation indicates expressing all relevant displacement vectors in
+that frame. Vector or tensor predictions are transformed back to the
+original frame before averaging. The frames in the paper use proper
+rotations, $SO(3)$; reflection invariance in Eq.~\eqref{eq:energy-symmetry}
+is an additional requirement, not a consequence of this construction alone.
+
+Radial weights suppress frames whose defining neighbors approach the cutoff,
+and angular weights suppress nearly collinear pairs. An adaptive inner radius
+and smooth pruning reduce the number of frames. Fully collinear environments
+require a fallback; the paper demonstrates an auxiliary invariant model.
+Using a smooth ensemble avoids the discontinuities caused by selecting only
+the two nearest neighbors. This frame-selection radius is distinct from the
+adaptive neighbor cutoff in the later PET implementation used here.
+
+Forces and Hessians must differentiate the full expression in
+Eq.~\eqref{eq:ecse}, including the position dependence of frames and weights.
+They cannot be obtained simply by averaging derivatives of the backbone.
+The paper shows that tight frame-selection parameters can amplify derivative
+errors even when the energy remains mathematically smooth. Its
+proof-of-principle ECSE implementation incurs roughly three orders of
+magnitude of inference overhead (Ref.~\cite{pet}, Section 6 and Appendix F).
+ECSE is not enabled in this project's workflow; its exact symmetry properties
+must therefore be distinguished from those of the deployed PET backbone.
 
 \subsubsection{Training and domain of validity}
 
@@ -264,7 +360,12 @@ possibly augmented by stress terms and regularization. Because the force
 labels are derivatives of the PES, each configuration supplies $3N_s$ local
 slope constraints in addition to its energy. Optimization adjusts the
 embeddings, message-passing transformations and readout weights to minimize
-this loss. PET-MAD was trained on a chemically diverse DFT dataset rather than
+this loss. The original PET experiments first subtract fitted species
+baselines and use a loss that rescales energy and force errors by moving
+validation-set mean squared errors, together with Adam and random rotational
+augmentation (Ref.~\cite{pet}, Appendix B). Equation~\eqref{eq:mlip-loss}
+is a generic objective, not that paper's exact normalization. PET-MAD was
+trained on a chemically diverse DFT dataset rather than
 on MOF-5 alone, making it a universal pretrained potential \cite{petmad}.
 
 An MLIP interpolates the reference PES represented by its training data; it
@@ -275,7 +376,12 @@ trajectory stability and uncertainty indicators are therefore necessary but
 distinct checks. This project also uses second derivatives, which can be more
 sensitive than energies or forces and were not directly constrained by the
 usual loss in Eq.~\eqref{eq:mlip-loss}. Curvatures and vibrational spectra must
-therefore be validated explicitly.
+therefore be validated explicitly. The original PET benchmarks include
+isolated distorted methane, water, molecular collisions, crystals, and
+high-entropy alloys, but do not validate methane adsorption in MOF-5. The
+paper also reports weaker high-temperature alloy extrapolation despite strong
+hold-out accuracy, illustrating the distinction between expressiveness and
+transferability \cite{pet}.
 
 \subsection{Classical molecular dynamics}
 \label{sec:classical-md-theory}
@@ -677,25 +783,78 @@ insertion and Monte Carlo equilibration used by Kapil \emph{et al.} Several
 independent insertion seeds and adequate subsequent equilibration are required
 before drawing conclusions about loading-dependent thermodynamics.
 
-\subsection{PET-MAD energy model}
+\subsection{PET model and implementation}
+\label{sec:pet-implementation}
 
-The general construction of a local MLIP and the PET architecture are given in
-Section~\ref{sec:theory}. For the checkpoint used in this project, the model
-metadata specifies an \SI{8}{\angstrom} cutoff, three GNN layers, and an
-adaptive maximum of 40 neighbors. At inference, the learned parameters
-$\theta$ are fixed and Eqs.~\eqref{eq:mlip-energy} and
-\eqref{eq:mlip-force} are evaluated for each MD configuration.
+Section~\ref{sec:pet-architecture} describes the original PET architecture.
+The local PET-MAD and PET-SOL conversion metadata both specify the settings
+in Table~\ref{tab:pet-settings}. These describe the supplied checkpoints,
+not every PET model; identical architecture settings do not imply identical
+weights or training data. In particular, the original paper's default of
+three attention layers per block differs from the one layer used here.
 
-MD loads a metatomic PET-MAD or PET-SOL export. Harmonic analysis converts the
-matching checkpoint to a PET-JAX representation. Using the same learned
-parameters in both paths is essential: a trajectory from one potential must
-not be differentiated with a different potential. The updated exports expose
-an explicit stress output, and loaded-campaign configurations record stress
-validation explicitly rather than inferring capability from a model filename.
-PET is a universal model rather than a
-MOF-5-specific fit, so energy, force, stress, and especially curvature
-accuracy for the relevant structures must still be documented and validated
-\cite{petmad}.
+\begin{table}[htbp]
+\centering
+\caption{Architecture settings recorded in the local PET-MAD and PET-SOL
+PET-JAX metadata. The species count is embedding capacity, not a measure of
+training coverage.}
+\label{tab:pet-settings}
+\begin{tabular}{lr}
+\toprule
+Setting & Value \\
+\midrule
+Outer cutoff & \SI{8.0}{\angstrom} \\
+Cutoff switching width & \SI{0.5}{\angstrom} \\
+Adaptive neighbor-selection setting & 40 \\
+Message-passing blocks & 3 \\
+Attention layers per block & 1 \\
+Token width, $d_{\mathrm{PET}}$ & 256 \\
+Attention heads & 8 \\
+Transformer feed-forward width & 512 \\
+Node feature width, \texttt{d\_node} & 1024 \\
+Readout feature width, \texttt{d\_head} & 256 \\
+Species-embedding capacity & 102 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The locally inspected PyTorch implementation (\texttt{metatrain} 2026.3.1,
+\texttt{pet/modules/transformer.py}) embeds four geometric inputs,
+$(x_{ij},y_{ij},z_{ij},r_{ij})$, rather than only the three Cartesian
+components in the original Eq.~\eqref{eq:pet-token}. Initial edge messages
+are species embeddings. Wider central features are contracted to the token
+width for attention and expanded afterward. With the dimensions in
+Table~\ref{tab:pet-settings}, each attention head has width $256/8=32$;
+\texttt{d\_head=256} denotes a readout width. Padded neighbors are masked,
+and logarithms of cutoff factors are added to attention logits, implementing
+the weighting in Eq.~\eqref{eq:self-attention} up to numerical regularization.
+In the residual feature path of \texttt{pet/model.py}, a reverse-neighbor
+index routes outgoing tokens to receiving environments; averaging the old
+message with the reversed new output updates the edge state. These are
+implementation details of the installed PyTorch package; the checkpoint
+version and PET-JAX conversion must remain compatible with them.
+
+The model weights remain fixed at inference. The repository delegates the
+network implementation to the PET software stack: its export helper calls
+\texttt{upet.save\_upet} to turn the selected checkpoint into a portable
+metatomic model, which LAMMPS evaluates during production MD. Harmonic
+analysis converts the matching checkpoint into PET-JAX parameter and metadata
+files, then uses SADMOF to differentiate its scalar energy. The setup script
+pins PET-JAX to commit \texttt{ed0add4}; conversion transfers parameters rather
+than retraining a potential. Species baselines have zero Cartesian derivatives
+at fixed composition, whereas the learned energy scale must be retained in
+forces and Hessians.
+
+Using matching checkpoints, exports, and conversions is essential to keep
+MD and harmonic analysis on a consistent PES. This must be checked by
+comparing energies and forces, including adaptive-cutoff derivative
+conventions, rather than inferred from matching architecture settings alone.
+The sparse Hessian path stops adaptive-cutoff derivatives, as described below.
+The selected metatomic export must expose stress, and campaign configurations
+record stress validation explicitly rather than inferring capability from a
+model filename. PET is the architecture; PET-MAD is a general-purpose fitted
+potential, whose energy, force, stress, and curvature accuracy for MOF-5 and
+its methane guests must still be validated \cite{petmad}.
 
 \subsection{Classical NPT molecular dynamics}
 
@@ -757,10 +916,22 @@ Hessian has a block-sparse structure. SADMOF \cite{sadMof} constructs a
 graph-derived sparsity pattern and ASDEX colors its columns so that several independent
 columns can be reconstructed from one differentiated evaluation. The current
 settings are single precision, graph depth \texttt{hops=3}, HVP chunk size 1,
-and rematerialization enabled. These are computational choices, not established
-convergence values. In particular, the graph-hop pattern must be enlarged
-until frequencies and \cv{} stop changing, and should be checked against a
-dense or less aggressively truncated reference where feasible.
+and rematerialization enabled. The implementation calls
+\texttt{get\_energy\_fn(..., no\_shadow=True)}, which stops derivatives
+through the adaptive cutoff and confines the sparse treatment to the selected
+graph. Thus this is a specified derivative convention; unrestricted AD
+through adaptive selection includes additional couplings. Its consistency
+with the MD force convention requires explicit comparison.
+
+These settings are not established convergence values. In particular,
+\texttt{hops} is the depth of the Hessian sparsity pattern, not the number of
+PET message-passing blocks. The local SADMOF implementation identifies seven
+hops as the structurally exact pattern for its three-layer PET-MAD-S graph
+construction \cite{sadMof}. The project's three-hop setting is therefore a
+truncation: it must be enlarged until frequencies and \cv{} stop changing,
+and checked against a dense or less aggressively truncated reference where
+feasible. Precision and the adaptive-cutoff derivative convention also need
+validation, especially for the low-frequency modes.
 
 \subsection{Normal modes and quantum harmonic heat capacity}
 
@@ -1084,7 +1255,10 @@ S. N. Pozdnyakov and M. Ceriotti,
 \emph{Smooth, Exact Rotational Symmetrization for Deep Learning on Point
 Clouds}, Advances in Neural Information Processing Systems \textbf{36}
 (2023),
-\href{https://proceedings.neurips.cc/paper_files/paper/2023/hash/fb4a7e3522363907b26a86cc5be627ac-Abstract-Conference.html}{conference paper}.
+\href{https://proceedings.neurips.cc/paper_files/paper/2023/hash/fb4a7e3522363907b26a86cc5be627ac-Abstract-Conference.html}{conference paper};
+the supplied article is
+\href{https://arxiv.org/abs/2305.19302v3}{arXiv:2305.19302v3}
+(6 February 2024), including Appendices A--H.
 
 \bibitem{quickff}
 L. Vanduyfhuys \emph{et al.},

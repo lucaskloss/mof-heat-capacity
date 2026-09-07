@@ -12,6 +12,65 @@ predicted for a saved configuration and the equilibrium probability of that
 configuration. Reweighting and the cumulant expansion include both effects
 without requiring one independent trajectory for every potential model.
 
+### Important distinction: committee method versus LLPR
+
+Imbalzano *et al.* formulate this procedure for a calibrated committee of
+potential models; the paper does not require or introduce LLPR. LLPR is a
+separate, PET-family-compatible way of generating approximate committee
+members by varying the final prediction layer. In this project, LLPR is
+considered only as a practical source of the member energies required by Eqs.
+(22)--(24), not as part of the published derivation. The same approach can be
+used for PET-MAD and PET-SOL, provided each has a compatible calibrated
+ensemble export. A full committee of independently trained models would follow
+the same reweighting equations and would generally capture different
+uncertainty components.
+
+Accordingly, any result produced with LLPR must be labeled as LLPR ensemble
+uncertainty rather than as uncertainty from a full independently trained
+committee. It needs its own calibration and validation against reference data.
+
+## Plain-language overview
+
+Think of the MLIP committee as several plausible versions of the same energy
+landscape. They agree for familiar structures and differ more for structures
+where the model is less certain. A normal MD run uses one central landscape,
+so it tells us which configurations the central model visits. The uncertainty
+calculation asks: *if member $i$ had been used instead, would those same saved
+configurations have been more or less important, and would the final heat
+capacity have changed?*
+
+For each saved configuration, every committee member supplies an energy. A
+member that assigns a lower energy than the central model makes that frame more
+probable; a higher-energy prediction makes it less probable. Reweighting turns
+that energy difference into an importance factor. Averaging a property with
+those factors estimates the result of running MD with that member, without
+actually running a separate trajectory for every member.
+
+The final spread is not the spread of instantaneous energies. It is the spread
+of the *final, member-specific heat-capacity curves*. This distinction matters:
+a constant offset to one member's energy is physically irrelevant to sampling
+and disappears from a temperature derivative, whereas a configuration-dependent
+energy difference can change the ensemble and therefore $C_P$.
+
+| Quantity | Plain meaning | Where it appears in the output |
+| --- | --- | --- |
+| MD sampling error | How much a finite, correlated trajectory could change the central enthalpy curve. | `standard_error` |
+| Harmonic correction error | How much the correction changes across independently selected/relaxed minima. | harmonic `standard_error` |
+| MLIP model uncertainty | How much the classical $C_P$ curve changes across committee members. | `model_standard_deviation` |
+| Combined band | Quadrature summary of the three terms, assuming independence. | `combined_standard_uncertainty` |
+
+The calculations proceed in five steps:
+
+1. Run central-model NPT MD at several temperatures and discard equilibration.
+2. On selected production frames, evaluate the same persistent committee of
+   MLIP members.
+3. Reweight each member's enthalpy at each temperature, using direct weights
+   and CEA as a more stable large-system approximation.
+4. Differentiate each complete member enthalpy curve with respect to
+   temperature, then take the committee standard deviation of those curves.
+5. Add the harmonic correction to the central classical curve and report the
+   error components separately; optionally show their quadrature combination.
+
 ## Information required from earlier equations
 
 Only a short chain of preceding definitions is needed.
@@ -59,6 +118,12 @@ average for every pair $(i,j)$. The result accounts for the change in the
 observable prediction through $a^{(j)}$ and the change in equilibrium sampling
 through $w^{(i)}$.
 
+In practical terms, a weight larger than one says “this frame would be seen
+more often by member $i$,” while a weight smaller than one says “it would be
+seen less often.” The denominator simply rescales all weights so that the
+reweighted average remains an average rather than a quantity that grows with
+the number of stored frames.
+
 Equation (22) is exact in principle under canonical equilibrium sampling, the
 ergodic hypothesis, and adequate phase-space overlap between $\bar V$ and each
 $V^{(i)}$. The paper warns immediately after Eq. (23) that its statistical
@@ -105,6 +170,13 @@ $-\beta\operatorname{cov}_{\bar V}(a,\Delta V^{(i)})$. For trajectory frames,
 evaluate the three averages in this expression as ordinary, *unweighted* time
 averages. Thus CEA needs the same member-resolved energies and observable
 values as direct reweighting, but no normalized frame weights.
+
+This covariance form has a useful interpretation. If frames with a large
+observable $a$ also receive a larger energy from a member, that member regards
+those frames as less probable, so its corrected average of $a$ decreases. If
+the two quantities vary in opposite directions, the corrected average
+increases. CEA keeps exactly this leading correlation effect and ignores the
+smaller higher-order changes in the exponential weights.
 
 CEA is a controlled first-order approximation only when committee members are
 close on the sampled configurations, conventionally
@@ -189,19 +261,19 @@ $$C_{P,\mathrm{cl}}^{(i)}(T)=\frac{d\left\langle H^{(i)}\right\rangle_i^{\mathrm
 The finite-difference stencil is identical to the central hybrid analysis:
 centered on interior temperatures and second-order one-sided at the endpoints.
 The sample standard deviation across the resulting member curves is the
-classical MLIP model uncertainty $sigma_{\mathrm{MLIP,cl}}(T)$ from Eq. (23).
+classical MLIP model uncertainty $\sigma_{\mathrm{MLIP,cl}}(T)$ from Eq. (23).
 This preserves cross-temperature correlations; differentiating independently
 sampled scalar error bars would not.
 
 The workflow reports uncertainty components separately:
 
-- $sigma_{\mathrm{MD}}$ is the propagated standard error of the central NPT
+- $\sigma_{\mathrm{MD}}$ is the propagated standard error of the central NPT
   enthalpy curve, including autocorrelation-aware within-run uncertainty and
   between-replica uncertainty;
-- $sigma_{\mathrm{har}}$ is the standard error across independent loaded
+- $\sigma_{\mathrm{har}}$ is the standard error across independent loaded
   minima for the harmonic correction; with one replica it is zero and does
   not represent numerical Hessian convergence; and
-- $sigma_{\mathrm{MLIP,cl}}$ is the CEA committee standard deviation of the
+- $\sigma_{\mathrm{MLIP,cl}}$ is the CEA committee standard deviation of the
   classical heat capacity, not a standard error of its committee mean.
 
 When requested, the hybrid output additionally reports the quadrature summary
