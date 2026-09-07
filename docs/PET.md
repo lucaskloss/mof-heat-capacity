@@ -18,6 +18,11 @@ paper's benchmark models are separate fits, not the checkpoints used in this
 MOF-5 repository. The final section connects the paper to the local code and
 model metadata.
 
+The displayed equations below serve two purposes. Equations tied to a paper
+section or equation number restate the authors' construction. The additional,
+unnumbered equations are supporting derivations that make standard background
+explicit; they are not quotations or extra claims attributed to the paper.
+
 ## Scientific motivation
 
 An MLIP replaces repeated electronic-structure calculations by a learned map
@@ -30,6 +35,29 @@ The species-dependent baselines $b_Z$ are constant at fixed composition.
 Forces follow from $\mathbf F_i=-\partial U_\theta/\partial\mathbf R_i$.
 Differentiating this same scalar energy gives conservative forces, but does
 not by itself guarantee rotational symmetry or accuracy.
+
+More explicitly, let $Q\in SO(3)$ be a proper rotation, $\mathbf a$ a
+translation, and $\pi$ a permutation of atoms that also permutes their
+species. The desired scalar-energy symmetries are
+
+$$U_\theta(Q\mathbf R+\mathbf a,Q\mathbf h,\mathbf Z)=U_\theta(\mathbf R,\mathbf h,\mathbf Z),\qquad U_\theta(\pi\mathbf R,\mathbf h,\pi\mathbf Z)=U_\theta(\mathbf R,\mathbf h,\mathbf Z).$$
+
+Here $Q\mathbf R+\mathbf a$ means applying the same transformation to every
+atom, and rotating the cell with the atoms is essential for a periodic
+system. If the first equality holds exactly, differentiating it gives force
+covariance and the corresponding transformation of each Hessian block:
+
+$$\mathbf F_i(Q\mathbf R,Q\mathbf h)=Q\mathbf F_i(\mathbf R,\mathbf h),\qquad H'_{i\alpha,j\beta}=\sum_{\gamma\delta}Q_{\alpha\gamma}H_{i\gamma,j\delta}Q_{\beta\delta}.$$
+
+Energy-derived forces are conservative because, wherever $U_\theta$ is twice
+differentiable, their cross derivatives obey
+
+$$\frac{\partial F_{i\alpha}}{\partial R_{j\beta}}=\frac{\partial F_{j\beta}}{\partial R_{i\alpha}}=-H_{i\alpha,j\beta}.$$
+
+Thus energy conservation, covariance, and physical accuracy are separate
+properties: differentiability supplies the first relation, symmetry of the
+energy supplies the second, and neither alone guarantees agreement with
+reference electronic-structure data.
 
 The paper asks whether exact rotational symmetry needs to constrain every
 operation inside a neural network. Distance-only message passing can fail to
@@ -47,6 +75,24 @@ Each atom $i$ has a neighborhood within a cutoff $R_c$. In a periodic system,
 the displacement to a neighbor image is
 
 $$\mathbf r_{ij\mathbf n}=\mathbf R_j+\mathbf h\mathbf n-\mathbf R_i,\qquad \lVert\mathbf r_{ij\mathbf n}\rVert<R_c.$$
+
+The periodic image vector $\mathbf n\in\mathbb Z^3$ is part of the neighbor
+identity. Reversing a directed edge also reverses the relevant image,
+$\mathbf r_{ji,-\mathbf n}=-\mathbf r_{ij\mathbf n}$, but PET is free to
+assign different learned messages to the two directions. Smooth energy and
+force removal requires at least $f_c(R_c)=f_c'(R_c)=0$; making the second
+derivative continuous is also desirable when computing Hessians. A common
+stronger convention with a unit inner region is
+
+$$f_c(r)=1\ \text{in the inner region},\qquad f_c(R_c)=f_c'(R_c)=f_c''(R_c)=0.$$
+
+For intuition, one possible switching function between an inner radius $R_s$
+and the outer cutoff is a quintic taper, with
+
+$$s=\frac{r-R_s}{R_c-R_s},\qquad f_c(r)=\begin{cases}1,&r\le R_s,\\1-10s^3+15s^4-6s^5,&R_s<r<R_c,\\0,&r\ge R_c.\end{cases}$$
+
+This last expression illustrates the smoothness conditions; it does not
+assert that every PET implementation uses this particular analytic taper.
 
 PET maintains a separate feature vector for each directed edge. The message
 from $i$ to $j$ need not equal the message from $j$ to $i$. All messages arriving
@@ -81,7 +127,21 @@ The central token and neighbor tokens enter a transformer. For one head,
 queries, keys, and values are learned linear projections of the tokens.
 With $a,b$ indexing tokens in the same environment, a schematic expression is
 
+$$Q_h=XW_h^Q,\qquad K_h=XW_h^K,\qquad V_h=XW_h^V,$$
+
 $$\alpha_{ab}=\frac{\exp(\mathbf q_a^\mathsf T\mathbf k_b/\sqrt{d_k})\,c_b}{\sum_c\exp(\mathbf q_a^\mathsf T\mathbf k_c/\sqrt{d_k})\,c_c},\qquad \mathbf y_a=\sum_b\alpha_{ab}\mathbf v_b.$$
+
+For $H$ heads, the per-head outputs are concatenated and projected back to the
+token width,
+
+$$\operatorname{MHA}(X)=\operatorname{Concat}(Y_1,\ldots,Y_H)W^O,$$
+
+and a pre-normalization transformer layer can be summarized as
+
+$$X'=X+\operatorname{MHA}(\operatorname{LN}X),\qquad X''=X'+\operatorname{FFN}(\operatorname{LN}X').$$
+
+These equations expose the roles of the learned projections, parallel heads,
+normalization, and residual paths; exact ordering is implementation dependent.
 
 Here $c_0=1$ for the central token and $c_j=f_c(r_{ij})$ for a neighbor.
 The cutoff multiplies the attention weights **before renormalization**, so a
@@ -89,6 +149,17 @@ departing neighbor also disappears smoothly from the normalization. Multiple
 heads, feed-forward transformations, and residual connections provide the
 transformer's flexibility. There is no positional encoding based on arbitrary
 neighbor ordering: permuting neighbors permutes their output tokens.
+
+Algebraically, if $P$ permutes the token rows, then the shared projections
+give $Q(PX)=PQ(X)$ and similarly for $K$ and $V$. Provided the cutoff weights
+and padding mask are permuted with their tokens, row-wise softmax and the
+weighted sum consequently satisfy
+
+$$\operatorname{Attention}(PX)=P\operatorname{Attention}(X).$$
+
+The operation is therefore permutation **equivariant** at token level. A sum,
+average, or designated central-token readout then makes the scalar energy
+permutation **invariant**.
 
 Attention lets one neighbor's representation depend on the other neighbors,
 so a single message-passing block can learn angular and higher-body structure
@@ -100,6 +171,18 @@ local attention has a quadratic cost in the number of local tokens, while
 the overall cost remains approximately linear in atom count for fixed
 neighborhood size and architecture. (Section 6, pp. 7–8; the scaling follows
 from the local attention operation.)
+
+The angular information available to attention can be seen from the elementary
+identity
+
+$$\mathbf r_{ij}^{\mathsf T}\mathbf r_{ik}=r_{ij}r_{ik}\cos\theta_{jik}.$$
+
+A nonlinear network acting jointly on Cartesian neighbor vectors can thus
+construct angle-dependent and higher-body functions without receiving
+$\theta_{jik}$ as a hand-designed feature. After $L$ message-passing blocks,
+information can in principle travel along graph paths of length up to $L$;
+this receptive-field statement concerns forward features and is not, by
+itself, an exact bound on the Hessian sparsity pattern.
 
 ### Outgoing messages and energy readout
 
@@ -117,6 +200,15 @@ These learned edge contributions are not physical pair potentials: their
 tokens depend on many atoms, and the directed-edge convention is absorbed in
 the trained model. (Appendix A, p. 18, Eqs. 6–7.)
 
+Although the readout is written as a sum, differentiation couples all atoms
+that influenced a contribution. If $u_a$ denotes any central or edge readout,
+
+$$\mathbf F_k=-\sum_a\frac{\partial u_a}{\partial\mathbf R_k},\qquad H_{k\alpha,l\beta}=\sum_a\frac{\partial^2u_a}{\partial R_{k\alpha}\partial R_{l\beta}}.$$
+
+Consequently, an edge readout is not restricted to a radial pair force, and a
+local forward model can have Hessian couplings extending beyond one neighbor
+shell through its message-passing dependencies.
+
 ## Symmetry and the separate ECSE construction
 
 Relative coordinates give translation invariance, and shared operations plus
@@ -127,7 +219,12 @@ training structures encourages approximate invariance but does not prove it.
 
 ECSE constructs local coordinate frames from ordered pairs of noncollinear
 neighbors, evaluates the backbone in those frames, and combines its outputs.
-For a scalar local energy,
+One explicit right-handed frame construction is
+
+$$\mathbf e_1=\widehat{\mathbf r}_{ij},\qquad \mathbf e_2=\frac{\widehat{\mathbf r}_{ik}-(\widehat{\mathbf r}_{ik}\!\cdot\!\mathbf e_1)\mathbf e_1}{\left\lVert\widehat{\mathbf r}_{ik}-(\widehat{\mathbf r}_{ik}\!\cdot\!\mathbf e_1)\mathbf e_1\right\rVert},\qquad \mathbf e_3=\mathbf e_1\times\mathbf e_2,\qquad Q_{ijk}=[\mathbf e_1\ \mathbf e_2\ \mathbf e_3].$$
+
+The denominator explains why collinear neighbor pairs must receive zero
+weight or special handling. For a scalar local energy,
 
 $$\varepsilon_i^{\mathrm{ECSE}}=\frac{\sum_{j\ne k}w_{ijk}\,\varepsilon_i^0(Q_{ijk}^{\mathsf T}\mathcal A_i)}{\sum_{j\ne k}w_{ijk}}.$$
 
@@ -137,6 +234,20 @@ tensor targets, the predicted components must be transformed back to the
 original frame before averaging. The construction in Appendix F.1 uses proper
 rotations, $SO(3)$; reflection invariance is an additional requirement and
 should not be inferred solely from this formula.
+
+Indeed, under a global rotation $S$, the constructed frame becomes
+$Q'_{ijk}=SQ_{ijk}$, and therefore
+
+$${Q'}_{ijk}^{\mathsf T}(S\mathbf r)=Q_{ijk}^{\mathsf T}S^{\mathsf T}S\mathbf r=Q_{ijk}^{\mathsf T}\mathbf r.$$
+
+This identity is the core of exact scalar invariance. If the unconstrained
+backbone instead predicts a vector $\mathbf v^0$ or a rank-two tensor $T^0$
+in local-frame components, their laboratory-frame forms are
+
+$$\mathbf v_{ijk}=Q_{ijk}\mathbf v^0_{ijk},\qquad T_{ijk}=Q_{ijk}T^0_{ijk}Q_{ijk}^{\mathsf T},$$
+
+which transform as $\mathbf v'_{ijk}=S\mathbf v_{ijk}$ and
+$T'_{ijk}=ST_{ijk}S^{\mathsf T}$ before ensemble averaging.
 
 Choosing only the closest pair would cause abrupt frame changes when neighbor
 ordering changes. ECSE instead weights frames smoothly:
@@ -150,6 +261,18 @@ invariant model. An adaptive inner radius and smooth pruning reduce the
 number of frames. This radius controls the **frame ensemble**, and is distinct
 from the adaptive neighbor selection in later PET implementations.
 (Section 5, pp. 4–6; Appendices F.1–F.5, pp. 24–27.)
+
+Writing a frame pair as a single index $a$, define
+$p_a=w_a/\sum_b w_b$ and $\bar\varepsilon=\sum_a p_a\varepsilon_a$.
+For positive active weights and any coordinate $q$, direct differentiation
+gives
+
+$$\frac{\partial\bar\varepsilon}{\partial q}=\sum_a p_a\frac{\partial\varepsilon_a}{\partial q}+\sum_a p_a(\varepsilon_a-\bar\varepsilon)\frac{\partial\log w_a}{\partial q}.$$
+
+The first term contains the derivative of the backbone input, including the
+coordinate-dependent frame $Q_a$. The second is the response of the normalized
+frame weights. It vanishes only in special cases, so omitting it generally
+does not produce the gradient of the ECSE energy.
 
 Forces must differentiate the **complete symmetrized energy**, including
 coordinate-frame and weight derivatives. Averaging rotated backbone forces
@@ -165,7 +288,29 @@ and F.10–F.11, pp. 27–30.)
 The authors subtract fitted species self-contributions, train with Adam and
 random rotational augmentation, and restore the self-contributions for
 inference. Their energy–force loss normalizes the two errors by moving
-validation-set mean squared errors. Most experiments use token width 128,
+validation-set mean squared errors. The species baselines can be understood as
+a linear least-squares problem over structures $s$,
+
+$$\mathbf b^*=\underset{\mathbf b}{\operatorname{argmin}}\sum_s\left(E_s^{\mathrm{ref}}-\sum_Z n_{sZ}b_Z\right)^2,$$
+
+where $n_{sZ}$ counts atoms of species $Z$. Training the network on the
+residual energy $E_s^{\mathrm{ref}}-\sum_Zn_{sZ}b_Z$ removes a large,
+composition-dependent offset. Since these baselines are coordinate
+independent, $\partial b_Z/\partial\mathbf R_i=0$: restoring them changes
+reported total energies but not forces or Hessians.
+
+A schematic normalized joint objective is
+
+$$\mathcal L=\lambda_E\frac{\operatorname{MSE}(U_\theta,U^{\mathrm{ref}})}{\overline{\operatorname{MSE}}_{E,\mathrm{val}}}+\lambda_F\frac{\operatorname{MSE}(-\nabla_{\mathbf R}U_\theta,\mathbf F^{\mathrm{ref}})}{\overline{\operatorname{MSE}}_{F,\mathrm{val}}},$$
+
+where the barred denominators denote the moving validation-error scales. This
+form shows why energy and force terms with different units and magnitudes can
+both influence optimization; their precise weights and averaging conventions
+remain training choices. Rotational augmentation replaces a sample by
+$(Q\mathbf R,Q\mathbf F)$ and encourages, but does not algebraically enforce,
+$\mathbf F_\theta(Q\mathbf R)=Q\mathbf F_\theta(\mathbf R)$.
+
+Most experiments use token width 128,
 three message-passing blocks, three attention layers per block, four heads,
 SiLU, and feed-forward width 512, with dataset-specific exceptions. These are
 the original paper's settings, not universal PET constants. (Appendix B,
@@ -286,6 +431,45 @@ For fixed composition, species baselines have zero Cartesian derivatives and
 do not change forces or Hessians. The learned energy scale does affect the
 derivatives and must be preserved during conversion. PET supplies the PES;
 the quantum statistics enter later through normal-mode heat capacities.
+
+At an optimized fixed-cell structure $\mathbf R_0$, the local harmonic
+expansion of that PES is
+
+$$U(\mathbf R_0+\Delta\mathbf R)\approx U(\mathbf R_0)+\frac12\Delta\mathbf R^{\mathsf T}H\Delta\mathbf R,\qquad H=\left.\nabla_{\mathbf R}^{2}U\right|_{\mathbf R_0},$$
+
+because $\nabla_{\mathbf R}U(\mathbf R_0)\approx0$. Automatic differentiation
+can evaluate a Hessian–vector product without first materializing every entry,
+
+$$H\mathbf v=\left.\frac{\mathrm d}{\mathrm d\epsilon}\nabla_{\mathbf R}U(\mathbf R+\epsilon\mathbf v)\right|_{\epsilon=0}.$$
+
+After reconstruction, mass weighting and diagonalization convert Cartesian
+curvatures into normal-mode frequencies:
+
+$$D_{i\alpha,j\beta}=\frac{H_{i\alpha,j\beta}}{\sqrt{m_i m_j}},\qquad D\mathbf e_k=\omega_k^2\mathbf e_k.$$
+
+For every retained positive-frequency mode, define
+$x_k=\hbar\omega_k/(k_BT)$. Its quantum and classical harmonic heat capacities
+are
+
+$$C_{V,k}^{\mathrm{qn}}=k_B\frac{x_k^2e^{x_k}}{(e^{x_k}-1)^2},\qquad C_{V,k}^{\mathrm{cl}}=k_B,$$
+
+so $C_{V,k}^{\mathrm{qn}}\to k_B$ for $x_k\to0$ and
+$C_{V,k}^{\mathrm{qn}}\to0$ for $x_k\to\infty$. This makes the harmonic
+quantum-minus-classical correction
+
+$$\Delta C_V^{\mathrm{har}}(T)=\sum_{k\in\mathcal M}\left[C_{V,k}^{\mathrm{qn}}(T)-k_B\right],$$
+
+where $\mathcal M$ is one consistently validated mode set. The project adds
+this correction from a loaded-system Hessian to the loaded classical-MD
+result. In the current NPT route, the conceptual combination is
+
+$$C_P^{\mathrm{approx}}(T)=\frac{\mathrm d}{\mathrm dT}\left\langle U+K+P_{\mathrm{ext}}V\right\rangle_{NPT}+\Delta C_V^{\mathrm{har}}(T).$$
+
+The first term retains classical anharmonic motion sampled by MD; the
+quantum-minus-classical correction replaces the classical harmonic statistics
+of the same loaded modes by their quantum statistics. The use of a fixed-cell
+$C_V$ correction with an NPT $C_P$ derivative is an explicit approximation,
+not a consequence of PET.
 
 The relevant validation follows from the architecture and the project code:
 
