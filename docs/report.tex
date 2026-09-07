@@ -29,15 +29,15 @@ MOF-5 using a machine-learned interatomic potential (MLIP). Classical
 flexible-cell NPT molecular dynamics (MD) samples the loaded system and retains
 anharmonic methane and host--guest motion. Automatic differentiation (AD)
 through the matching PET-JAX model provides sparse Cartesian Hessians and
-normal-mode frequencies at optimized local minima. Following the approximation
-tested by Kapil \emph{et al.}, the classical anharmonic heat capacity is
-corrected by the difference between quantum and classical harmonic heat
-capacities of the same loaded composition. The already-equilibrated empty
-MOF-5 structure is relaxed directly and evaluated with one reference Hessian;
-no empty-framework MD campaign is required. The workflow is designed to retain
-the main quantum correction without the cost of full-system path-integral MD,
-while recognizing that it is an approximation whose low-temperature and
-model-dependent accuracy must be validated.
+normal-mode frequencies at optimized local minima. Rather than reproduce the
+reference simulations with an MLIP, the workflow applies the hybrid
+approximation proposed by Kapil \emph{et al.}: the loaded-system classical
+anharmonic heat capacity is corrected by the difference between quantum and
+classical harmonic heat capacities evaluated for the same loaded composition
+and PET potential. The already-equilibrated empty MOF-5 structure is relaxed
+directly and evaluated with one reference Hessian; no empty-framework MD
+campaign is required. The resulting low-temperature and model-dependent
+accuracy must be validated for the selected MLIP.
 \end{abstract}
 
 \section{Scientific motivation and scope}
@@ -77,6 +77,14 @@ Hessians supply quantum-minus-classical harmonic corrections. A final analysis
 combines the two terms with consistent composition and mass normalization. The
 empty-framework Hessian is retained as a reference and validation calculation,
 not as a replacement for the loaded-system correction.
+
+The aim is to apply and assess this hybrid approximation on the PET potential,
+not to reproduce the numerical curves, force field, methane-insertion
+ensemble, or simulation protocol of Kapil \emph{et al.} Agreement with a
+reported reference value can be a useful external comparison, but is not the
+criterion for success. The criteria are a well-defined, consistent PET
+potential across all terms, converged sampling and Hessians, and uncertainty
+estimates for the resulting hybrid curve.
 
 \section{Theory}
 \label{sec:theory}
@@ -489,130 +497,6 @@ validated cell derivatives or stresses. NVE, NVT and NPT trajectories answer
 different thermodynamic questions and should not be interchanged solely
 because their mean temperatures are similar.
 
-\subsection{Path-integral molecular dynamics}
-\label{sec:pimd-theory}
-
-\subsubsection{Quantum statistical mechanics as a ring polymer}
-
-Classical MD neglects the wave-like character of the nuclei. For
-distinguishable quantum nuclei on a single Born--Oppenheimer surface, the
-Hamiltonian operator and canonical partition function are
-\begin{equation}
-  \hat{\mathcal H}=\sum_i\frac{\hat{\bm P}_i^2}{2m_i}
-  +U(\hat{\bm R}),
-  \qquad
-  Z=\operatorname{Tr}\left[e^{-\beta\hat{\mathcal H}}\right].
-  \label{eq:quantum-partition}
-\end{equation}
-The kinetic and potential operators do not commute. Splitting the imaginary
-time $\beta\hbar$ into $P$ slices with a Trotter factorization maps the
-quantum partition function, in the limit $P\to\infty$, onto a classical
-extended system. Its primitive ring-polymer Hamiltonian is
-\begin{align}
-  Z_P&\propto\int\mathrm d\bm R\,\mathrm d\bm P\,
-     e^{-\beta_P H_P},
-  &\beta_P&=\frac{\beta}{P},
-  \\
-  H_P&=\sum_{s=1}^{P}\left[
-    \sum_i\frac{|\bm P_i^{(s)}|^2}{2m_i}
-    +\sum_i\frac{m_i\omega_P^2}{2}
-      |\bm R_i^{(s)}-\bm R_i^{(s+1)}|^2
-    +U(\bm R^{(s)})\right],
-  &\omega_P&=\frac{P}{\beta\hbar},
-  \label{eq:ring-polymer-hamiltonian}
-\end{align}
-with cyclic boundary condition
-$\bm R_i^{(P+1)}=\bm R_i^{(1)}$ \cite{ipi}. Each physical atom is thus
-represented by $P$ replicas, or beads, joined by harmonic springs. The
-physical potential is evaluated independently on every bead, while the
-springs encode the quantum delocalization of the nuclei in imaginary time.
-When $P=1$, Eq.~\eqref{eq:ring-polymer-hamiltonian} reduces to the classical
-configurational distribution. Larger $P$ is required as temperature falls or
-as the maximum physical vibrational frequency increases; convergence must be
-checked for the chosen isotope masses and temperature range.
-
-Two useful geometrical quantities are the bead centroid and radius of
-gyration,
-\begin{equation}
-  \bar{\bm R}_i=\frac{1}{P}\sum_{s=1}^{P}\bm R_i^{(s)},
-  \qquad
-  r_{g,i}^2=\frac{1}{P}\sum_{s=1}^{P}
-  |\bm R_i^{(s)}-\bar{\bm R}_i|^2.
-  \label{eq:ring-polymer-centroid}
-\end{equation}
-The centroid describes the mean imaginary-time position, while the spread of
-the beads measures nuclear quantum delocalization. For a position-dependent
-operator $A(\bm R)$, the primitive estimator has the form
-\begin{equation}
-  \langle A\rangle
-  =\lim_{P\to\infty}
-   \left\langle\frac{1}{P}\sum_{s=1}^{P}
-   A(\bm R^{(s)})\right\rangle_{H_P}.
-  \label{eq:path-integral-estimator}
-\end{equation}
-Kinetic energy, pressure and heat capacity require specialized estimators or
-thermodynamic derivatives; they are not obtained by treating the fictitious
-ring-polymer kinetic energy as the physical nuclear kinetic energy.
-
-\subsubsection{Sampling the ring polymer}
-
-PIMD introduces fictitious momenta in order to sample the ring-polymer
-distribution using MD algorithms. A discrete Fourier or normal-mode
-transformation diagonalizes the free ring-polymer spring term. Its mode
-frequencies are
-\begin{equation}
-  \omega_k=2\omega_P\sin\left(\frac{k\pi}{P}\right),
-  \qquad k=0,\ldots,P-1,
-  \label{eq:ring-polymer-modes}
-\end{equation}
-where $k=0$ is the centroid mode. The large separation between the slow
-physical motion and the stiff internal modes makes naive sampling inefficient.
-Normal-mode or staging coordinates, mass preconditioning, multiple time
-steps, and mode-specific thermostats address this stiffness. The PILE
-thermostat applies analytically tuned Langevin friction to the known free
-ring-polymer modes, while the PILE-L variant also thermostats the centroid
-\cite{pile}.
-
-The standard primitive factorization has an asymptotic discretization error
-of order $\mathcal O(P^{-2})$. The fourth-order Suzuki--Chin factorization
-used in the reference work replaces the bead potential by a bead-dependent
-effective potential of the general form
-\begin{equation}
-  \tilde U_s(\bm R;\beta)
-  =w_s U(\bm R)
-   +w_s d_s\left(\frac{\beta\hbar}{P}\right)^2
-    \sum_i\frac{|\bm F_i(\bm R)|^2}{m_i},
-  \label{eq:suzuki-chin}
-\end{equation}
-where $w_s$ and $d_s$ are factorization coefficients that alternate between
-beads. The force-squared correction accounts for the leading non-commutation
-of kinetic and potential operators and gives fourth-order convergence for
-appropriate thermodynamic observables. Direct differentiation would involve
-Hessians; finite-difference implementations make the scheme practical with
-general force providers \cite{highorder}. Ring-polymer contraction can further
-reduce cost by evaluating slowly varying, long-range components of the
-potential on fewer contracted beads, while rapidly varying short-range terms
-remain evaluated on the full polymer.
-
-\subsubsection{What PIMD does and does not predict}
-
-The trajectories generated by ordinary PIMD are a sampling device for static
-quantum equilibrium averages. The bead index represents imaginary time, and
-the artificial bead masses, thermostats and ring-polymer vibrations have no
-general identification with real nuclear motion. Consequently, ordinary PIMD
-does not directly yield quantum time-correlation functions, diffusion
-coefficients or vibrational spectra. Ring-polymer molecular dynamics (RPMD)
-and centroid molecular dynamics are related but additional approximations for
-real-time correlation functions; they should not be conflated with PIMD.
-
-PIMD captures nuclear zero-point fluctuations, tunnelling contributions to
-equilibrium statistics, and anharmonic sampling on the supplied PES, subject
-to convergence in bead count, timestep, sampling length and system size. It
-does not correct errors in that PES, include electronic excited states, or
-automatically change an NVT calculation into a constant-pressure one. For the
-heat capacity in the reference study, the ring polymer was sampled in a
-constant-pressure ensemble and \(\cpheat\) was obtained from converged
-enthalpy derivatives at neighboring temperatures, as discussed below.
 
 \subsection{Thermodynamic definitions}
 
@@ -666,15 +550,16 @@ are therefore partially frozen near room temperature. Classical MD can still
 describe anharmonic structural motion, but it cannot generate the correct
 quantum populations simply by extending the trajectory.
 
-\section{Reference study: Kapil \emph{et al.}}
+\section{Reference evidence and the hybrid approximation}
 
-Kapil \emph{et al.}\ studied empty MOF-5 and cells containing 50, 100, and 150
-methane molecules using classical MD, Suzuki--Chin path-integral molecular
-dynamics (PIMD), and quantum harmonic normal-mode analysis
-\cite{kapil2019}. Their work provides both the physical motivation and an
-important limit on what the present calculation can claim.
+Kapil \emph{et al.}\ studied empty MOF-5 and cells containing 50, 100, and
+150 methane molecules \cite{kapil2019}. Their results establish the physical
+motivation for combining a classical anharmonic term with a harmonic quantum
+correction, and test that approximation for their force field. This project
+uses the hybrid method as a computational strategy for PET, rather than as a
+recipe for reproducing their numerical results.
 
-\subsection{Force field and starting configurations}
+\subsection{Differences from the reference calculation}
 
 The reference work used analytical QuickFF force fields derived from
 electronic-structure calculations, not PET-MAD \cite{quickff}. Framework
@@ -684,47 +569,21 @@ periodic PBE density. Nonbonded interactions combined Gaussian-distributed
 electrostatics with an MM3 Buckingham model and a \SI{15}{\angstrom} cutoff
 with tail corrections. Methane was inserted with RASPA, configurations with
 unrealistic contacts were rejected, and canonical Monte Carlo was used before
-dynamics. Consequently, agreement of timestep and temperature alone would not
-make the present PET-MAD simulations a numerical reproduction of the paper.
+dynamics. The present workflow instead uses PET for all energy, force, and
+Hessian evaluations, and independently generated loaded configurations.
+These differences are expected and are not defects to be removed by matching
+individual reference parameters.
 
-\subsection{Published simulation protocols}
-
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabular}{@{}p{0.25\linewidth}p{0.34\linewidth}p{0.34\linewidth}@{}}
-\toprule
-Parameter & Classical MD & Suzuki--Chin PIMD \\
-\midrule
-State points & 100--\SI{500}{K}, \SI{1}{bar} & 100--\SI{500}{K}, \SI{1}{bar} \\
-Cell dynamics & Fully flexible cell, zero deviatoric stress & Fluctuating volume with cubic cell shape retained \\
-Integrator & Verlet, \SI{0.5}{fs} & BAOAB-type multiple-time-step scheme \\
-Thermostat & Three-element Nos\'e--Hoover chain, \SI{100}{fs} relaxation & PILE-L ring-polymer thermostat; \SI{100}{fs} relaxation \\
-Barostat & Martyna--Tobias--Klein, \SI{1000}{fs} relaxation & Bussi--Zykova--Parrinello form adapted to Suzuki--Chin; \SI{1000}{fs} relaxation \\
-Quantum discretization & Not applicable & 64 beads; long-range forces contracted to 8 beads \\
-Force timesteps & \SI{0.5}{fs} & \SI{0.25}{fs} short range; \SI{1}{fs} long range \\
-Empty MOF-5 sampling & One \SI{500}{ps} trajectory & Five independent \SI{125}{ps} trajectories \\
-Loaded sampling & Five independent \SI{500}{ps} trajectories & Thirty independent \SI{50}{ps} trajectories \\
-Discarded equilibration & First \SI{100}{ps} & First \SI{25}{ps} \\
-Heat-capacity estimator & Classical thermodynamic sampling & Centered enthalpy derivative with $\Delta T=\SI{25}{K}$ \\
-\bottomrule
-\end{tabular}
-\caption{Principal simulation parameters reported by Kapil \emph{et al.}\ Numerical random seeds and output strides were not reported.}
-\label{tab:kapil-methods}
-\end{table}
-
-The associated Nos\'e--Hoover-chain, constant-pressure, path-integral, and
-PILE-L methods are described in Refs.~\cite{nhc,mtk,ipi,pile}. Their production
-\cpheat{} curves were evaluated from neighboring enthalpies,
+The reference heat-capacity curves were evaluated from neighboring enthalpies,
 \begin{equation}
   C_P(T) \simeq
   \frac{\mathcal H(T+\Delta T)-\mathcal H(T-\Delta T)}{2\Delta T},
   \qquad \Delta T=\SI{25}{K},
   \label{eq:finite-difference-cp}
 \end{equation}
-rather than from a single short trajectory. Every temperature point therefore
-depends on converged, statistically independent simulations at adjacent
-temperatures.
+rather than from a single short trajectory. The present classical term uses
+the same thermodynamic principle: every temperature point depends on
+converged, statistically independent simulations at adjacent temperatures.
 
 For the harmonic comparison, optimized structures were used to construct
 Cartesian Hessians with Yaff and normal modes with TAMkin. Empty MOF-5 was
@@ -738,15 +597,15 @@ The main findings of the reference study are:
 
 \begin{itemize}
   \item Empty MOF-5 is quantum mechanical but nearly harmonic over the studied
-        range. Its quantum harmonic \cv{} is close to the PIMD \cpheat{}, with
-        a room-temperature gravimetric value of approximately
+        range. Its quantum harmonic \cv{} is close to the reported \cpheat{},
+        with a room-temperature gravimetric value of approximately
         \SI{0.7}{J\per g\per K}.
   \item Classical MD overestimates the empty-framework heat capacity because
         it populates all vibrational modes according to equipartition.
-  \item Methane loading introduces strongly anharmonic host--guest motion. The
-        PIMD curves develop a loading-dependent minimum around \SI{200}{K},
-        caused mainly by changes in attractive host--guest interactions as
-        confined methane becomes more mobile.
+  \item Methane loading introduces strongly anharmonic host--guest motion.
+        The reported heat-capacity curves develop a loading-dependent minimum
+        around \SI{200}{K}, caused mainly by changes in attractive host--guest
+        interactions as confined methane becomes more mobile.
   \item A harmonic calculation cannot represent diffusion, cage-to-cage
         motion, or the temperature-dependent localization of methane. Nuclear
         quantum effects and anharmonic sampling are both needed for a
@@ -759,9 +618,14 @@ The main findings of the reference study are:
           \label{eq:quantum-correction}
         \end{equation}
         qualitatively recovers the loaded minimum and becomes useful above
-        roughly \SI{200}{K} in their 100-methane test. This is the approximation
-        implemented in the current repository.
+        roughly \SI{200}{K} in their 100-methane test.
 \end{itemize}
+
+The operational form used here is Eq.~\eqref{eq:hybrid-cp}. Its classical MD
+term, its loaded harmonic frequencies, and its mass normalization are all
+evaluated for the same PET potential and the same loaded composition. The
+empty-framework Hessian is a reference calculation only. It cannot replace
+the loaded correction because it omits methane modes and host--guest coupling.
 
 \section{Present computational methodology}
 
@@ -778,9 +642,9 @@ atom--atom distances are checked against all previously placed atoms. A
 seeds prevent the nominal replicas from sharing an identical initial state.
 
 This procedure prevents severe initial overlaps, but it is not an adsorption
-equilibrium calculation. In particular, it does not reproduce the RASPA
-insertion and Monte Carlo equilibration used by Kapil \emph{et al.} Several
-independent insertion seeds and adequate subsequent equilibration are required
+equilibrium calculation. It deliberately does not reproduce the RASPA insertion
+and Monte Carlo equilibration used by Kapil \emph{et al.}; its adequacy must be
+shown by independent insertion seeds and sufficient subsequent equilibration
 before drawing conclusions about loading-dependent thermodynamics.
 
 \subsection{PET model and implementation}
@@ -1049,6 +913,9 @@ $c_P^{\mathrm{approx}}$. The empty quantum-harmonic curve will be shown as a
 separately normalized reference. Density, cell response, framework stability,
 methane mobility, imaginary-mode counts, and relaxation residual forces will
 support interpretation rather than replace the heat-capacity result.
+Comparisons with the curves of Kapil \emph{et al.}\ will be reported as
+context, not as a target: differences can arise from the potential-energy
+surface, loading ensemble, and the hybrid approximation itself.
 
 \section{Recommended production and analysis protocol}
 
@@ -1072,8 +939,9 @@ needed by Eq.~\eqref{eq:hybrid-cp}.
         only the corresponding finite set of modes.
   \item Retain the resulting curve as a separately normalized reference and
         compare its room-temperature value with the approximately
-        \SI{0.7}{J\per g\per K} reference scale, while stating that PET-MAD
-        replaces QuickFF and that model error remains to be quantified.
+        \SI{0.7}{J\per g\per K} published reference scale as a contextual
+        check, not a fitting target; PET-MAD replaces QuickFF and its model
+        error remains to be quantified.
 \end{enumerate}
 
 \subsection{Loaded MOF-5 production and Hessians}
@@ -1099,10 +967,11 @@ For the 100-methane system, the production sequence is:
         minimum-to-minimum uncertainties separately as well as jointly.
 \end{enumerate}
 
-This calculation is intentionally not an exact reproduction of the reference
-study. A small number of path-integral state points may be considered later as
-validation if quantitative accuracy below approximately \SI{200}{K} is
-required, but they are not part of the production workflow.
+This calculation applies the hybrid method, rather than attempting an exact
+reproduction of the reference study. Its success is assessed by internal
+numerical convergence and by validation of the PET potential for the relevant
+structures; quantitative accuracy below approximately \SI{200}{K} remains to
+be established for the selected MLIP and loading.
 
 \subsection{Equilibration and convergence criteria}
 
@@ -1184,8 +1053,9 @@ A reproducible result should record:
 The principal limitations of the planned result are:
 
 \begin{itemize}
-  \item PET-MAD and QuickFF describe different potential-energy surfaces;
-        agreement with the paper cannot be assumed.
+  \item PET-MAD and QuickFF describe different potential-energy surfaces.
+        Reproducing the paper's numerical curves is not a project objective,
+        and any agreement or disagreement requires physical interpretation.
   \item Flexible-cell NPT requires a stress-capable MLIP and a MOF-5-specific
         stress benchmark; an output capability flag alone is not validation.
   \item Classical nuclei are used in MD; nuclear quantum effects enter only
@@ -1212,23 +1082,22 @@ They should be carried into every plot, table, and comparison with experiment.
 
 \section{Conclusions}
 
-The focused workflow avoids both unnecessary empty-framework MD and the cost
-of a full production path-integral campaign. Classical NPT trajectories are
-reserved for loaded MOF-5, where they are needed to describe anharmonic guest
-and host--guest motion. Sparse AD Hessians are evaluated only at converged
-fixed-cell minima and provide the loaded-system quantum-minus-classical
-harmonic correction. The equilibrated empty structure contributes one direct
-reference Hessian.
+The focused workflow avoids unnecessary empty-framework MD. Classical NPT
+trajectories are reserved for loaded MOF-5, where they are needed to describe
+anharmonic guest and host--guest motion. Sparse AD Hessians are evaluated only
+at converged fixed-cell minima and provide the loaded-system
+quantum-minus-classical harmonic correction. The equilibrated empty structure
+contributes one direct reference Hessian.
 
 The final quantity is the classical loaded-system enthalpy derivative plus the
 mean loaded harmonic correction. Its credibility depends on stress validation,
 stationary and replicated MD, stable optimized minima, numerical Hessian
 convergence, consistent mode and mass bookkeeping, and explicit uncertainty
-propagation. This strategy implements the cost-saving approximation motivated
-by Kapil \emph{et al.} without attempting to reproduce every calculation in
-their study.
+propagation. This strategy applies the cost-saving hybrid approximation
+motivated by Kapil \emph{et al.}\ to the PET potential; it does not seek to
+reproduce the reference force field, sampling protocol, or numerical curves.
 
-\begin{thebibliography}{11}
+\begin{thebibliography}{8}
 
 \bibitem{kapil2019}
 V. Kapil \emph{et al.},
@@ -1266,11 +1135,6 @@ L. Vanduyfhuys \emph{et al.},
 Metal--Organic Frameworks from Ab Initio Input}, Journal of Computational
 Chemistry \textbf{36}, 1015--1027 (2015).
 
-\bibitem{ipi}
-M. Ceriotti, J. More, and D. E. Manolopoulos,
-\emph{i-PI: A Python Interface for Ab Initio Path Integral Molecular Dynamics
-Simulations}, Computer Physics Communications \textbf{185}, 1019--1026 (2014).
-
 \bibitem{mtk}
 G. J. Martyna, D. J. Tobias, and M. L. Klein,
 \emph{Constant Pressure Molecular Dynamics Algorithms}, Journal of Chemical
@@ -1280,17 +1144,6 @@ Physics \textbf{101}, 4177--4189 (1994).
 G. J. Martyna, M. L. Klein, and M. Tuckerman,
 \emph{Nos\'e--Hoover Chains: The Canonical Ensemble via Continuous Dynamics},
 Journal of Chemical Physics \textbf{97}, 2635--2643 (1992).
-
-\bibitem{pile}
-M. Ceriotti, M. Parrinello, T. E. Markland, and D. E. Manolopoulos,
-\emph{Efficient Stochastic Thermostatting of Path Integral Molecular
-Dynamics}, Journal of Chemical Physics \textbf{133}, 124104 (2010).
-
-\bibitem{highorder}
-V. Kapil, J. Behler, and M. Ceriotti,
-\emph{High Order Path Integrals Made Easy}, Journal of Chemical Physics
-\textbf{145}, 234103 (2016),
-\href{https://doi.org/10.1063/1.4971438}{doi:10.1063/1.4971438}.
 
 \bibitem{sadMof}
 M. F. Langer, M. Ceriotti, and collaborators,
