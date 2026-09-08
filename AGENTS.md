@@ -21,6 +21,9 @@ PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
 - `input/` holds source MOF-5 and methane structures.
 - `scripts/setup/install_sadmof.sh` installs the SADMOF/PET-JAX stack; it expects the
   sibling checkout at `../repos/sadmof-work` unless `SADMOF_SOURCE` is set.
+- `scripts/setup/submit_llpr_ensemble.sh` builds a calibrated PET LLPR shallow
+  ensemble from user-supplied labeled covariance and validation datasets for
+  CEA model-uncertainty propagation.
 - `scripts/slurm/izar_gpu_runtime.sh` is the shared GPU runtime for MD, relaxation, and
   Hessian stages on Izar.
 - `scripts/properties/submit_analysis.sh` validates, submits, and executes CPU-based

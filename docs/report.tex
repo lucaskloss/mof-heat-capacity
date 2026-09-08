@@ -37,7 +37,10 @@ classical harmonic heat capacities evaluated for the same loaded composition
 and PET potential. The already-equilibrated empty MOF-5 structure is relaxed
 directly and evaluated with one reference Hessian; no empty-framework MD
 campaign is required. The resulting low-temperature and model-dependent
-accuracy must be validated for the selected MLIP.
+accuracy must be validated for the selected MLIP. Finite-trajectory sampling
+error, minimum-to-minimum variation of the harmonic correction, and classical
+MLIP uncertainty from a calibrated last-layer prediction-rigidity (LLPR)
+ensemble are evaluated as distinct contributions.
 \end{abstract}
 
 \section{Scientific motivation and scope}
@@ -539,6 +542,107 @@ constant-pressure term by differentiating replica-averaged NPT enthalpies on a
 temperature grid. It obtains the quantum correction separately from harmonic
 normal-mode frequencies.
 
+\subsubsection{LLPR model uncertainty and CEA propagation}
+\label{sec:llpr-cea}
+
+The uncertainty of a machine-learned potential is different from the sampling
+error of a finite MD trajectory. This project estimates the former for the
+classical NPT term with a last-layer prediction-rigidity (LLPR) ensemble
+\cite{bigi2024}, and the latter with autocorrelation-aware statistics and
+independent replicas. These quantities are kept separate throughout the
+analysis.
+
+For a fixed trained representation, write the central PET energy as
+$\bar V(\bm x)=\bm w_0^{\mathrm T}\bm f(\bm x)$, where $\bm f$ is the
+last-layer feature vector. If $\bm F$ contains the corresponding features of a
+reference-labeled covariance set, the metatrain LLPR standard deviation has
+the form
+\begin{equation}
+  \sigma_{\mathrm{LLPR}}^2(\bm x)
+  =\alpha^2\bm f(\bm x)^{\mathrm T}
+  \left(\bm F^{\mathrm T}\bm F+\lambda\bm I\right)^{-1}
+  \bm f(\bm x).
+  \label{eq:llpr-variance}
+\end{equation}
+The regularizer $\lambda$ stabilizes weakly constrained feature directions.
+The scale $\alpha$ is fitted against energy residuals on a separate,
+reference-labeled calibration set. The two sets must be disjoint and use the
+same electronic-structure definition as the base potential. Model predictions
+cannot serve as reference labels for calibrating their own errors.
+
+Equation~\eqref{eq:llpr-variance} is exported as
+\texttt{energy\_uncertainty}, a standard deviation in energy units. That
+scalar is useful for calibration and out-of-domain diagnostics but cannot be
+propagated through an equilibrium average by itself. The propagation needs
+signed, correlated changes in energy across configurations. Metatrain
+therefore samples persistent shallow readout weights,
+\begin{equation}
+  \bm w_i\sim\mathcal N\!\left[
+  \bm w_0,
+  \alpha^2\left(\bm F^{\mathrm T}\bm F+\lambda\bm I\right)^{-1}
+  \right],
+  \qquad V^{(i)}(\bm x)=\bm w_i^{\mathrm T}\bm f(\bm x),
+  \label{eq:llpr-members}
+\end{equation}
+and exports their energies as \texttt{energy\_ensemble}. In the large-member
+limit, their framewise standard deviation approaches the analytical LLPR
+standard deviation. This is a shallow ensemble: the learned representation is
+fixed, so it cannot reveal a model bias or representation error shared by all
+members and should not be described as a committee of independently trained
+neural networks.
+
+The ensemble is propagated using the reweighting framework of Imbalzano
+\emph{et al.}\ \cite{imbalzano2021}. On a production frame $t$ sampled by the
+central model at temperature $T$, define
+\begin{align}
+  \Delta V_t^{(i)} &= V_t^{(i)}-\bar V_t,\\
+  H_t^{(i)} &= K_t+V_t^{(i)}+P_{\mathrm{ext}}\mathcal V_t,
+  \label{eq:llpr-frame-enthalpy}
+\end{align}
+where $K_t$ and cell volume $\mathcal V_t$ come from the central NPT
+trajectory. Normalized exponential reweighting gives
+\begin{equation}
+  \left\langle H^{(i)}\right\rangle_i^{\mathrm{direct}}
+  =\frac{\sum_t\exp[-\beta\Delta V_t^{(i)}]H_t^{(i)}}
+  {\sum_t\exp[-\beta\Delta V_t^{(i)}]},
+  \label{eq:llpr-direct}
+\end{equation}
+but can collapse when the energy difference is extensive. The primary
+large-system estimate is therefore the first-order cumulant expansion
+approximation (CEA),
+\begin{equation}
+  \left\langle H^{(i)}\right\rangle_i^{\mathrm{CEA}}
+  =\left\langle H^{(i)}\right\rangle_{\bar V}
+  -\beta\operatorname{cov}_{\bar V}
+  \left(H^{(i)},\Delta V^{(i)}\right),
+  \qquad \beta=(k_{\mathrm B}T)^{-1}.
+  \label{eq:llpr-cea}
+\end{equation}
+Direct reweighting is retained as a diagnostic. Its member-wise effective
+sample count $N_{\mathrm{eff}}=1/\sum_t\widetilde w_t^2$ detects weight
+collapse. The additional diagnostic
+$\operatorname{var}_{t}(\beta\Delta V_t^{(i)})$ should be much smaller than
+one for a controlled first-order CEA. A large value warns that omitted
+higher-order terms may be important; agreement with direct reweighting is
+meaningful only where $N_{\mathrm{eff}}$ remains adequate.
+
+At each temperature, independent replicas are averaged member by member. The
+same exported ensemble and member index must be used at every temperature.
+The analysis then differentiates each complete enthalpy curve,
+\begin{equation}
+  C_{P,\mathrm{cl}}^{(i)}(T)
+  =\frac{\mathrm d\langle H^{(i)}\rangle_i^{\mathrm{CEA}}}{\mathrm dT},
+  \qquad
+  \sigma_{\mathrm{LLPR},C_P}(T)
+  =\sqrt{\frac{1}{M-1}\sum_{i=1}^{M}
+  \left[C_{P,\mathrm{cl}}^{(i)}(T)-\overline C_{P,\mathrm{cl}}(T)\right]^2}.
+  \label{eq:llpr-cp-spread}
+\end{equation}
+The reported LLPR error is therefore the sample standard deviation of the
+final member-resolved $C_P$ curves. It is not the instantaneous energy spread,
+and it is not divided by $\sqrt M$: ensemble members sample a predictive
+distribution rather than provide repeated measurements of one mean.
+
 \subsubsection{Why classical and quantum predictions differ}
 
 In the classical harmonic limit, every quadratic vibrational degree of
@@ -896,6 +1000,23 @@ classical \cpheat{} term, following the small solid-state $C_P-C_V$ assumption
 used in the reference approximation. This mixing and the approximation's
 limited validation below roughly \SI{200}{K} must be stated with the result.
 
+The final standard-uncertainty components are summarized as
+\begin{equation}
+  \sigma_{\mathrm{hyb}}(T)=\sqrt{
+    \sigma_{\mathrm{MD}}^2(T)
+    +\sigma_{\mathrm{har}}^2(T)
+    +\sigma_{\mathrm{LLPR},C_P}^2(T)},
+  \label{eq:combined-uncertainty}
+\end{equation}
+where $\sigma_{\mathrm{MD}}$ is the propagated standard error of the central
+NPT enthalpy curve and $\sigma_{\mathrm{har}}$ is the standard error across
+independently quenched loaded minima. Equation~\eqref{eq:combined-uncertainty}
+is a quadrature summary that assumes independence. The three components must
+also be reported separately. In particular, one trajectory supplies no
+between-replica uncertainty, and a zero harmonic standard error from one
+minimum means that contribution was not estimated rather than that it is
+exactly zero.
+
 \section{Results and discussion}
 \label{sec:results}
 
@@ -907,12 +1028,15 @@ optimized-minimum Hessians, and hybrid analysis have completed and passed the
 checks below.
 
 The primary reported result will be a temperature-resolved table or curve
-containing the replica-averaged classical enthalpy derivative, the mean loaded
-harmonic quantum correction, their separate uncertainties, and the combined
-$c_P^{\mathrm{approx}}$. The empty quantum-harmonic curve will be shown as a
-separately normalized reference. Density, cell response, framework stability,
-methane mobility, imaginary-mode counts, and relaxation residual forces will
-support interpretation rather than replace the heat-capacity result.
+containing the replica-averaged classical enthalpy derivative, its MD sampling
+standard error, its LLPR--CEA model standard deviation, the mean loaded
+harmonic quantum correction and its minimum-to-minimum standard error, and the
+combined $c_P^{\mathrm{approx}}$. These error components will be shown
+separately in addition to any quadrature band. The empty quantum-harmonic curve
+will be shown as a separately normalized reference. Density, cell response,
+framework stability, methane mobility, imaginary-mode counts, and relaxation
+residual forces will support interpretation rather than replace the
+heat-capacity result.
 Comparisons with the curves of Kapil \emph{et al.}\ will be reported as
 context, not as a target: differences can arise from the potential-energy
 surface, loading ensemble, and the hybrid approximation itself.
@@ -1019,6 +1143,45 @@ size, and rematerialization choice. Finally,
 enthalpies and writes the classical term, harmonic correction, combined curve,
 uncertainties, and provenance as NPZ, CSV, and JSON files.
 
+The uncertainty calculations and their stored locations are as follows:
+
+\begin{center}
+\small
+\begin{tabular}{@{}p{3.3cm}p{5.0cm}p{5.4cm}@{}}
+\toprule
+Quantity & Where it is calculated & Stored result \\
+\midrule
+LLPR energy standard deviation & metatrain LLPR covariance and calibration &
+\texttt{energy\_uncertainty}; copied as
+\texttt{analytical\_energy\_uncertainty\_eV} in the per-run archive \\
+CEA member enthalpies and overlap diagnostics &
+\texttt{analysis/uncertainty.py}, function
+\texttt{committee\_enthalpy\_estimates} & per-run
+\texttt{model\_uncertainty.npz} \\
+Classical LLPR $C_P$ standard deviation &
+\texttt{analysis/results.py}, after member-wise replica averaging and
+temperature differentiation &
+\texttt{model\_uncertainty\_heat\_capacity.npz} and \texttt{.csv} \\
+MD sampling standard error &
+\texttt{analysis/statistics.py}, then replica combination and derivative
+resampling in \texttt{analysis/hybrid.py} &
+\texttt{classical\_anharmonic\_cp\_standard\_error} \\
+Harmonic sampling standard error &
+\texttt{analysis/hybrid.py}, across independent optimized minima &
+\texttt{harmonic\_quantum\_correction\_standard\_error} \\
+Combined standard uncertainty & quadrature in
+\texttt{analysis/hybrid.py} &
+\texttt{approximate\_cp\_combined\_standard\_uncertainty} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The scalar analytical LLPR energy uncertainty is archived but is not used
+directly as the heat-capacity error. That error is calculated only after CEA
+has produced a complete enthalpy curve for every persistent ensemble member.
+The LLPR/CEA contribution currently applies only to the classical NPT term;
+member-resolved geometry optimization and PET-JAX Hessians are not implemented.
+
 Cluster calculations use one node, one task, and one GPU because neither the MD
 nor Hessian code is MPI or multi-GPU parallel. Independent temperature,
 replica, or optimized-minimum jobs are the available level of parallelism.
@@ -1038,6 +1201,9 @@ A reproducible result should record:
         methane-insertion seed and rejection criteria;
   \item PET-MAD checkpoint hash, metatomic export, PET-JAX conversion, software
         environment, device, and numerical precision;
+  \item LLPR covariance and calibration dataset hashes, energy-label
+        definition, regularizer, calibration method, random seed, member
+        count, exported ensemble hash, frame stride, and CEA diagnostics;
   \item ensemble, target temperature, timestep, thermostat and friction,
         number of steps, output stride, velocity seed, equilibration interval,
         production interval, and restart history;
@@ -1074,6 +1240,10 @@ The principal limitations of the planned result are:
         MLIP, other loadings, and lower temperatures requires validation.
   \item Finite-size, sparse-Hessian depth, precision, temperature-derivative,
         model-validity, and independent-replica errors must all be quantified.
+  \item LLPR varies only the final PET readout and cannot measure bias shared by
+        the frozen representation. CEA is first order, and the present LLPR
+        propagation covers only the classical NPT term, not the harmonic
+        correction.
 \end{itemize}
 
 These qualifications define the boundary between an efficient, physically
@@ -1097,7 +1267,7 @@ propagation. This strategy applies the cost-saving hybrid approximation
 motivated by Kapil \emph{et al.}\ to the PET potential; it does not seek to
 reproduce the reference force field, sampling protocol, or numerical curves.
 
-\begin{thebibliography}{8}
+\begin{thebibliography}{10}
 
 \bibitem{kapil2019}
 V. Kapil \emph{et al.},
@@ -1144,6 +1314,19 @@ Physics \textbf{101}, 4177--4189 (1994).
 G. J. Martyna, M. L. Klein, and M. Tuckerman,
 \emph{Nos\'e--Hoover Chains: The Canonical Ensemble via Continuous Dynamics},
 Journal of Chemical Physics \textbf{97}, 2635--2643 (1992).
+
+\bibitem{bigi2024}
+F. Bigi, S. Chong, M. Ceriotti, and F. Grasselli,
+\emph{A prediction rigidity formalism for low-cost uncertainties in trained
+neural networks}, Machine Learning: Science and Technology \textbf{5}, 045018
+(2024),
+\href{https://doi.org/10.1088/2632-2153/ad805f}{doi:10.1088/2632-2153/ad805f}.
+
+\bibitem{imbalzano2021}
+G. Imbalzano \emph{et al.},
+\emph{Uncertainty estimation for molecular dynamics and sampling}, Journal of
+Chemical Physics \textbf{154}, 074102 (2021),
+\href{https://doi.org/10.1063/5.0036522}{doi:10.1063/5.0036522}.
 
 \bibitem{sadMof}
 M. F. Langer, M. Ceriotti, and collaborators,

@@ -11,6 +11,9 @@ contents, and debugging checks, see
 Run commands from the repository root:
 
 ```bash
+./scripts/setup/submit_llpr_ensemble.sh --model pet-mad \
+  --training-set /path/to/covariance.extxyz \
+  --validation-set /path/to/calibration.extxyz --dry-run
 ./scripts/properties/submit_analysis.sh --model pet-mad --loading 100 \
   --replicas 1
 ./scripts/properties/submit_analysis.sh --model pet-mad --loading 100 \
@@ -21,6 +24,16 @@ Run commands from the repository root:
 ./scripts/properties/submit_hybrid_analysis.sh --model both --loading 100 \
   --replicas 1
 ```
+
+The LLPR preparation command requires reference-labeled structures that are
+not distributed with this repository. It wraps the selected PET checkpoint,
+constructs the last-layer feature covariance from `--training-set`, calibrates
+the uncertainty scale on the separate `--validation-set`, samples one
+persistent 32-member shallow ensemble, and validates that its arithmetic mean
+reproduces the central energy. It writes the exported model below `models/`
+and a matching provenance JSON containing model/data hashes and software
+versions. See [`docs/LLPR_ENSEMBLE.md`](../../docs/LLPR_ENSEMBLE.md) before
+preparing production uncertainty results.
 
 Trajectory analysis submits one Slurm job per selected trajectory. A dependent
 summary job runs after every trajectory job succeeds and assembles the combined

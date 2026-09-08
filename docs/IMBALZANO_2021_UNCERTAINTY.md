@@ -28,6 +28,9 @@ uncertainty components.
 Accordingly, any result produced with LLPR must be labeled as LLPR ensemble
 uncertainty rather than as uncertainty from a full independently trained
 committee. It needs its own calibration and validation against reference data.
+The detailed LLPR construction, the distinction between
+`energy_uncertainty` and `energy_ensemble`, and a code-to-output map for every
+reported error are documented in [LLPR_ENSEMBLE.md](LLPR_ENSEMBLE.md).
 
 ## Plain-language overview
 
@@ -290,17 +293,22 @@ density uncertainty is also propagated under a zero-covariance assumption.
 The command sequence is:
 
 ```bash
-./scripts/properties/submit_analysis.sh --model pet-mad --loading 100 \
+./scripts/setup/submit_llpr_ensemble.sh --model pet-mad \
+  --training-set /path/to/covariance.extxyz \
+  --validation-set /path/to/calibration.extxyz
+./scripts/properties/submit_analysis.sh --model pet-mad --loading 50 \
   --replicas 1 --model-uncertainty \
   --uncertainty-model models/pet-mad-1.5-s-llpr-ensemble.pt
-./scripts/properties/submit_heat_capacity.sh --model pet-mad --loading 100 \
+./scripts/properties/submit_heat_capacity.sh --model pet-mad --loading 50 \
   --source-temperatures 200,225,250,275,300,325,350,375,400 --replicas 1
-./scripts/properties/submit_hybrid_analysis.sh --model pet-mad --loading 100 \
+./scripts/properties/submit_hybrid_analysis.sh --model pet-mad --loading 50 \
   --replicas 1 --model-uncertainty
 ```
 
-The first command writes `model_uncertainty_heat_capacity.npz` below the
-model/loading trajectory-analysis directory. The third command requires that
+The LLPR command requires reference-labeled datasets that are not supplied by
+this repository; see [LLPR_ENSEMBLE.md](LLPR_ENSEMBLE.md). The trajectory-analysis
+command writes `model_uncertainty_heat_capacity.npz` below the model/loading
+trajectory-analysis directory. The final command requires that
 archive and adds its CEA spread to the hybrid NPZ, CSV, JSON, and plot. The
 currently configured central PET-MAD and PET-SOL exports do not expose
 `energy_ensemble`; a separately calibrated ensemble export is therefore needed

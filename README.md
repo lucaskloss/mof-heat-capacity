@@ -14,7 +14,8 @@ Hessian; no empty-MOF MD is required.
 See [KAPIL_2019.md](docs/KAPIL_2019.md) for the scientific rationale,
 assumptions, and limits, [SADMOF_HESSIANS.md](docs/SADMOF_HESSIANS.md) for the
 Hessian and harmonic heat-capacity implementation,
-[PET.md](docs/PET.md) for the PET paper summary and model architecture, and
+[PET.md](docs/PET.md) for the PET paper summary and model architecture,
+[LLPR_ENSEMBLE.md](docs/LLPR_ENSEMBLE.md) for CEA ensemble preparation, and
 [IZAR.md](docs/IZAR.md) for the cluster procedure.
 
 ## Layout

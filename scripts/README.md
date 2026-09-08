@@ -4,6 +4,8 @@ All Bash scripts live here and are grouped by responsibility:
 
 - `setup/install_sadmof.sh` installs the PET-JAX/SADMOF dependencies required
   by harmonic property calculations.
+- `setup/submit_llpr_ensemble.sh` builds and validates a calibrated PET LLPR
+  shallow ensemble for CEA model-uncertainty propagation.
 - `slurm/izar_gpu_runtime.sh` is the shared single-GPU runtime for MD, relaxation, and
   Hessian stages on Izar.
 - `md/submit_loaded_md.sh` validates and submits loaded classical-NPT campaigns.
