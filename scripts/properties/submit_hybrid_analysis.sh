@@ -62,7 +62,7 @@ run_hybrid_worker() {
         exit 2
     fi
 
-    local environment_prefix="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
+    local environment_prefix="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof}"
     local analysis_python="${environment_prefix}/bin/python"
     if [[ ! -x "${analysis_python}" ]]; then
         echo "error: analysis Python not found: ${analysis_python}" >&2

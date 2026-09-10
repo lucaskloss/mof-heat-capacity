@@ -20,7 +20,11 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
+PROJECT_DIR="${MOF_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-}}"
+if [[ -z "${PROJECT_DIR}" ]]; then
+    PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
+fi
+PROJECT_DIR=$(cd -- "${PROJECT_DIR}" && pwd)
 MOF_OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${PROJECT_DIR}/output}"
 if [[ "${MOF_OUTPUT_ROOT}" != /* ]]; then
     MOF_OUTPUT_ROOT="${PROJECT_DIR}/${MOF_OUTPUT_ROOT}"
@@ -29,7 +33,7 @@ export MOF_OUTPUT_ROOT
 
 MOF_STAGE="${MOF_STAGE:-md}"
 MOF_CONFIG="${MOF_CONFIG:-}"
-MOF_ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
+MOF_ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof}"
 MOF_STEPS="${MOF_STEPS:-}"
 MOF_OUTPUT_DIR="${MOF_OUTPUT_DIR:-}"
 MOF_PREFIX="${MOF_PREFIX:-}"

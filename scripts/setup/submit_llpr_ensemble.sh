@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
-ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
+ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof}"
 PYTHON="${MOF_LLPR_PYTHON:-${ENV_PREFIX}/bin/python}"
 MODEL=""
 TRAINING_SET=""

@@ -37,7 +37,7 @@ output/              all generated structures, trajectories, logs, and results
 
 ```bash
 conda env create --file environment.yml
-conda activate mof-heat-capacity
+conda activate mof
 ./scripts/setup/install_sadmof.sh
 ```
 

@@ -20,6 +20,7 @@ RELAX_STEPS=20000
 OPTIMIZER="lbfgs-linesearch"
 CONTINUE_LOADED=0
 CONTINUE_UNFINISHED=0
+RESTART_UNFINISHED=0
 HESSIAN_ONLY=0
 REUSE_RELAXED=0
 HESSIAN_DTYPE=""
@@ -62,6 +63,9 @@ Options:
   --continue-unfinished   Submit only cases without a Hessian. Reuse saved
                           minima, or continue failed relaxations from their
                           saved optimizer trajectories.
+  --restart-unfinished    Submit only cases without a Hessian. Discard failed
+                          relaxation state and restart it from the loaded-MD
+                          source; preserve saved converged minima.
   --hessian-only          Reuse existing minima and replace only Hessian archives.
   --reuse-relaxed         Reuse each saved minimum, recompute its Hessian, and
                           relax only cases without a saved minimum.
@@ -121,6 +125,7 @@ while (($#)); do
         --optimizer) require_value "$@"; OPTIMIZER="$2"; shift 2 ;;
         --continue-loaded) CONTINUE_LOADED=1; shift ;;
         --continue-unfinished) CONTINUE_UNFINISHED=1; shift ;;
+        --restart-unfinished) RESTART_UNFINISHED=1; shift ;;
         --hessian-only) HESSIAN_ONLY=1; shift ;;
         --reuse-relaxed) REUSE_RELAXED=1; shift ;;
         --dtype) require_value "$@"; HESSIAN_DTYPE="$2"; shift 2 ;;
@@ -191,8 +196,12 @@ if ((CONTINUE_LOADED && !OVERWRITE)); then
     echo "error: --continue-loaded requires --overwrite for the canonical outputs" >&2
     exit 2
 fi
-if ((CONTINUE_UNFINISHED && (CONTINUE_LOADED || HESSIAN_ONLY || REUSE_RELAXED))); then
-    echo "error: --continue-unfinished cannot be combined with --continue-loaded, --hessian-only, or --reuse-relaxed" >&2
+if ((CONTINUE_UNFINISHED && (CONTINUE_LOADED || RESTART_UNFINISHED || HESSIAN_ONLY || REUSE_RELAXED))); then
+    echo "error: --continue-unfinished cannot be combined with --continue-loaded, --restart-unfinished, --hessian-only, or --reuse-relaxed" >&2
+    exit 2
+fi
+if ((RESTART_UNFINISHED && (CONTINUE_LOADED || HESSIAN_ONLY || REUSE_RELAXED))); then
+    echo "error: --restart-unfinished cannot be combined with --continue-loaded, --hessian-only, or --reuse-relaxed" >&2
     exit 2
 fi
 if ((CONTINUE_LOADED && HESSIAN_ONLY)); then
@@ -325,7 +334,7 @@ for model_name in "${MODEL_NAMES[@]}"; do
 done
 
 
-if ((CONTINUE_UNFINISHED)); then
+if ((CONTINUE_UNFINISHED || RESTART_UNFINISHED)); then
     selected_configs=()
     selected_inputs=()
     selected_relaxed=()
@@ -346,10 +355,23 @@ if ((CONTINUE_UNFINISHED)); then
             input="${RELAXED[index]}"
             relax_overwrite=0
             echo "Will reuse converged relaxed structure: ${RELAXED[index]}"
-        elif [[ -f "${RELAXED[index]%.extxyz}.optimizer.traj" ]]; then
+        elif ((CONTINUE_UNFINISHED)) && [[ -f "${RELAXED[index]%.extxyz}.optimizer.traj" ]]; then
             input="${RELAXED[index]%.extxyz}.optimizer.traj"
             relax_overwrite=1
             echo "Will continue failed relaxation: ${input}"
+        elif ((RESTART_UNFINISHED)) && [[ -f "${RELAXED[index]%.extxyz}.optimizer.traj" ]]; then
+            optimizer_trajectory="${RELAXED[index]%.extxyz}.optimizer.traj"
+            relaxation_log="${RELAXED[index]%.extxyz}.relax.log"
+            relaxation_metadata="${RELAXED[index]%.extxyz}.relax.json"
+            if ((DRY_RUN)); then
+                echo "Would discard failed relaxation state: ${optimizer_trajectory}"
+                echo "Would discard failed relaxation log: ${relaxation_log}"
+                echo "Would discard failed relaxation metadata: ${relaxation_metadata}"
+            else
+                rm -f -- "${optimizer_trajectory}" "${relaxation_log}" "${relaxation_metadata}"
+                echo "Discarded failed relaxation state; restarting from source structure: ${input}"
+            fi
+            relax_overwrite=1
         else
             echo "No saved relaxation state; restarting from source structure: ${input}"
         fi
@@ -407,6 +429,9 @@ if ((CONTINUE_LOADED)); then
 fi
 if ((CONTINUE_UNFINISHED)); then
     echo "Continuation: unfinished cases only"
+fi
+if ((RESTART_UNFINISHED)); then
+    echo "Restart: unfinished cases only; failed relaxation state will be discarded"
 fi
 if ((HESSIAN_ONLY)); then
     echo "Relaxation: reuse existing minimum; overwrite Hessian only"

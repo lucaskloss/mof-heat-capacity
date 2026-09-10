@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 GPU_RUNTIME="${PROJECT_DIR}/scripts/slurm/izar_gpu_runtime.sh"
-ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
+ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof}"
 VALIDATE_PYTHON="${MOF_CAMPAIGN_PYTHON:-${ENV_PREFIX}/bin/python}"
 MODEL="both"
 LOADING=100

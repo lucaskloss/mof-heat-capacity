@@ -1,4 +1,4 @@
-name: mof-heat-capacity
+name: mof
 
 # Keep metatensor first: the metatomic LAMMPS build comes from this channel.
 # Do not replace it with an ordinary conda-forge build.
