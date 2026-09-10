@@ -1,9 +1,9 @@
 # Molecular-dynamics simulations
 
 This folder is the user-facing Bash entry point and guide for the loaded MOF-5
-classical-NPT campaign. By default it writes structures, generated TOML files,
-trajectories, restarts, and logs under the repository-level `output/`
-directory. It does not run property analysis.
+classical-NPT campaign. By default it writes structures, trajectories, restarts,
+and logs under `/work/cosmo/dealmeid/mof-heat-capacity/output`. It does not run
+property analysis.
 
 Run commands from the repository root:
 
@@ -11,24 +11,21 @@ Run commands from the repository root:
 ./scripts/md/submit_loaded_md.sh --model both --loading 50 --replicas 1
 ```
 
-## Scratch storage on Izar
+## Output storage on Izar
 
-Large trajectories and restart files should be kept on SCITAS scratch rather
-than in home. When `$SCRATCH` is defined, the submission script defaults to
-`${SCRATCH}/mof-heat-capacity/output`. To use a different scratch location,
-set one shared output root in the login shell:
+All generated workflow data defaults to the shared work location. To override
+that location for a separate campaign, set one shared output root in the login
+shell:
 
 ```bash
-export MOF_OUTPUT_ROOT="${SCRATCH}/mof-heat-capacity/output"
+export MOF_OUTPUT_ROOT="/work/cosmo/dealmeid/mof-heat-capacity/output"
 export MOF_SLURM_OUTPUT_DIR="${MOF_OUTPUT_ROOT}/slurm"
 ```
 
 `submit_loaded_md.sh`, automatic continuations, and heat-capacity submission
 then use this location for MD data and Slurm logs. The setting is inherited by
 the Slurm workers. Keep it set for all later analysis commands so they find the
-scratch-resident trajectories. Existing repository `output/` data can be
-copied with `rsync -a --info=progress2 output/ "${MOF_OUTPUT_ROOT}/"`; verify
-the copy before removing the home-folder source.
+work-resident trajectories.
 
 The default production grid is 200 to 400 K in 25 K steps. This spacing
 provides neighboring enthalpy averages for numerical differentiation while
@@ -55,13 +52,13 @@ production count.
 Simulation outputs are separated first by MLIP and then by loading:
 
 ```text
-output/md/production/pet-mad-1.5-s-40nn/50ch4/<temperature>K/repNN/
-output/md/production/pet-sol-s-best/50ch4/<temperature>K/repNN/
+/work/cosmo/dealmeid/mof-heat-capacity/output/md/production/pet-mad-1.5-s-40nn/50ch4/<temperature>K/repNN/
+/work/cosmo/dealmeid/mof-heat-capacity/output/md/production/pet-sol-s-best/50ch4/<temperature>K/repNN/
 ```
 
 Calibration and manual debug stages use the same model/loading hierarchy below
-`output/md/calibration/` and `output/md/debug/`. Historical output locations
-remain readable so that already-running campaigns can finish safely. Run
+`/work/cosmo/dealmeid/mof-heat-capacity/output/md/calibration/` and
+`/work/cosmo/dealmeid/mof-heat-capacity/output/md/debug/`. Run
 directories use concise role names such as `trajectory.lammpstrj`,
 `md.lammps.log`, and `md.final.data`; the directory supplies model, loading,
 temperature, and replica context.

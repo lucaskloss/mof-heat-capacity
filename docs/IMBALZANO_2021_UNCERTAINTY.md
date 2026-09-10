@@ -5,6 +5,10 @@ Eqs. (22)--(25) of G. Imbalzano *et al.*, *Uncertainty estimation for
 molecular dynamics and sampling*, J. Chem. Phys. **154**, 074102 (2021),
 [doi:10.1063/5.0036522](https://doi.org/10.1063/5.0036522). The source is the
 [supplied article PDF](074102_1_online.pdf).
+The Atomistic Cookbook's
+[PET-MAD uncertainty recipe](https://atomistic-cookbook.org/examples/pet-mad-uq/pet-mad-uq.html#cumulant-expansion-approximation-cea)
+provides a worked implementation of the same direct-reweighting and CEA
+equations for an NVT radial-distribution-function calculation.
 
 The purpose of these equations is to estimate how uncertainty in machine-learned
 potentials changes a thermodynamic average. A committee affects both the value
@@ -174,6 +178,14 @@ evaluate the three averages in this expression as ordinary, *unweighted* time
 averages. Thus CEA needs the same member-resolved energies and observable
 values as direct reweighting, but no normalized frame weights.
 
+This is the same convention used in the Atomistic Cookbook recipe. That recipe
+applies CEA to an RDF sampled in NVT, whereas this project applies it to
+enthalpy sampled in NPT. At fixed target temperature and external pressure,
+the $P_{\mathrm{ext}}V_{\mathrm{cell}}$ contribution and the common NPT measure
+cancel from the ratio of the member and central configurational probabilities,
+so the reweighting exponent still contains only $\Delta V^{(i)}$. The pressure
+term remains part of the enthalpy observable itself.
+
 This covariance form has a useful interpretation. If frames with a large
 observable $a$ also receive a larger energy from a member, that member regards
 those frames as less probable, so its corrected average of $a$ decreases. If
@@ -197,6 +209,14 @@ member-resolved heat-capacity calculation must be performed first and CEA
 should be validated against direct reweighting where the latter has effective
 sample size. Do not infer CEA validity merely from a small uncertainty in a
 mean energy.
+
+The present workflow does not insert CEA into an energy-fluctuation formula.
+It first applies CEA to the member-specific mean enthalpy at each temperature
+and then differentiates each complete enthalpy curve. This avoids a direct
+linearization of a variance, but it does not remove the first-order assumption:
+every temperature point still requires
+$\operatorname{var}[\beta\Delta V^{(i)}]\ll1$, and the finite-difference
+derivative can amplify trajectory noise and temperature-grid error.
 
 ## What must be retained in practice
 
@@ -253,6 +273,12 @@ $\operatorname{var}(\beta\Delta V^{(i)})$; small $N_{\mathrm{eff}}$ warns that
 direct weights have collapsed, while a value not much smaller than one warns
 that the first-order CEA may be inaccurate. Neither diagnostic proves that the
 estimate is converged.
+
+Here $N_{\mathrm{eff}}=1/\sum_t\widetilde w_t^2$ is the Kish effective count of
+the normalized reweighting weights. It measures weight concentration and
+phase-space overlap only. It is not corrected for time correlation between MD
+frames, so it must not be interpreted as the number of statistically
+independent samples.
 
 Replica enthalpies are averaged member by member at each temperature. The same
 member index must come from the same persistent exported ensemble at every

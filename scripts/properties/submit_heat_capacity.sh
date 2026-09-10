@@ -15,11 +15,13 @@ REPLICAS="1"
 EMPTY_STRUCTURE="input/mof5.pdb"
 INCLUDE_EMPTY=1
 CV_TEMPERATURES="100:500:10"
-FMAX="0.01"
-RELAX_STEPS=2000
-OPTIMIZER="fire"
+FMAX="0.001"
+RELAX_STEPS=20000
+OPTIMIZER="lbfgs-linesearch"
 CONTINUE_LOADED=0
+CONTINUE_UNFINISHED=0
 HESSIAN_ONLY=0
+REUSE_RELAXED=0
 HESSIAN_DTYPE=""
 HESSIAN_HOPS=""
 HESSIAN_CHUNK_SIZE=""
@@ -28,8 +30,8 @@ PARTITION="${MOF_HEAT_PARTITION:-gpu}"
 QOS="${MOF_HEAT_QOS:-normal}"
 WALL_TIME="${MOF_HEAT_TIME:-08:00:00}"
 CPUS_PER_TASK="${MOF_HEAT_CPUS:-8}"
-DEFAULT_OUTPUT_ROOT="${SCRATCH:+${SCRATCH}/mof-heat-capacity/output}"
-OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT:-${PROJECT_DIR}/output}}"
+DEFAULT_OUTPUT_ROOT="/work/cosmo/dealmeid/mof-heat-capacity/output"
+OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
 if [[ "${OUTPUT_ROOT}" != /* ]]; then
     OUTPUT_ROOT="${PROJECT_DIR}/${OUTPUT_ROOT}"
 fi
@@ -53,11 +55,16 @@ Options:
   --empty-structure PATH  Equilibrated empty MOF-5 structure (default: input/mof5.pdb).
   --skip-empty            Do not submit the one empty-reference Hessian per model.
   --cv-temperatures RANGE Harmonic C_V grid (default: 100:500:10 K).
-  --fmax VALUE            Fixed-cell relaxation threshold in eV/A (default: 0.01).
-  --relax-steps N         Maximum optimizer steps (default: 2000).
-  --optimizer NAME        fire or lbfgs-linesearch (default: fire).
+  --fmax VALUE            Fixed-cell relaxation threshold in eV/A (default: 0.001).
+  --relax-steps N         Maximum optimizer steps (default: 20000).
+  --optimizer NAME        fire or lbfgs-linesearch (default: lbfgs-linesearch).
   --continue-loaded       Continue from existing loaded optimized structures.
+  --continue-unfinished   Submit only cases without a Hessian. Reuse saved
+                          minima, or continue failed relaxations from their
+                          saved optimizer trajectories.
   --hessian-only          Reuse existing minima and replace only Hessian archives.
+  --reuse-relaxed         Reuse each saved minimum, recompute its Hessian, and
+                          relax only cases without a saved minimum.
   --dtype NAME            Hessian precision: float32 or float64 (default: config).
   --hops N                Hessian sparsity graph hops (default: config).
   --chunk-size N          Hessian AD chunk size (default: config).
@@ -66,7 +73,7 @@ Options:
   --qos NAME              Slurm QOS (default: normal).
   --time HH:MM:SS         Time per relaxation plus Hessian (default: 08:00:00).
   --cpus N                CPUs per task (default: 8).
-  --slurm-output-dir PATH Slurm log directory (default: output/slurm).
+  --slurm-output-dir PATH Slurm log directory (default: /work/cosmo/dealmeid/mof-heat-capacity/output/slurm).
   --overwrite             Replace existing relaxation and Hessian outputs.
   --dry-run               Validate inputs and print all submissions.
   -h, --help              Show this help.
@@ -113,7 +120,9 @@ while (($#)); do
         --relax-steps) require_value "$@"; RELAX_STEPS="$2"; shift 2 ;;
         --optimizer) require_value "$@"; OPTIMIZER="$2"; shift 2 ;;
         --continue-loaded) CONTINUE_LOADED=1; shift ;;
+        --continue-unfinished) CONTINUE_UNFINISHED=1; shift ;;
         --hessian-only) HESSIAN_ONLY=1; shift ;;
+        --reuse-relaxed) REUSE_RELAXED=1; shift ;;
         --dtype) require_value "$@"; HESSIAN_DTYPE="$2"; shift 2 ;;
         --hops) require_value "$@"; HESSIAN_HOPS="$2"; shift 2 ;;
         --chunk-size) require_value "$@"; HESSIAN_CHUNK_SIZE="$2"; shift 2 ;;
@@ -180,6 +189,10 @@ if [[ -n "${HESSIAN_TAG}" && ! "${HESSIAN_TAG}" =~ ^[A-Za-z0-9._-]+$ ]]; then
 fi
 if ((CONTINUE_LOADED && !OVERWRITE)); then
     echo "error: --continue-loaded requires --overwrite for the canonical outputs" >&2
+    exit 2
+fi
+if ((CONTINUE_UNFINISHED && (CONTINUE_LOADED || HESSIAN_ONLY || REUSE_RELAXED))); then
+    echo "error: --continue-unfinished cannot be combined with --continue-loaded, --hessian-only, or --reuse-relaxed" >&2
     exit 2
 fi
 if ((CONTINUE_LOADED && HESSIAN_ONLY)); then
@@ -250,6 +263,8 @@ HESSIANS=()
 LABELS=()
 ALLOW_SUBSETS=()
 MODEL_KEYS=()
+TASK_RELAX_OVERWRITES=()
+TASK_HEAT_OVERWRITES=()
 declare -A MODEL_PREFLIGHT_CONFIGS=()
 cd "${PROJECT_DIR}"
 for model_name in "${MODEL_NAMES[@]}"; do
@@ -261,22 +276,12 @@ for model_name in "${MODEL_NAMES[@]}"; do
             config="configs/${model_name}/${LOADING}ch4/${source_temperature}K-rep${replica_tag}.toml"
             [[ -f "${config}" ]] || config="configs/${run}.toml"
             trajectory="${OUTPUT_ROOT}/md/production/${model_name}/${LOADING}ch4/${source_temperature}K/rep${replica_tag}/md.final.data"
-            classical_trajectory="output/classical/production/${model_name}/${LOADING}ch4/${source_temperature}K/rep${replica_tag}/md.final.data"
-            historical_trajectory="output/classical/production/${model_name}/${LOADING}ch4/${run}/${run}.final.data"
-            legacy_trajectory="output/classical/production/${LOADING}ch4/${run}/${run}.final.data"
-            if [[ ! -f "${trajectory}" && -f "${classical_trajectory}" ]]; then
-                trajectory="${classical_trajectory}"
-            elif [[ ! -f "${trajectory}" && -f "${historical_trajectory}" ]]; then
-                trajectory="${historical_trajectory}"
-            elif [[ ! -f "${trajectory}" && -f "${legacy_trajectory}" ]]; then
-                trajectory="${legacy_trajectory}"
-            fi
             if [[ ! -f "${config}" || ! -f "${trajectory}" ]]; then
                 echo "error: completed loaded run is required: ${config} and ${trajectory}" >&2
                 exit 2
             fi
             carrier_config="${carrier_config:-${config}}"
-            base="output/post-processing/harmonic-correction/${model_name}/${LOADING}ch4"
+            base="${OUTPUT_ROOT}/post-processing/harmonic-correction/${model_name}/${LOADING}ch4"
             relaxed="${base}/minima/${source_temperature}K/rep${replica_tag}/optimized.extxyz"
             if ((CONTINUE_LOADED)); then
                 optimizer_trajectory="${relaxed%.extxyz}.optimizer.traj"
@@ -299,11 +304,13 @@ for model_name in "${MODEL_NAMES[@]}"; do
             LABELS+=("${model_name}-${LOADING}ch4-${source_temperature}K-r${replica_tag}")
             ALLOW_SUBSETS+=(0)
             MODEL_KEYS+=("${model_name}")
+            TASK_RELAX_OVERWRITES+=("${OVERWRITE}")
+            TASK_HEAT_OVERWRITES+=("${OVERWRITE}")
         done
     done
     MODEL_PREFLIGHT_CONFIGS[${model_name}]="${carrier_config}"
     if ((INCLUDE_EMPTY)); then
-        base="output/post-processing/harmonic-correction/${model_name}/0ch4"
+        base="${OUTPUT_ROOT}/post-processing/harmonic-correction/${model_name}/0ch4"
         CONFIGS+=("${carrier_config}")
         INPUTS+=("${EMPTY_STRUCTURE}")
         RELAXED+=("${base}/minima/optimized.extxyz")
@@ -312,12 +319,71 @@ for model_name in "${MODEL_NAMES[@]}"; do
         LABELS+=("${model_name}-empty")
         ALLOW_SUBSETS+=(1)
         MODEL_KEYS+=("${model_name}")
+        TASK_RELAX_OVERWRITES+=("${OVERWRITE}")
+        TASK_HEAT_OVERWRITES+=("${OVERWRITE}")
     fi
 done
 
 
+if ((CONTINUE_UNFINISHED)); then
+    selected_configs=()
+    selected_inputs=()
+    selected_relaxed=()
+    selected_hessians=()
+    selected_labels=()
+    selected_allow_subsets=()
+    selected_model_keys=()
+    selected_relax_overwrites=()
+    selected_heat_overwrites=()
+    for index in "${!CONFIGS[@]}"; do
+        if [[ -f "${HESSIANS[index]}" ]]; then
+            echo "Skipping completed Hessian: ${HESSIANS[index]}"
+            continue
+        fi
+        input="${INPUTS[index]}"
+        relax_overwrite="${OVERWRITE}"
+        if [[ -f "${RELAXED[index]}" ]]; then
+            input="${RELAXED[index]}"
+            relax_overwrite=0
+            echo "Will reuse converged relaxed structure: ${RELAXED[index]}"
+        elif [[ -f "${RELAXED[index]%.extxyz}.optimizer.traj" ]]; then
+            input="${RELAXED[index]%.extxyz}.optimizer.traj"
+            relax_overwrite=1
+            echo "Will continue failed relaxation: ${input}"
+        else
+            echo "No saved relaxation state; restarting from source structure: ${input}"
+        fi
+        selected_configs+=("${CONFIGS[index]}")
+        selected_inputs+=("${input}")
+        selected_relaxed+=("${RELAXED[index]}")
+        selected_hessians+=("${HESSIANS[index]}")
+        selected_labels+=("${LABELS[index]}")
+        selected_allow_subsets+=("${ALLOW_SUBSETS[index]}")
+        selected_model_keys+=("${MODEL_KEYS[index]}")
+        selected_relax_overwrites+=("${relax_overwrite}")
+        selected_heat_overwrites+=(1)
+    done
+    CONFIGS=("${selected_configs[@]}")
+    INPUTS=("${selected_inputs[@]}")
+    RELAXED=("${selected_relaxed[@]}")
+    HESSIANS=("${selected_hessians[@]}")
+    LABELS=("${selected_labels[@]}")
+    ALLOW_SUBSETS=("${selected_allow_subsets[@]}")
+    MODEL_KEYS=("${selected_model_keys[@]}")
+    TASK_RELAX_OVERWRITES=("${selected_relax_overwrites[@]}")
+    TASK_HEAT_OVERWRITES=("${selected_heat_overwrites[@]}")
+fi
+
+
+if ((${#CONFIGS[@]} == 0)); then
+    echo "No unfinished Hessian tasks selected."
+    exit 0
+fi
+
+
 for index in "${!CONFIGS[@]}"; do
-    if ((!OVERWRITE && !HESSIAN_ONLY)) && [[ -e "${HESSIANS[index]}" ]]; then
+    if ((!OVERWRITE && !HESSIAN_ONLY && !REUSE_RELAXED)) \
+        && [[ -e "${HESSIANS[index]}" ]]; then
         echo "error: Hessian output exists; use --overwrite to replace it: ${HESSIANS[index]}" >&2
         exit 2
     fi
@@ -339,8 +405,14 @@ echo "Hessian output: ${HESSIAN_TAG:-canonical}"
 if ((CONTINUE_LOADED)); then
     echo "Continuation: existing loaded optimized structure(s)"
 fi
+if ((CONTINUE_UNFINISHED)); then
+    echo "Continuation: unfinished cases only"
+fi
 if ((HESSIAN_ONLY)); then
     echo "Relaxation: reuse existing minimum; overwrite Hessian only"
+fi
+if ((REUSE_RELAXED)); then
+    echo "Relaxation: reuse saved minima; relax only missing minima"
 fi
 if ((!DRY_RUN)); then
     mkdir -p "${SLURM_OUTPUT_DIR}"
@@ -378,9 +450,12 @@ for index in "${!CONFIGS[@]}"; do
     label="${LABELS[index]}"
     allow_subset="${ALLOW_SUBSETS[index]}"
     model_name="${MODEL_KEYS[index]}"
-    relax_overwrite="${OVERWRITE}"
-    heat_overwrite="${OVERWRITE}"
+    relax_overwrite="${TASK_RELAX_OVERWRITES[index]}"
+    heat_overwrite="${TASK_HEAT_OVERWRITES[index]}"
     if ((HESSIAN_ONLY)); then
+        relax_overwrite=0
+        heat_overwrite=1
+    elif ((REUSE_RELAXED)) && [[ -f "${relaxed}" ]]; then
         relax_overwrite=0
         heat_overwrite=1
     fi

@@ -13,7 +13,7 @@ import sys
 import numpy as np
 
 
-from ..config import find_classical_output_file, load_run_config, run_output_parts
+from ..config import find_classical_output_file, load_run_config, output_root, run_output_parts
 from .lammps import read_lammps_thermo
 from .statistics import (
     AMU_TO_G,
@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
         "--config-dir", type=Path, default=PROJECT_DIR / "configs"
     )
     parser.add_argument(
-        "--analysis-dir", type=Path, default=PROJECT_DIR / "output" / "analysis"
+        "--analysis-dir", type=Path, default=output_root() / "post-processing" / "trajectory-analysis"
     )
     parser.add_argument(
         "--runs",
@@ -590,8 +590,9 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             )
         if minimum_effective_samples < 20.0:
             warnings.append(
-                "At least one exact-reweighting member has fewer than 20 effective "
-                "frames; direct reweighting has poor overlap."
+                "At least one exact-reweighting member has fewer than 20 "
+                "weight-effective frames before accounting for MD autocorrelation; "
+                "direct reweighting has poor overlap."
             )
     for name, item in statistics.items():
         if abs(float(item["split_stationarity_z"])) > 2.0:

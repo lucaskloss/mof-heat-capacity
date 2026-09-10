@@ -41,10 +41,13 @@ CSV, manifest, workflow requirements, and temperature-sweep plot. These jobs use
 the production-appropriate `normal` QOS by default; the shorter `debug` QOS is
 reserved for testing. Output is grouped automatically by MLIP and loading; for
 example, `--model pet-mad --loading 100` writes below
-`output/post-processing/trajectory-analysis/pet-mad-1.5-s-40nn/100ch4/`. An explicit `--analysis-dir`
+`/work/cosmo/dealmeid/mof-heat-capacity/output/post-processing/trajectory-analysis/pet-mad-1.5-s-40nn/100ch4/`. An explicit `--analysis-dir`
 changes the base directory while retaining the model/loading subdirectories.
 Each run is below `<temperature>K/repNN/`, with concise products such as
 `summary.json`, `timeseries.csv`, and `structure.png`.
+LAMMPS thermo logs retain equilibration records, whereas the coordinate dump
+intentionally begins at the configured production start. Analysis aligns the
+two by their LAMMPS timestep, so their frame counts are not expected to match.
 
 `--model-uncertainty` additionally requires each configured exported model to
 provide a calibrated system-level `energy_ensemble` output. The optional
@@ -66,6 +69,15 @@ differentiating each persistent member's enthalpy curve. The CSV reports both
 direct and CEA results; use the CEA committee standard deviation as the primary
 large-system MLIP error bar and inspect `minimum_direct_effective_samples` and
 `maximum_dimensionless_delta_variance` before interpreting it.
+
+The CEA implementation follows the Atomistic Cookbook's
+[PET-MAD uncertainty example](https://atomistic-cookbook.org/examples/pet-mad-uq/pet-mad-uq.html#cumulant-expansion-approximation-cea),
+extended from its NVT RDF example to member-specific NPT enthalpy. The reported
+`direct_effective_samples` is a Kish count of normalized reweighting weights;
+it diagnoses overlap but is not adjusted for trajectory autocorrelation. The
+condition `maximum_dimensionless_delta_variance < 1` only avoids the code's
+severe warning. CEA formally requires this quantity to be much smaller than
+one, especially before differentiating the enthalpy curves into heat capacity.
 
 The same exported ensemble file, verified by SHA-256, must be used at every
 temperature and in every replica so member identities remain correlated across
@@ -95,6 +107,18 @@ structures and computes harmonic Hessians. The third combines classical
 enthalpy derivatives with the harmonic quantum correction. Their reusable
 implementations live in `mof_heat_capacity/analysis/`.
 
+Hessian submission defaults to fixed-cell `lbfgs-linesearch`, at most 10,000
+optimizer steps, and a maximum force of $0.001\ \mathrm{eV\ \AA^{-1}}$.
+These are deliberate minimum-validation settings: a saved Hessian with modes
+below the imaginary-frequency threshold is not accepted for hybrid assembly.
+Use `--optimizer`, `--relax-steps`, and `--fmax` only as explicit convergence
+tests, and record the overrides with the resulting archives.
+For a mixed recovery campaign, `--reuse-relaxed` retains every existing
+`optimized.extxyz` minimum and recomputes its Hessian, while submitting the
+longer relaxation only for cases without a saved converged minimum. This is
+different from `--hessian-only`, which requires an existing minimum for every
+selected case.
+
 Hybrid NPZ and CSV outputs contain the classical term, harmonic correction,
 and final approximate $C_P$ in both gravimetric $J g^{-1} K^{-1}$ and
 volumetric $J cm^{-3} K^{-1}$ units. A matching PNG plots all three curves and
@@ -108,9 +132,9 @@ Classical analysis and hybrid assembly default to the same 200–400 K grid in
 configurable harmonic diagnostic grid remains broader because normal-mode
 $C_V(T)$ is evaluated analytically and does not require neighboring MD runs.
 
-This workflow is independent of the simulation commands: results may be
-copied into the documented `output/` layout or selected explicitly where the
-underlying command supports a path. Only completed inputs are required.
+This workflow is independent of the simulation commands: results are read from
+the shared work output tree or selected explicitly where the underlying command
+supports a path. Only completed inputs are required.
 
 ## Commands
 

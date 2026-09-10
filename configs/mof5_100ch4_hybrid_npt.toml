@@ -3,10 +3,10 @@
 
 [run]
 name = "mof5-100ch4-hybrid-npt-300K-rep01"
-output_dir = "../output/md/production/REPLACE_WITH_MODEL_LABEL/100ch4/300K/rep01"
+output_dir = "/work/cosmo/dealmeid/mof-heat-capacity/output/md/production/REPLACE_WITH_MODEL_LABEL/100ch4/300K/rep01"
 
 [structure]
-path = "../output/md/structures/100ch4/300K/rep01/structure.pdb"
+path = "/work/cosmo/dealmeid/mof-heat-capacity/output/md/structures/100ch4/300K/rep01/structure.pdb"
 required_elements = ["C", "H", "O", "Zn"]
 
 [model]

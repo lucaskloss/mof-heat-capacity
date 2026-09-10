@@ -135,6 +135,71 @@ def _accumulate_rdf(
     return host_guest_counts, guest_guest_counts
 
 
+def _thermo_indices_by_timestep(
+    thermodynamic_series: dict[str, np.ndarray],
+) -> tuple[dict[int, int], int]:
+    """Index unique LAMMPS thermo records by their integer timestep.
+
+    A production trajectory can deliberately start after equilibration while
+    the thermo log retains the complete run.  The two files must therefore be
+    joined by LAMMPS timestep, rather than by their respective frame index.
+    """
+    required = {"md_step", "time_ps"}
+    missing = required.difference(thermodynamic_series)
+    if missing:
+        raise ValueError(
+            "thermodynamic series is missing required field(s): "
+            + ", ".join(sorted(missing))
+        )
+
+    lengths = {len(np.asarray(values)) for values in thermodynamic_series.values()}
+    if len(lengths) != 1 or not lengths or next(iter(lengths)) == 0:
+        raise ValueError("LAMMPS thermo series must be non-empty and equally sized")
+
+    steps = np.asarray(thermodynamic_series["md_step"])
+    times = np.asarray(thermodynamic_series["time_ps"], dtype=float)
+    if steps.ndim != 1 or times.ndim != 1:
+        raise ValueError("LAMMPS thermo step and time series must be one-dimensional")
+
+    indices: dict[int, int] = {}
+    duplicate_records = 0
+    for index, raw_step in enumerate(steps):
+        step = int(raw_step)
+        if step != raw_step:
+            raise ValueError("LAMMPS thermo contains a non-integer timestep")
+        previous_index = indices.get(step)
+        if previous_index is None:
+            indices[step] = index
+            continue
+        if not np.isclose(
+            times[index], times[previous_index], rtol=0.0, atol=1e-12
+        ):
+            raise ValueError("LAMMPS thermo contains an inconsistent repeated step/time")
+        duplicate_records += 1
+    return indices, duplicate_records
+
+
+def _lammps_dump_timesteps(trajectory_path: Path):
+    """Yield the timestep in each text LAMMPS dump frame.
+
+    ASE's LAMMPS-dump reader does not expose this header consistently across
+    ASE versions, so retain it from the source file while ASE reads positions.
+    """
+    with trajectory_path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.rstrip() != "ITEM: TIMESTEP":
+                continue
+            timestep = handle.readline()
+            if not timestep:
+                raise ValueError("LAMMPS trajectory ends after a timestep header")
+            try:
+                yield int(timestep)
+            except ValueError as error:
+                raise ValueError(
+                    "LAMMPS trajectory contains a non-integer timestep"
+                ) from error
+
+
 def read_trajectory_observables(
     trajectory_path: Path,
     *,
@@ -221,9 +286,25 @@ def read_trajectory_observables(
     rdf_guest_guest_ideal = None
     rdf_frames = 0
     raw_frame_count = 0
-    duplicate_thermo_frames = 0
+    thermo_indices: dict[int, int] | None = None
+    duplicate_thermo_records = 0
+    previous_dump_timestep: int | None = None
+    if thermodynamic_series is not None:
+        thermo_indices, duplicate_thermo_records = _thermo_indices_by_timestep(
+            thermodynamic_series
+        )
 
-    for raw_frame_index, atoms in enumerate(iread(str(trajectory_path), index=":")):
+    dump_timesteps = (
+        _lammps_dump_timesteps(trajectory_path)
+        if thermodynamic_series is not None
+        else None
+    )
+    frame_iterator = (
+        zip(iread(str(trajectory_path), index=":"), dump_timesteps, strict=True)
+        if dump_timesteps is not None
+        else ((atoms, None) for atoms in iread(str(trajectory_path), index=":"))
+    )
+    for raw_frame_index, (atoms, dump_timestep) in enumerate(frame_iterator):
         raw_frame_count = raw_frame_index + 1
         if atom_count is None:
             atom_count = len(atoms)
@@ -253,28 +334,21 @@ def read_trajectory_observables(
             raise ValueError("atom count or total mass changes along the trajectory")
 
         if thermodynamic_series is not None:
-            if raw_frame_index >= len(thermodynamic_series["time_ps"]):
+            timestep = dump_timestep
+            if (
+                previous_dump_timestep is not None
+                and timestep <= previous_dump_timestep
+            ):
                 raise ValueError(
-                    "trajectory has more frames than the LAMMPS thermo log"
+                    "LAMMPS trajectory timesteps must be strictly increasing"
                 )
-            if raw_frame_index > 0:
-                repeated_step = (
-                    thermodynamic_series["md_step"][raw_frame_index]
-                    == thermodynamic_series["md_step"][raw_frame_index - 1]
+            previous_dump_timestep = timestep
+            thermo_index = thermo_indices.get(timestep)
+            if thermo_index is None:
+                raise ValueError(
+                    "trajectory timestep "
+                    f"{timestep} is absent from the LAMMPS thermo log"
                 )
-                repeated_time = np.isclose(
-                    thermodynamic_series["time_ps"][raw_frame_index],
-                    thermodynamic_series["time_ps"][raw_frame_index - 1],
-                    rtol=0.0,
-                    atol=1e-12,
-                )
-                if repeated_step != repeated_time:
-                    raise ValueError(
-                        "LAMMPS thermo contains an inconsistent repeated step/time"
-                    )
-                if repeated_step:
-                    duplicate_thermo_frames += 1
-                    continue
 
         frame_index = len(series_lists["frame"])
         time_ps = frame_index * frame_spacing_fs / 1000.0
@@ -285,7 +359,7 @@ def read_trajectory_observables(
 
         if thermodynamic_series is not None:
             frame_values = {
-                name: values[raw_frame_index]
+                name: values[thermo_index]
                 for name, values in thermodynamic_series.items()
             }
             frame_values.update({
@@ -404,13 +478,6 @@ def read_trajectory_observables(
 
     if atom_count is None or total_mass_amu is None:
         raise ValueError(f"trajectory contains no frames: {trajectory_path}")
-    if thermodynamic_series is not None and raw_frame_count != len(
-        thermodynamic_series["time_ps"]
-    ):
-        raise ValueError(
-            "trajectory and LAMMPS thermo log contain different frame counts"
-        )
-
     rdf_centers = 0.5 * (rdf_edges[:-1] + rdf_edges[1:])
     host_guest_rdf = np.divide(
         rdf_host_guest,
@@ -434,7 +501,7 @@ def read_trajectory_observables(
             "chemical_formula": chemical_formula,
             "frames": len(series_lists["frame"]),
             "raw_frames": raw_frame_count,
-            "duplicate_restart_frames_removed": duplicate_thermo_frames,
+            "duplicate_thermo_records_ignored": duplicate_thermo_records,
             "frame_spacing_fs": frame_spacing_fs,
             "structural_stride": structural_stride,
             "rdf_stride": rdf_stride,

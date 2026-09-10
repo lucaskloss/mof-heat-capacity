@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+import re
 
 from ase import io
 
@@ -12,6 +14,7 @@ from ..io import write_lammps_data, write_structure_pdb
 from ..structures.methane import insert_molecules
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
+DEFAULT_OUTPUT_ROOT = Path("/work/cosmo/dealmeid/mof-heat-capacity/output")
 
 
 DEFAULT_REPLICAS = 1
@@ -49,6 +52,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--host", type=Path, default=PROJECT_DIR / "input" / "mof5.pdb")
     parser.add_argument("--methane", type=Path, default=PROJECT_DIR / "input" / "ch4.gro")
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=Path(os.environ.get("MOF_OUTPUT_ROOT", DEFAULT_OUTPUT_ROOT)),
+        help="Root for generated structures and MD outputs",
+    )
     parser.add_argument("--tries", type=int, default=20000)
     parser.add_argument("--min-distance", type=float, default=1.5)
     parser.add_argument("--seed-base", type=int, default=20250000)
@@ -92,6 +101,7 @@ def render_config(
     seed: int,
     loading: int,
     model_label: str,
+    output_root: Path,
     structure_path: Path,
     args: argparse.Namespace,
 ) -> tuple[str, str]:
@@ -104,17 +114,17 @@ def render_config(
     rendered = replace_once(
         rendered,
         (
-            'output_dir = "../output/md/production/'
+            'output_dir = "/work/cosmo/dealmeid/mof-heat-capacity/output/md/production/'
             'REPLACE_WITH_MODEL_LABEL/100ch4/300K/rep01"'
         ),
-        f'output_dir = "../output/md/production/{model_label}/{loading}ch4/'
+        f'output_dir = "{output_root}/md/production/{model_label}/{loading}ch4/'
         f'{temperature}K/rep{replica:02d}"',
     )
     rendered = rendered.replace(template_name, base_name)
     rendered = replace_once(
         rendered,
-        'path = "../output/md/structures/100ch4/300K/rep01/structure.pdb"',
-        f'path = "../{structure_path.relative_to(PROJECT_DIR)}"',
+        'path = "/work/cosmo/dealmeid/mof-heat-capacity/output/md/structures/100ch4/300K/rep01/structure.pdb"',
+        f'path = "{structure_path}"',
     )
     rendered = replace_once(rendered, "temperature_K = 300.0", f"temperature_K = {temperature}.0")
     rendered = replace_once(rendered, "seed = 202501", f"seed = {seed}")
@@ -161,8 +171,26 @@ def prepare_structure(
     write_lammps_data(data_path, combined)
 
 
+def update_output_paths(config_path: Path, rendered_config: str) -> bool:
+    """Update only generated-data paths in an existing campaign config."""
+    existing = config_path.read_text()
+    output_dir = re.search(r"^output_dir = .*$", rendered_config, flags=re.MULTILINE)
+    structure_path = re.search(r"^path = .*$", rendered_config, flags=re.MULTILINE)
+    if output_dir is None or structure_path is None:
+        raise ValueError("rendered configuration is missing generated-data paths")
+    updated = re.sub(r"^output_dir = .*$", output_dir.group(), existing, flags=re.MULTILINE)
+    updated = re.sub(r"^path = .*$", structure_path.group(), updated, flags=re.MULTILINE)
+    if updated == existing:
+        return False
+    config_path.write_text(updated)
+    return True
+
+
 def main() -> None:
     args = parse_args()
+    output_root = args.output_root.expanduser()
+    if not output_root.is_absolute():
+        output_root = (PROJECT_DIR / output_root).resolve()
     if args.force and args.skip_existing:
         raise ValueError("--force and --skip-existing are mutually exclusive")
     if args.loading == 0:
@@ -208,7 +236,7 @@ def main() -> None:
         for replica in range(1, replicas + 1):
             seed = args.seed_base + temperature * 100 + replica
             structure_dir = (
-                PROJECT_DIR / "output" / "md" / "structures" / f"{args.loading}ch4"
+                output_root / "md" / "structures" / f"{args.loading}ch4"
                 / f"{temperature}K" / f"rep{replica:02d}"
             )
             structure_path = structure_dir / "structure.pdb"
@@ -220,6 +248,7 @@ def main() -> None:
                 seed=seed,
                 loading=args.loading,
                 model_label=str(preset["label"]),
+                output_root=output_root,
                 structure_path=structure_path,
                 args=args,
             )
@@ -232,14 +261,18 @@ def main() -> None:
             )
             historical_config_path = PROJECT_DIR / "configs" / f"{name}.toml"
             config_text = config_text.replace('"../', '"../../../')
-            print(f"{config_path.relative_to(PROJECT_DIR)} -> {structure_path.relative_to(PROJECT_DIR)}")
+            print(f"{config_path.relative_to(PROJECT_DIR)} -> {structure_path}")
             if args.dry_run:
                 count += 1
                 continue
             if historical_config_path.is_file() and args.skip_existing:
+                if update_output_paths(historical_config_path, config_text):
+                    print(f"Updated output paths: {historical_config_path}")
                 print(f"Keeping historical configuration: {historical_config_path}")
                 continue
             if config_path.exists() and args.skip_existing:
+                if update_output_paths(config_path, config_text):
+                    print(f"Updated output paths: {config_path}")
                 print(f"Keeping existing configuration: {config_path}")
                 continue
             if config_path.exists() and not args.force:

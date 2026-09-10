@@ -10,7 +10,13 @@ The LLPR definition follows Bigi *et al.*,
 [*A prediction rigidity formalism for low-cost uncertainties in trained neural
 networks*](https://doi.org/10.1088/2632-2153/ad805f), and its implementation
 here uses the
-[metatrain LLPR wrapper](https://metatrain.readthedocs.io/en/stable/architectures/generated/llpr.html).
+[metatrain LLPR wrapper](https://docs.metatensor.org/metatrain/latest/architectures/generated/llpr.html).
+Metatrain's
+[basic LLPR tutorial](https://docs.metatensor.org/metatrain/latest/generated_examples/1-advanced/01-llpr.html)
+demonstrates the analytical `energy_uncertainty` output. This project additionally
+follows the
+[LLPR shallow-ensemble tutorial](https://docs.metatensor.org/metatrain/latest/generated_examples/1-advanced/08-llpr-ensemble-training.html)
+because CEA requires the signed, member-resolved `energy_ensemble` output.
 CEA follows Imbalzano *et al.* as summarized in
 [IMBALZANO_2021_UNCERTAINTY.md](IMBALZANO_2021_UNCERTAINTY.md).
 
@@ -75,7 +81,9 @@ calibrate that model's uncertainty.
 
 Both inputs may be extended XYZ files. `--energy-key` selects the reference
 energy property and defaults to `energy`; the default units are eV and
-angstrom.
+angstrom. The explicit files used here are equivalent to metatrain's tutorial
+split: the training file constructs the feature covariance and the separate
+validation file calibrates the global uncertainty scale.
 
 ## Build an ensemble
 
@@ -96,11 +104,28 @@ models/pet-mad-1.5-s-llpr-ensemble.pt
 models/pet-sol-s-best-llpr-ensemble.pt
 ```
 
-The command invokes metatrain's `llpr` architecture without `num_epochs`, so it
-computes and calibrates analytical LLPR and samples shallow members without
-additional gradient training. It refuses to overwrite an existing model. The
-generated provenance file records the base and LLPR checkpoints, datasets,
-hashes, options, software versions, and export validation results.
+The command invokes metatrain's `llpr` architecture with `num_epochs: null`, so
+it computes and calibrates analytical LLPR and samples shallow members without
+additional gradient training. A positive value would enable the optional
+gradient-based training described by metatrain's ensemble tutorial and is not
+part of this workflow. The central generated configuration is equivalent to:
+
+```yaml
+architecture:
+  name: llpr
+  model:
+    num_ensemble_members: {energy: 32}
+  training:
+    model_checkpoint: /path/to/base-model.ckpt
+    batch_size: 4
+    num_epochs: null
+```
+
+`num_ensemble_members` is what adds `energy_ensemble`; a basic LLPR model with
+only analytical uncertainty is insufficient for CEA. The command refuses to
+overwrite an existing model. The generated provenance file records the base
+and LLPR checkpoints, datasets, hashes, options, software versions, and export
+validation results.
 
 The post-export check requires `energy`, `energy_uncertainty`, and
 `energy_ensemble`, verifies the requested member count, rejects non-finite
@@ -128,6 +153,15 @@ effective sample counts and `var(beta Delta V)` alongside the CEA curve. CEA
 model spread does not replace autocorrelation-aware MD sampling errors or
 independent replicas.
 
+The implementation follows the direct-reweighting and CEA conventions in the
+Atomistic Cookbook's
+[PET-MAD uncertainty recipe](https://atomistic-cookbook.org/examples/pet-mad-uq/pet-mad-uq.html#cumulant-expansion-approximation-cea).
+That example reweights an RDF in NVT. Here the sampled ensemble is NPT, but the
+member-to-central probability ratio still depends only on the potential-energy
+difference because the external-pressure term is common to both potentials.
+The member observable is the enthalpy, including its own member potential and
+the saved $P_{\mathrm{ext}}\mathcal V$ term.
+
 For every selected production frame $t$ at temperature $T$, the analysis reads
 the trajectory-driving energy $\bar V_t$, kinetic energy $K_t$, and volume
 $\mathcal V_t$, and evaluates every LLPR member energy $V_t^{(i)}$. It then
@@ -153,12 +187,20 @@ spread, and it is not divided by $\sqrt M$: the members represent a predictive
 distribution, rather than $M$ repeated measurements used to estimate its
 mean.
 
+The tutorial warns that first-order CEA must be used cautiously for nonlinear
+observables such as heat capacity. This workflow applies CEA to mean enthalpy
+at each temperature and only then differentiates each member's curve; it does
+not apply CEA directly to an enthalpy-fluctuation estimator. Nevertheless,
+`var(beta Delta V) << 1` is still required at every temperature, and a value
+below the code's severe-warning threshold of 1 is not by itself evidence that
+higher-order terms are negligible.
+
 ## Where every reported uncertainty is calculated
 
 | Reported quantity | Calculation | Code location | Main output |
 | --- | --- | --- | --- |
 | Framewise LLPR energy standard deviation | Calibrated last-layer feature covariance, equation above | metatrain during LLPR preparation and inference | `energy_uncertainty`; archived as `analytical_energy_uncertainty_eV` in each `model_uncertainty.npz` |
-| Direct-reweighting overlap | $N_{\mathrm{eff}}=1/\sum_t\widetilde w_t^2$ for each member | [`committee_enthalpy_estimates`](../mof_heat_capacity/analysis/uncertainty.py) | `direct_effective_samples` |
+| Direct-reweighting overlap | Kish weight count $N_{\mathrm{eff}}=1/\sum_t\widetilde w_t^2$ for each member; not autocorrelation-adjusted | [`committee_enthalpy_estimates`](../mof_heat_capacity/analysis/uncertainty.py) | `direct_effective_samples` |
 | CEA validity diagnostic | $\operatorname{var}_t(\beta\Delta V_t^{(i)})$ | [`committee_enthalpy_estimates`](../mof_heat_capacity/analysis/uncertainty.py) | `dimensionless_delta_variance` |
 | Classical LLPR model error | Sample standard deviation across member-resolved CEA $C_P$ curves | [`write_model_uncertainty_outputs`](../mof_heat_capacity/analysis/results.py) | `cea_cp_model_standard_deviation_J_per_gK` |
 | MD sampling error | Correlated standard error $s/\sqrt{N_{\mathrm{eff}}}$ within a run, then within- and between-replica contributions | [`summarize_series`](../mof_heat_capacity/analysis/statistics.py) and [`_enthalpy_records`](../mof_heat_capacity/analysis/hybrid.py) | `classical_anharmonic_cp_standard_error_J_per_gK` |

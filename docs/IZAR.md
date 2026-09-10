@@ -7,10 +7,10 @@ quantum correction. Empty MOF-5 does not receive an MD job.
 Run commands from the repository root on an Izar login node. CUDA validation
 belongs inside a Slurm allocation, not on the login node.
 
-Store trajectory and restart data on scratch, not in the home-folder checkout:
+Store trajectory and restart data in the shared work location:
 
 ```bash
-export MOF_OUTPUT_ROOT="${SCRATCH}/mof-heat-capacity/output"
+export MOF_OUTPUT_ROOT="/work/cosmo/dealmeid/mof-heat-capacity/output"
 export MOF_SLURM_OUTPUT_DIR="${MOF_OUTPUT_ROOT}/slurm"
 ```
 
@@ -48,8 +48,7 @@ configs/<model>/<loading>ch4/<temperature>K-repNN.toml
 ```
 
 The model directory is the generated MLIP label, such as
-`pet-mad-1.5-s-40nn` or `pet-sol-s-best`. Existing runs in the former
-loading-first layout remain discoverable and resumable.
+`pet-mad-1.5-s-40nn` or `pet-sol-s-best`.
 
 `--resume` remains available for manual recovery. It continues production from
 the latest numeric LAMMPS restart toward the TOML's absolute step target.

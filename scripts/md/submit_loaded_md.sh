@@ -22,8 +22,8 @@ if [[ -n "${MOF_MD_TIME:-}" ]]; then
     WALL_TIME_SET=1
 fi
 CPUS_PER_TASK="${MOF_MD_CPUS:-8}"
-DEFAULT_OUTPUT_ROOT="${SCRATCH:+${SCRATCH}/mof-heat-capacity/output}"
-OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT:-${PROJECT_DIR}/output}}"
+DEFAULT_OUTPUT_ROOT="/work/cosmo/dealmeid/mof-heat-capacity/output"
+OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
 if [[ "${OUTPUT_ROOT}" != /* ]]; then
     OUTPUT_ROOT="${PROJECT_DIR}/${OUTPUT_ROOT}"
 fi
@@ -176,6 +176,7 @@ prepare_campaign() {
             --loading "${LOADING}" \
             --temperatures "${temperature_list}" \
             --replicas "${REPLICAS}" \
+            --output-root "${OUTPUT_ROOT}" \
             --skip-existing
     done
 }
@@ -441,18 +442,7 @@ for index in "${!CONFIGS[@]}"; do
         rerun=1
     fi
     output_dir="${OUTPUT_ROOT}/md/${stage}/${model_label}/${LOADING}ch4/${temperature}K/rep${replica_tag}"
-    historical_output_dir="output/classical/${stage}/${model_label}/${LOADING}ch4/${stem}"
-    legacy_output_dir="output/classical/${stage}/${LOADING}ch4/${stem}"
     output_prefix="md${prefix_suffix}"
-    if [[ "${stage}" == "production" && -d "${historical_output_dir}" ]]; then
-        output_dir="${historical_output_dir}"
-        output_prefix="${stem}${prefix_suffix}"
-        echo "Using existing historical run directory: ${output_dir}"
-    elif [[ "${stage}" == "production" && -d "${legacy_output_dir}" ]]; then
-        output_dir="${legacy_output_dir}"
-        output_prefix="${stem}${prefix_suffix}"
-        echo "Using existing legacy run directory: ${output_dir}"
-    fi
     final_restart="${output_dir}/${output_prefix}.restart.final"
     if ((RESUME)) && [[ -f "${final_restart}" ]]; then
         echo "Skipping completed production run: ${stem}"

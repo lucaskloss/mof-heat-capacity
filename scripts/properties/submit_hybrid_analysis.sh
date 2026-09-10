@@ -18,8 +18,10 @@ CPUS_PER_TASK="${MOF_ANALYSIS_CPUS:-4}"
 ZERO_THRESHOLD_CM1="1.0"
 MAX_NEAR_ZERO_MODES=3
 AFTEROK=""
-SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${PROJECT_DIR}/output/slurm}"
-ANALYSIS_DIR="output/post-processing/trajectory-analysis"
+DEFAULT_OUTPUT_ROOT="/work/cosmo/dealmeid/mof-heat-capacity/output"
+OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
+SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
+ANALYSIS_DIR="${OUTPUT_ROOT}/post-processing/trajectory-analysis"
 MODEL_UNCERTAINTY=0
 DRY_RUN=0
 
@@ -128,8 +130,8 @@ Options:
   --model-uncertainty     Include the CEA committee spread produced by
                           submit_analysis.sh --model-uncertainty.
   --analysis-dir PATH     Trajectory-analysis root used to find that archive
-                          (default: output/post-processing/trajectory-analysis).
-  --slurm-output-dir PATH Slurm log directory (default: output/slurm).
+                          (default: /work/cosmo/dealmeid/mof-heat-capacity/output/post-processing/trajectory-analysis).
+  --slurm-output-dir PATH Slurm log directory (default: /work/cosmo/dealmeid/mof-heat-capacity/output/slurm).
   --dry-run               Print submissions without calling sbatch.
   -h, --help              Show this help.
 
@@ -227,6 +229,13 @@ done
 if [[ "${SLURM_OUTPUT_DIR}" != /* ]]; then
     SLURM_OUTPUT_DIR="${PROJECT_DIR}/${SLURM_OUTPUT_DIR}"
 fi
+if [[ "${OUTPUT_ROOT}" != /* ]]; then
+    OUTPUT_ROOT="${PROJECT_DIR}/${OUTPUT_ROOT}"
+fi
+export MOF_OUTPUT_ROOT="${OUTPUT_ROOT}"
+if [[ "${ANALYSIS_DIR}" != /* ]]; then
+    ANALYSIS_DIR="${PROJECT_DIR}/${ANALYSIS_DIR}"
+fi
 if ((!DRY_RUN)) && ! command -v sbatch >/dev/null 2>&1; then
     echo "error: sbatch is unavailable; submit from a cluster login node" >&2
     exit 2
@@ -244,7 +253,7 @@ if [[ -n "${AFTEROK}" ]]; then
     echo "Upstream afterok jobs: ${AFTEROK}"
 fi
 for model_label in "${MODEL_LABELS[@]}"; do
-    output="output/post-processing/harmonic-correction/${model_label}/${LOADING}ch4/heat-capacity.npz"
+    output="${OUTPUT_ROOT}/post-processing/harmonic-correction/${model_label}/${LOADING}ch4/heat-capacity.npz"
     model_uncertainty_path="${ANALYSIS_DIR}/${model_label}/${LOADING}ch4/model_uncertainty_heat_capacity.npz"
     slurm_hybrid_dir="${SLURM_OUTPUT_DIR}/hybrid-analysis/${model_label}/${LOADING}ch4"
     command=(

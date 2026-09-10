@@ -30,7 +30,9 @@ PARTITION="${MOF_LLPR_PARTITION:-gpu}"
 QOS="${MOF_LLPR_QOS:-normal}"
 WALL_TIME="${MOF_LLPR_TIME:-04:00:00}"
 CPUS_PER_TASK="${MOF_LLPR_CPUS:-4}"
-SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${PROJECT_DIR}/output/slurm}"
+DEFAULT_OUTPUT_ROOT="/work/cosmo/dealmeid/mof-heat-capacity/output"
+OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
+SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
 DRY_RUN=0
 
 
@@ -66,15 +68,17 @@ Slurm options:
   --qos NAME               QOS (default: normal).
   --time HH:MM:SS          Wall time (default: 04:00:00).
   --cpus N                 CPUs per task (default: 4).
-  --slurm-output-dir PATH  Slurm log root (default: output/slurm).
+  --slurm-output-dir PATH  Slurm log root (default: /work/cosmo/dealmeid/mof-heat-capacity/output/slurm).
   --dry-run                Validate and print options/submission without writing.
   -h, --help               Show this help.
 
 The input files must carry reference energies from the same electronic-structure
 definition as the base model. The validation file must be disjoint from the
-covariance/training file. This command samples LLPR last-layer weights without
-additional gradient training and exports energy, energy_uncertainty, and
-energy_ensemble for CEA post-processing.
+covariance/training file. This command sets num_epochs to null, samples LLPR
+last-layer weights without additional gradient training, and exports energy,
+energy_uncertainty, and energy_ensemble for CEA post-processing. Basic LLPR
+without num_ensemble_members exports no member-resolved energy_ensemble and is
+therefore insufficient for CEA.
 EOF
 }
 

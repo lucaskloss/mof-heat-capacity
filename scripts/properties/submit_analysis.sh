@@ -15,12 +15,14 @@ LOADINGS="100"
 TEMPERATURES="200,225,250,275,300,325,350,375,400"
 REPLICAS="1"
 DISCARD_PS="100"
-ANALYSIS_DIR="output/post-processing/trajectory-analysis"
+DEFAULT_OUTPUT_ROOT="/work/cosmo/dealmeid/mof-heat-capacity/output"
+OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
+ANALYSIS_DIR="${OUTPUT_ROOT}/post-processing/trajectory-analysis"
 PARTITION="${MOF_ANALYSIS_PARTITION:-gpu}"
 QOS="${MOF_ANALYSIS_QOS:-normal}"
 WALL_TIME="${MOF_ANALYSIS_TIME:-01:15:00}"
 CPUS_PER_TASK="${MOF_ANALYSIS_CPUS:-4}"
-SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${PROJECT_DIR}/output/slurm}"
+SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
 NO_PLOTS=0
 MODEL_UNCERTAINTY=0
 UNCERTAINTY_MODEL=""
@@ -33,7 +35,7 @@ DRY_RUN=0
 run_analysis_worker() {
     local runs=""
     local discard_ps="100"
-    local analysis_dir="output/post-processing/trajectory-analysis"
+    local analysis_dir="${MOF_OUTPUT_ROOT:-/work/cosmo/dealmeid/mof-heat-capacity/output}/post-processing/trajectory-analysis"
     local no_plots=0
     local model_uncertainty=0
     local uncertainty_model=""
@@ -159,12 +161,12 @@ Options:
   --runs PATTERN          Advanced: explicit run-name glob(s); overrides selectors.
   --discard-ps VALUE      Initial trajectory time to discard (default: 100 ps).
   --analysis-dir PATH     Analysis output override (default:
-                          output/post-processing/trajectory-analysis/<model>/<loading>ch4).
+                          /work/cosmo/dealmeid/mof-heat-capacity/output/post-processing/trajectory-analysis/<model>/<loading>ch4).
   --partition NAME        Slurm partition (default: gpu).
   --qos NAME              Slurm QOS (default: normal).
   --time HH:MM:SS         Wall time (default: 01:15:00).
   --cpus N                CPUs for each trajectory-analysis job (default: 4).
-  --slurm-output-dir PATH Slurm log directory (default: output/slurm).
+  --slurm-output-dir PATH Slurm log directory (default: /work/cosmo/dealmeid/mof-heat-capacity/output/slurm).
   --no-plots              Skip PNG generation.
   --model-uncertainty     Evaluate energy_ensemble on production frames and
                           propagate model uncertainty into classical C_P.
@@ -186,6 +188,12 @@ job. A small dependent job assembles
 the combined CSV, manifest, and temperature-sweep plot. By default, loaded
 classical replica 1 is selected from 200 to 400 K in 25 K steps for both MLIPs.
 Empty MOF-5 has no MD stage in the hybrid workflow.
+
+Model-uncertainty analysis uses first-order CEA on member-specific NPT
+enthalpies, then differentiates the complete member curves to obtain C_P. Check
+that var(beta Delta V) is much smaller than one at every temperature. The
+reported direct effective-sample count measures normalized-weight concentration
+and is not adjusted for MD autocorrelation.
 EOF
 }
 
@@ -285,6 +293,13 @@ fi
 if [[ -z "${RUNS}" || -z "${ANALYSIS_DIR}" || -z "${SLURM_OUTPUT_DIR}" ]]; then
     echo "error: run pattern and output directories must not be empty" >&2
     exit 2
+fi
+if [[ "${OUTPUT_ROOT}" != /* ]]; then
+    OUTPUT_ROOT="${PROJECT_DIR}/${OUTPUT_ROOT}"
+fi
+export MOF_OUTPUT_ROOT="${OUTPUT_ROOT}"
+if [[ "${ANALYSIS_DIR}" != /* ]]; then
+    ANALYSIS_DIR="${PROJECT_DIR}/${ANALYSIS_DIR}"
 fi
 if [[ "${SLURM_OUTPUT_DIR}" != /* ]]; then
     SLURM_OUTPUT_DIR="${PROJECT_DIR}/${SLURM_OUTPUT_DIR}"

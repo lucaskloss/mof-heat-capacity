@@ -29,13 +29,13 @@ def parse_args() -> argparse.Namespace:
         help="Frame index for a trajectory input (default: final frame)",
     )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--fmax", type=float, default=0.01)
-    parser.add_argument("--steps", type=int, default=2000)
+    parser.add_argument("--fmax", type=float, default=0.001)
+    parser.add_argument("--steps", type=int, default=10000)
     parser.add_argument(
         "--optimizer",
         choices=("fire", "lbfgs-linesearch"),
-        default="fire",
-        help="Geometry optimizer (default: fire)",
+        default="lbfgs-linesearch",
+        help="Geometry optimizer (default: lbfgs-linesearch)",
     )
     parser.add_argument("--device", default="cuda")
     parser.add_argument(

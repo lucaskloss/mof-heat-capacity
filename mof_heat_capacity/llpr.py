@@ -14,6 +14,8 @@ import subprocess
 
 import numpy as np
 
+from .config import output_root
+
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
@@ -137,7 +139,7 @@ def resolve_inputs(args: argparse.Namespace) -> dict[str, Path]:
     validation_set = args.validation_set.expanduser().resolve()
     work_dir = (
         args.work_dir
-        or PROJECT_DIR / "output" / "model-preparation" / "llpr" / preset["label"]
+        or output_root() / "model-preparation" / "llpr" / preset["label"]
     ).expanduser().resolve()
 
     for description, path in (
@@ -189,7 +191,12 @@ def metatrain_options(args: argparse.Namespace, paths: dict[str, Path]) -> dict:
         "num_workers": args.num_workers,
         "regularizer": args.regularizer,
         "calibration_method": args.calibration_method,
+        # Keep this workflow covariance/calibration-only. In metatrain, setting
+        # a positive epoch count enables gradient training of the sampled
+        # shallow-ensemble weights.
+        "num_epochs": None,
     }
+
     def dataset(path: Path) -> dict:
         return {
             "systems": {

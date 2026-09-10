@@ -9,14 +9,15 @@ import numpy as np
 from ase import Atoms, io
 from ase.geometry import get_distances
 
+from ..config import output_root
 from ..io import write_lammps_data, write_structure_pdb
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_HOST = PROJECT_DIR / "input" / "mof5.pdb"
 DEFAULT_METHANE = PROJECT_DIR / "input" / "ch4.gro"
-DEFAULT_OUTPUT = PROJECT_DIR / "output" / "mof5-pet-mad" / "mof5-md.pdb"
-DEFAULT_DATA_OUTPUT = PROJECT_DIR / "output" / "mof5-pet-mad" / "mof5-md.data"
+DEFAULT_OUTPUT = output_root() / "mof5-pet-mad" / "mof5-md.pdb"
+DEFAULT_DATA_OUTPUT = output_root() / "mof5-pet-mad" / "mof5-md.data"
 
 
 def parse_args() -> argparse.Namespace:

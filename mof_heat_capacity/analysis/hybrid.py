@@ -6,6 +6,7 @@ import argparse
 import csv
 import json
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,7 @@ from .statistics import AMU_TO_G, EV_TO_J, KB_EV_PER_K, summarize_series
 BAR_A3_TO_EV = 6.241509074e-7
 HC_OVER_K_CM_K = 1.438776877
 ANGSTROM3_TO_CM3 = 1.0e-24
+DEFAULT_OUTPUT_ROOT = Path("/work/cosmo/dealmeid/mof-heat-capacity/output")
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,7 +38,12 @@ def parse_args() -> argparse.Namespace:
         help="Classical-MD grid (default: 200 to 400 K in 25 K steps)",
     )
     parser.add_argument("--configs-dir", type=Path, default=Path("configs"))
-    parser.add_argument("--hybrid-dir", type=Path, default=Path("output/post-processing/harmonic-correction"))
+    parser.add_argument(
+        "--hybrid-dir",
+        type=Path,
+        default=Path(os.environ.get("MOF_OUTPUT_ROOT", DEFAULT_OUTPUT_ROOT))
+        / "post-processing/harmonic-correction",
+    )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--zero-threshold-cm1", type=float, default=1.0)
     parser.add_argument(
@@ -547,8 +554,9 @@ def run(args: argparse.Namespace) -> Path:
             ]
         ) < 20.0:
             print(
-                "WARNING: direct committee reweighting has fewer than 20 effective "
-                "frames at one or more temperatures"
+                "WARNING: direct committee reweighting has fewer than 20 "
+                "weight-effective frames before accounting for MD autocorrelation "
+                "at one or more temperatures"
             )
         if max(
             model_uncertainty_record[
