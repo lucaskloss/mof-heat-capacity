@@ -17,8 +17,7 @@ Run commands from the repository root:
 ./scripts/properties/submit_analysis.sh --model pet-mad --loading 100 \
   --replicas 1
 ./scripts/properties/submit_analysis.sh --model pet-mad --loading 100 \
-  --replicas 1 --model-uncertainty \
-  --uncertainty-model models/pet-mad-1.5-s-llpr-ensemble.pt
+  --replicas 1 --model-uncertainty
 ./scripts/properties/submit_heat_capacity.sh --model both --loading 100 \
   --source-temperatures 200,225,250,275,300,325,350,375,400 --replicas 1
 ./scripts/properties/submit_hybrid_analysis.sh --model both --loading 100 \
@@ -49,10 +48,11 @@ LAMMPS thermo logs retain equilibration records, whereas the coordinate dump
 intentionally begins at the configured production start. Analysis aligns the
 two by their LAMMPS timestep, so their frame counts are not expected to match.
 
-`--model-uncertainty` additionally requires each configured exported model to
-provide a calibrated system-level `energy_ensemble` output. The optional
-analytical `energy_uncertainty` output is archived when present. Use
-`--uncertainty-model` to select a calibrated LLPR/ensemble export
+`--model-uncertainty` uses the matching calibrated LLPR checkpoint by default
+and combines its persistent readouts with system-level last-layer features
+from the configured central export. Analytical `energy_uncertainty` is also
+reconstructed and archived. Use `--uncertainty-model` to select another LLPR
+checkpoint or a compatible exported ensemble
 without changing the central model recorded in the MD configuration. One
 override can analyze only one MLIP per submission; invoke `--model pet-mad` and
 `--model pet-sol` separately when their ensemble exports differ. The analysis
@@ -79,13 +79,12 @@ condition `maximum_dimensionless_delta_variance < 1` only avoids the code's
 severe warning. CEA formally requires this quantity to be much smaller than
 one, especially before differentiating the enthalpy curves into heat capacity.
 
-The same exported ensemble file, verified by SHA-256, must be used at every
+The same LLPR ensemble, verified by SHA-256, must be used at every
 temperature and in every replica so member identities remain correlated across
-the derivative. This model band applies to the classical NPT contribution. It
-does not replace the existing sampling uncertainty or quantify uncertainty in
-the separate PET-JAX harmonic correction; those terms must remain separately
-labeled or be combined only under an explicitly justified independence
-assumption.
+the derivative. It does not replace the existing sampling uncertainty. The
+Hessian workflow propagates the same persistent readouts through PET-JAX at
+the central minimum and reports the harmonic model contribution separately.
+Member-specific geometry relaxation remains outside the uncertainty estimate.
 
 After a model-uncertainty analysis has completed, include its classical CEA
 band in final assembly with:
@@ -96,21 +95,27 @@ band in final assembly with:
 ```
 
 The hybrid NPZ and CSV then retain the original sampling `standard_error`, the
-classical `model_standard_deviation`, and a
-`combined_standard_uncertainty`. The plotted classical and hybrid bands use
-the combined value. The combination is a quadrature summary under an explicit
-independence assumption; the component arrays should be used when correlations
-cannot be neglected.
+classical and harmonic `model_standard_deviation` components, and a
+`combined_standard_uncertainty`. Classical and harmonic deviations are added
+member by member before the hybrid model spread is evaluated; only the final
+combination of sampling and LLPR model uncertainty uses quadrature.
 
 The first command produces trajectory diagnostics. The second relaxes selected
 structures and computes harmonic Hessians. The third combines classical
 enthalpy derivatives with the harmonic quantum correction. Their reusable
 implementations live in `mof_heat_capacity/analysis/`.
 
-Hessian submission defaults to fixed-cell `lbfgs-linesearch`, at most 10,000
+Hessian submission defaults to fixed-cell `lbfgs-linesearch`, at most 20,000
 optimizer steps, and a maximum force of $0.001\ \mathrm{eV\ \AA^{-1}}$.
 These are deliberate minimum-validation settings: a saved Hessian with modes
 below the imaginary-frequency threshold is not accepted for hybrid assembly.
+Each archive includes the central Hessian spectrum and all 64 LLPR-member
+spectra by default, so its wall time is substantially longer than a central-only
+calculation. Benchmark a representative allocation before selecting `--time`;
+use `--no-model-uncertainty` only for an explicitly central-only diagnostic.
+LLPR Hessians use `float64` because the sampled last-layer weights contain
+cancellation-sensitive covariance directions; central-only runs retain the
+configured precision unless `--dtype` is supplied.
 Use `--optimizer`, `--relax-steps`, and `--fmax` only as explicit convergence
 tests, and record the overrides with the resulting archives.
 For a mixed recovery campaign, `--reuse-relaxed` retains every existing

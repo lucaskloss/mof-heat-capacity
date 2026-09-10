@@ -11,6 +11,77 @@ from .statistics import KB_EV_PER_K
 
 
 BAR_A3_TO_EV = 6.241509074e-7
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+DEFAULT_LLPR_CHECKPOINTS = {
+    "pet-mad-1.5-s-40nn": PROJECT_DIR
+    / "models"
+    / "pet-mad-1.5-s_40nn_nostress-llpr.ckpt",
+    "pet-sol-s-best": PROJECT_DIR
+    / "models"
+    / "pet_sol-s-best_nostress-llpr.ckpt",
+}
+
+
+def default_llpr_checkpoint(run_name: str) -> Path:
+    """Return the calibrated LLPR checkpoint associated with a run name."""
+    matches = [
+        path for label, path in DEFAULT_LLPR_CHECKPOINTS.items() if label in run_name
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"cannot determine the LLPR checkpoint for {run_name!r}")
+    return matches[0]
+
+
+def load_llpr_energy_parameters(path: Path) -> dict[str, np.ndarray | float | str]:
+    """Load persistent energy members and calibration data from an LLPR checkpoint."""
+    import metatomic.torch  # noqa: F401  (registers metadata for torch.load)
+    import torch
+
+    checkpoint = Path(path).expanduser().resolve()
+    if not checkpoint.is_file():
+        raise FileNotFoundError(f"LLPR checkpoint not found: {checkpoint}")
+    loaded = torch.load(str(checkpoint), weights_only=False, map_location="cpu")
+    if loaded.get("architecture_name") != "llpr":
+        raise ValueError(f"uncertainty checkpoint is not an LLPR model: {checkpoint}")
+    state = loaded.get("model_state_dict")
+    wrapped = loaded.get("wrapped_model_checkpoint")
+    if not isinstance(state, dict) or not isinstance(wrapped, dict):
+        raise ValueError(f"invalid LLPR checkpoint structure: {checkpoint}")
+    try:
+        weights = state["llpr_ensemble_layers.energy.weight"]
+        cholesky = state["cholesky_energy_uncertainty"]
+        multiplier = state["multiplier_energy_uncertainty"]
+        wrapped_state = wrapped["model_state_dict"]
+        node = wrapped_state[
+            "backend.node_last_layers.energy.0.energy___0.weight"
+        ]
+        edge = wrapped_state[
+            "backend.edge_last_layers.energy.0.energy___0.weight"
+        ]
+    except KeyError as error:
+        raise ValueError(
+            f"LLPR checkpoint lacks PET energy ensemble data: {checkpoint}"
+        ) from error
+    weights = weights.detach().cpu().numpy().astype(float, copy=False)
+    central_weights = np.concatenate(
+        [
+            node.detach().cpu().numpy().reshape(-1),
+            edge.detach().cpu().numpy().reshape(-1),
+        ]
+    )
+    if weights.ndim != 2 or weights.shape[0] < 2:
+        raise ValueError("LLPR energy ensemble must contain at least two members")
+    if weights.shape[1] != central_weights.size:
+        raise ValueError("LLPR and wrapped PET last-layer sizes do not match")
+    effective_weights = weights - weights.mean(axis=0) + central_weights
+    return {
+        "weights": effective_weights,
+        "central_weights": central_weights,
+        "cholesky": cholesky.detach().cpu().numpy().astype(float, copy=False),
+        "multiplier": float(multiplier.detach().cpu().numpy().reshape(-1)[0]),
+        "sha256": _model_sha256(checkpoint),
+        "path": str(checkpoint),
+    }
 
 
 def committee_enthalpy_estimates(
@@ -105,6 +176,7 @@ def evaluate_trajectory_committee(
     production_mask: np.ndarray,
     *,
     model_path: Path,
+    central_model_path: Path | None = None,
     device: str,
     temperature_K: float,
     pressure_bar: float,
@@ -137,22 +209,41 @@ def evaluate_trajectory_committee(
     selected_raw = unique_raw_indices[selected_unique]
     selected_raw_set = set(int(index) for index in selected_raw)
 
-    loaded_model = metatomic_torch.load_atomistic_model(str(model))
+    checkpoint_mode = model.suffix == ".ckpt"
+    llpr = load_llpr_energy_parameters(model) if checkpoint_mode else None
+    inference_model = (
+        central_model_path.expanduser().resolve()
+        if checkpoint_mode and central_model_path is not None
+        else model
+    )
+    if not inference_model.is_file():
+        raise FileNotFoundError(f"central exported model not found: {inference_model}")
+    loaded_model = metatomic_torch.load_atomistic_model(str(inference_model))
     capabilities = set(loaded_model.capabilities().outputs)
-    missing = sorted({"energy", "energy_ensemble"}.difference(capabilities))
+    required = (
+        {"energy", "mtt::aux::energy_last_layer_features"}
+        if checkpoint_mode
+        else {"energy", "energy_ensemble"}
+    )
+    missing = sorted(required.difference(capabilities))
     if missing:
         raise ValueError(
-            "uncertainty model is missing required output(s): " + ", ".join(missing)
+            "uncertainty inference model is missing output(s): " + ", ".join(missing)
         )
-    has_analytical_uncertainty = "energy_uncertainty" in capabilities
+    has_analytical_uncertainty = (
+        checkpoint_mode or "energy_uncertainty" in capabilities
+    )
     del loaded_model
-    calculator = MetatomicCalculator(str(model), device=device)
-    requested = {
-        "energy": ModelOutput(sample_kind="system"),
-        "energy_ensemble": ModelOutput(sample_kind="system"),
-    }
-    if has_analytical_uncertainty:
-        requested["energy_uncertainty"] = ModelOutput(sample_kind="system")
+    calculator = MetatomicCalculator(str(inference_model), device=device)
+    requested = {"energy": ModelOutput(sample_kind="system")}
+    if checkpoint_mode:
+        requested["mtt::aux::energy_last_layer_features"] = ModelOutput(
+            sample_kind="system"
+        )
+    else:
+        requested["energy_ensemble"] = ModelOutput(sample_kind="system")
+        if has_analytical_uncertainty:
+            requested["energy_uncertainty"] = ModelOutput(sample_kind="system")
     central_batches = []
     member_batches = []
     uncertainty_batches = []
@@ -169,15 +260,31 @@ def evaluate_trajectory_committee(
                 "and energy_ensemble; use an exported, calibrated ensemble model"
             ) from error
         count = len(structures)
-        central_batches.append(_system_values(outputs["energy"], count, "energy"))
-        member_batches.append(_ensemble_values(outputs["energy_ensemble"], count))
-        if has_analytical_uncertainty:
+        central_values = _system_values(outputs["energy"], count, "energy")
+        central_batches.append(central_values)
+        if checkpoint_mode:
+            features = outputs["mtt::aux::energy_last_layer_features"][0].values
+            features = features.detach().cpu().numpy().reshape(count, -1)
+            weights = np.asarray(llpr["weights"])
+            central_weights = np.asarray(llpr["central_weights"])
+            member_batches.append(
+                central_values[:, None] + features @ (weights - central_weights).T
+            )
+            solved = np.linalg.solve(np.asarray(llpr["cholesky"]), features.T)
+            uncertainty_batches.append(
+                np.sqrt(np.sum(solved**2, axis=0)) * float(llpr["multiplier"])
+            )
+        else:
+            member_batches.append(
+                _ensemble_values(outputs["energy_ensemble"], count)
+            )
+        if has_analytical_uncertainty and not checkpoint_mode:
             uncertainty_batches.append(
                 _system_values(
                     outputs["energy_uncertainty"], count, "energy_uncertainty"
                 )
             )
-        else:
+        elif not checkpoint_mode:
             uncertainty_batches.append(np.full(count, np.nan))
         structures.clear()
 
@@ -234,7 +341,9 @@ def evaluate_trajectory_committee(
         "analytical_energy_uncertainty_eV": analytical_uncertainty,
         **estimates,
         "model_path": str(model),
-        "model_sha256": _model_sha256(model),
+        "model_sha256": (
+            str(llpr["sha256"]) if checkpoint_mode else _model_sha256(model)
+        ),
         "ensemble_mean_residual_rms_eV": float(
             np.sqrt(np.mean(ensemble_mean_residual**2))
         ),

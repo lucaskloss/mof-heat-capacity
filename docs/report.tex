@@ -1169,6 +1169,10 @@ resampling in \texttt{analysis/hybrid.py} &
 Harmonic sampling standard error &
 \texttt{analysis/hybrid.py}, across independent optimized minima &
 \texttt{harmonic\_quantum\_correction\_standard\_error} \\
+Hessian LLPR standard deviation &
+\texttt{analysis/harmonic.py}, after differentiating persistent LLPR readouts
+at the central minimum &
+\texttt{harmonic\_quantum\_correction\_model\_standard\_deviation} \\
 Combined standard uncertainty & quadrature in
 \texttt{analysis/hybrid.py} &
 \texttt{approximate\_cp\_combined\_standard\_uncertainty} \\
@@ -1179,8 +1183,10 @@ Combined standard uncertainty & quadrature in
 The scalar analytical LLPR energy uncertainty is archived but is not used
 directly as the heat-capacity error. That error is calculated only after CEA
 has produced a complete enthalpy curve for every persistent ensemble member.
-The LLPR/CEA contribution currently applies only to the classical NPT term;
-member-resolved geometry optimization and PET-JAX Hessians are not implemented.
+The PET-JAX Hessian calculation uses the same persistent LLPR readouts and the
+hybrid model spread preserves their correlation with the classical CEA term.
+The Hessians are evaluated at the central-model minima; member-resolved
+geometry optimization is not included.
 
 Cluster calculations use one node, one task, and one GPU because neither the MD
 nor Hessian code is MPI or multi-GPU parallel. Independent temperature,

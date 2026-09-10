@@ -58,6 +58,7 @@ MOF_HEAT_OUTPUT="${MOF_HEAT_OUTPUT:-}"
 MOF_HEAT_DTYPE="${MOF_HEAT_DTYPE:-}"
 MOF_HEAT_HOPS="${MOF_HEAT_HOPS:-}"
 MOF_HEAT_CHUNK_SIZE="${MOF_HEAT_CHUNK_SIZE:-}"
+MOF_HEAT_LLPR_CHECKPOINT="${MOF_HEAT_LLPR_CHECKPOINT:-}"
 MOF_HEAT_CONFIGS="${MOF_HEAT_CONFIGS:-}"
 MOF_HEAT_OVERWRITE="${MOF_HEAT_OVERWRITE:-0}"
 MOF_RELAX_INPUT="${MOF_RELAX_INPUT:-}"
@@ -235,6 +236,34 @@ devices = jax.devices()
 print(f"JAX: {jax.__version__}; devices: {devices}")
 if not any(device.platform == "gpu" for device in devices):
     raise RuntimeError("JAX cannot initialize the allocated CUDA device")
+PY
+}
+
+
+check_llpr_hessian_model() {
+    if [[ -z "${MOF_HEAT_LLPR_CHECKPOINT}" ]]; then
+        return
+    fi
+    python - "${MOF_CONFIG}" "${MOF_HEAT_LLPR_CHECKPOINT}" "${MOF_HEAT_DTYPE}" <<'PY'
+from pathlib import Path
+import sys
+
+from sadmof.models.pet import load_pet
+
+from mof_heat_capacity.analysis.harmonic import (
+    ensure_jax_checkpoint,
+    llpr_member_parameter_sets,
+)
+from mof_heat_capacity.analysis.uncertainty import load_llpr_energy_parameters
+from mof_heat_capacity.config import load_run_config
+
+config = load_run_config(Path(sys.argv[1]))
+jax_checkpoint = ensure_jax_checkpoint(config.checkpoint, config.jax_checkpoint)
+dtype = sys.argv[3] or config.heat_dtype
+_, params, _ = load_pet(jax_checkpoint, dtype=dtype)
+llpr = load_llpr_energy_parameters(Path(sys.argv[2]))
+members = list(llpr_member_parameter_sets(params, llpr))
+print(f"LLPR Hessian ensemble: {len(members)} members; SHA-256 {llpr['sha256']}")
 PY
 }
 
@@ -424,6 +453,10 @@ run_heat_capacity() {
         command+=(--chunk-size "${MOF_HEAT_CHUNK_SIZE}")
     fi
 
+    if [[ -n "${MOF_HEAT_LLPR_CHECKPOINT}" ]]; then
+        command+=(--llpr-checkpoint "${MOF_HEAT_LLPR_CHECKPOINT}")
+    fi
+
     case "${MOF_HEAT_OVERWRITE,,}" in
         1|true|yes)
             command+=(--overwrite)
@@ -487,6 +520,7 @@ case "${MOF_STAGE}" in
     hessian-debug)
         check_pytorch_cuda
         check_jax_cuda
+        check_llpr_hessian_model
         echo "Hessian runtime preflight completed"
         ;;
     md)

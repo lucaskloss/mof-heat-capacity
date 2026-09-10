@@ -168,10 +168,11 @@ Options:
   --cpus N                CPUs for each trajectory-analysis job (default: 4).
   --slurm-output-dir PATH Slurm log directory (default: repository output/slurm).
   --no-plots              Skip PNG generation.
-  --model-uncertainty     Evaluate energy_ensemble on production frames and
-                          propagate model uncertainty into classical C_P.
+  --model-uncertainty     Evaluate persistent LLPR energy members on production
+                          frames and propagate uncertainty into classical C_P.
   --uncertainty-model PATH
-                          Calibrated ensemble model override; use with one MLIP.
+                          LLPR checkpoint or exported ensemble override; use
+                          with one MLIP. Defaults to the matching model/*.ckpt.
   --uncertainty-stride N  Use every Nth production frame for UQ (default: 20).
   --uncertainty-batch-size N
                           Structures per model-inference batch (default: 4).
@@ -325,6 +326,10 @@ import sys
 
 from mof_heat_capacity.analysis.lammps import read_lammps_thermo
 from mof_heat_capacity.analysis.results import discover_runs
+from mof_heat_capacity.analysis.uncertainty import (
+    default_llpr_checkpoint,
+    load_llpr_energy_parameters,
+)
 from mof_heat_capacity.config import find_classical_output_file
 
 patterns = [item.strip() for item in sys.argv[1].split(",") if item.strip()]
@@ -352,14 +357,20 @@ if model_uncertainty:
             "submit each --model separately"
         )
     for _, config, _ in runs:
-        model_path = uncertainty_model or config.exported_model.resolve()
+        model_path = uncertainty_model or default_llpr_checkpoint(config.name)
         if model_path in checked:
             continue
         if not model_path.is_file():
             raise SystemExit(f"error: uncertainty model is missing: {model_path}")
-        model = metatomic_torch.load_atomistic_model(str(model_path))
+        if model_path.suffix == ".ckpt":
+            load_llpr_energy_parameters(model_path)
+            model = metatomic_torch.load_atomistic_model(str(config.exported_model))
+            required = {"energy", "mtt::aux::energy_last_layer_features"}
+        else:
+            model = metatomic_torch.load_atomistic_model(str(model_path))
+            required = required_outputs
         outputs = set(model.capabilities().outputs)
-        missing = sorted(required_outputs.difference(outputs))
+        missing = sorted(required.difference(outputs))
         if missing:
             raise SystemExit(
                 f"error: {model_path} cannot propagate model uncertainty; "

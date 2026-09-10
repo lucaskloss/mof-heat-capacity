@@ -27,6 +27,7 @@ HESSIAN_DTYPE=""
 HESSIAN_HOPS=""
 HESSIAN_CHUNK_SIZE=""
 HESSIAN_TAG=""
+MODEL_UNCERTAINTY=1
 PARTITION="${MOF_HEAT_PARTITION:-gpu}"
 QOS="${MOF_HEAT_QOS:-normal}"
 WALL_TIME="${MOF_HEAT_TIME:-08:00:00}"
@@ -69,10 +70,12 @@ Options:
   --hessian-only          Reuse existing minima and replace only Hessian archives.
   --reuse-relaxed         Reuse each saved minimum, recompute its Hessian, and
                           relax only cases without a saved minimum.
-  --dtype NAME            Hessian precision: float32 or float64 (default: config).
+  --dtype NAME            Hessian precision: float32 or float64 (default:
+                          float64 with LLPR, config otherwise).
   --hops N                Hessian sparsity graph hops (default: config).
   --chunk-size N          Hessian AD chunk size (default: config).
   --hessian-tag NAME      Write a non-canonical archive for a convergence test.
+  --no-model-uncertainty  Skip the default 64-member LLPR Hessian propagation.
   --partition NAME        Slurm partition (default: gpu).
   --qos NAME              Slurm QOS (default: normal).
   --time HH:MM:SS         Time per relaxation plus Hessian (default: 08:00:00).
@@ -93,11 +96,9 @@ GPU/JAX preflight for each selected model. Every relaxation/Hessian job depends
 on its model's preflight succeeding.
 
 This command estimates minimum-to-minimum sampling of the harmonic correction
-through independent replicas. It does not propagate the metatomic/LLPR
-committee because member-resolved models are unavailable in the PET-JAX
-Hessian path. Run submit_analysis.sh --model-uncertainty for the classical
-committee spread and pass that result to submit_hybrid_analysis.sh
---model-uncertainty.
+through independent replicas and, by default, differentiates the matching
+PET-MAD or PET-SOL LLPR energy members at every central-model minimum. Run
+submit_analysis.sh --model-uncertainty for the member-resolved enthalpy curve.
 EOF
 }
 
@@ -132,6 +133,7 @@ while (($#)); do
         --hops) require_value "$@"; HESSIAN_HOPS="$2"; shift 2 ;;
         --chunk-size) require_value "$@"; HESSIAN_CHUNK_SIZE="$2"; shift 2 ;;
         --hessian-tag) require_value "$@"; HESSIAN_TAG="$2"; shift 2 ;;
+        --no-model-uncertainty) MODEL_UNCERTAINTY=0; shift ;;
         --partition) require_value "$@"; PARTITION="$2"; shift 2 ;;
         --qos) require_value "$@"; QOS="$2"; shift 2 ;;
         --time) require_value "$@"; WALL_TIME="$2"; shift 2 ;;
@@ -151,6 +153,9 @@ case "${MODEL}" in
     both) MODEL_NAMES=("pet-mad-1.5-s-40nn" "pet-sol-s-best") ;;
     *) echo "error: --model must be pet-mad, pet-sol, or both" >&2; exit 2 ;;
 esac
+if ((MODEL_UNCERTAINTY)) && [[ -z "${HESSIAN_DTYPE}" ]]; then
+    HESSIAN_DTYPE="float64"
+fi
 if [[ ! "${LOADING}" =~ ^[1-9][0-9]*$ ]]; then
     echo "error: --loading must be a positive methane count" >&2
     exit 2
@@ -275,8 +280,16 @@ MODEL_KEYS=()
 TASK_RELAX_OVERWRITES=()
 TASK_HEAT_OVERWRITES=()
 declare -A MODEL_PREFLIGHT_CONFIGS=()
+declare -A LLPR_CHECKPOINTS=(
+    [pet-mad-1.5-s-40nn]="${PROJECT_DIR}/models/pet-mad-1.5-s_40nn_nostress-llpr.ckpt"
+    [pet-sol-s-best]="${PROJECT_DIR}/models/pet_sol-s-best_nostress-llpr.ckpt"
+)
 cd "${PROJECT_DIR}"
 for model_name in "${MODEL_NAMES[@]}"; do
+    if ((MODEL_UNCERTAINTY)) && [[ ! -f "${LLPR_CHECKPOINTS[${model_name}]}" ]]; then
+        echo "error: LLPR checkpoint not found: ${LLPR_CHECKPOINTS[${model_name}]}" >&2
+        exit 2
+    fi
     carrier_config=""
     for source_temperature in "${SOURCE_TEMPERATURE_VALUES[@]}"; do
         for replica in "${REPLICA_VALUES[@]}"; do
@@ -424,6 +437,7 @@ echo "Loaded sources: ${LOADING} CH4 at ${SOURCE_TEMPERATURES} K; replicas ${REP
 echo "Harmonic grid: ${CV_TEMPERATURES} K; fmax=${FMAX} eV/A; optimizer=${OPTIMIZER}"
 echo "Hessian overrides: dtype=${HESSIAN_DTYPE:-config}; hops=${HESSIAN_HOPS:-config}; chunk=${HESSIAN_CHUNK_SIZE:-config}"
 echo "Hessian output: ${HESSIAN_TAG:-canonical}"
+echo "LLPR Hessians: $([[ ${MODEL_UNCERTAINTY} -eq 1 ]] && echo enabled || echo disabled)"
 if ((CONTINUE_LOADED)); then
     echo "Continuation: existing loaded optimized structure(s)"
 fi
@@ -446,6 +460,10 @@ fi
 declare -A HESSIAN_DEBUG_JOBS=()
 for model_name in "${MODEL_NAMES[@]}"; do
     config="${MODEL_PREFLIGHT_CONFIGS[${model_name}]}"
+    llpr_checkpoint=""
+    if ((MODEL_UNCERTAINTY)); then
+        llpr_checkpoint="${LLPR_CHECKPOINTS[${model_name}]}"
+    fi
     debug_command=(
         sbatch --parsable
         --job-name="mof5-hessian-debug-${model_name}-${LOADING}ch4"
@@ -453,7 +471,7 @@ for model_name in "${MODEL_NAMES[@]}"; do
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1 --time=00:15:00
         --output="${SLURM_OUTPUT_DIR}/hessian/${model_name}/${LOADING}ch4/preflight/%j.out"
-        --export="ALL,MOF_STAGE=hessian-debug,MOF_CONFIG=${config}"
+        --export="ALL,MOF_STAGE=hessian-debug,MOF_CONFIG=${config},MOF_HEAT_DTYPE=${HESSIAN_DTYPE},MOF_HEAT_LLPR_CHECKPOINT=${llpr_checkpoint}"
         "${GPU_RUNTIME}"
     )
     if ((DRY_RUN)); then
@@ -475,6 +493,10 @@ for index in "${!CONFIGS[@]}"; do
     label="${LABELS[index]}"
     allow_subset="${ALLOW_SUBSETS[index]}"
     model_name="${MODEL_KEYS[index]}"
+    llpr_checkpoint=""
+    if ((MODEL_UNCERTAINTY)); then
+        llpr_checkpoint="${LLPR_CHECKPOINTS[${model_name}]}"
+    fi
     relax_overwrite="${TASK_RELAX_OVERWRITES[index]}"
     heat_overwrite="${TASK_HEAT_OVERWRITES[index]}"
     if ((HESSIAN_ONLY)); then
@@ -500,7 +522,7 @@ for index in "${!CONFIGS[@]}"; do
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1 --time="${WALL_TIME}"
         --output="${slurm_hessian_dir}/%j.out"
-        --export="ALL,MOF_STAGE=relax-and-heat-capacity,MOF_CONFIG=${config},MOF_RELAX_INPUT=${input},MOF_RELAX_INDEX=-1,MOF_RELAX_OUTPUT=${relaxed},MOF_RELAX_FMAX=${FMAX},MOF_RELAX_STEPS=${RELAX_STEPS},MOF_RELAX_OPTIMIZER=${OPTIMIZER},MOF_RELAX_ALLOW_ELEMENT_SUBSET=${allow_subset},MOF_RELAX_OVERWRITE=${relax_overwrite},MOF_HEAT_TEMPERATURES=${CV_TEMPERATURES},MOF_HEAT_OUTPUT=${hessian},MOF_HEAT_DTYPE=${HESSIAN_DTYPE},MOF_HEAT_HOPS=${HESSIAN_HOPS},MOF_HEAT_CHUNK_SIZE=${HESSIAN_CHUNK_SIZE},MOF_HEAT_OVERWRITE=${heat_overwrite}"
+        --export="ALL,MOF_STAGE=relax-and-heat-capacity,MOF_CONFIG=${config},MOF_RELAX_INPUT=${input},MOF_RELAX_INDEX=-1,MOF_RELAX_OUTPUT=${relaxed},MOF_RELAX_FMAX=${FMAX},MOF_RELAX_STEPS=${RELAX_STEPS},MOF_RELAX_OPTIMIZER=${OPTIMIZER},MOF_RELAX_ALLOW_ELEMENT_SUBSET=${allow_subset},MOF_RELAX_OVERWRITE=${relax_overwrite},MOF_HEAT_TEMPERATURES=${CV_TEMPERATURES},MOF_HEAT_OUTPUT=${hessian},MOF_HEAT_DTYPE=${HESSIAN_DTYPE},MOF_HEAT_HOPS=${HESSIAN_HOPS},MOF_HEAT_CHUNK_SIZE=${HESSIAN_CHUNK_SIZE},MOF_HEAT_LLPR_CHECKPOINT=${llpr_checkpoint},MOF_HEAT_OVERWRITE=${heat_overwrite}"
         "${GPU_RUNTIME}"
     )
     if ((DRY_RUN)); then

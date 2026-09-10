@@ -11,6 +11,7 @@ import numpy as np
 
 from ..config import RunConfig, find_classical_output_file, load_run_config
 from .lammps import read_lammps_thermo
+from .uncertainty import load_llpr_energy_parameters
 
 
 IMAGINARY_THRESHOLD_CM1 = 1.0
@@ -44,6 +45,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dtype", choices=("float32", "float64"))
     parser.add_argument("--chunk-size", type=int)
     parser.add_argument("--hops", type=int)
+    parser.add_argument(
+        "--llpr-checkpoint",
+        type=Path,
+        help="Calibrated LLPR checkpoint whose persistent energy members are differentiated",
+    )
     parser.add_argument("--remat", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--shadow", action="store_true")
     parser.add_argument(
@@ -239,6 +245,31 @@ def compute_frame_hessian(
     remat: bool,
 ):
     """Compute one sparse PET Hessian and return its real-atom dense block."""
+    hessian_fn, positions, cell, graph = prepare_frame_hessian(
+        atoms,
+        model,
+        metadata,
+        dtype=dtype,
+        hops=hops,
+        chunk_size=chunk_size,
+        remat=remat,
+    )
+    return evaluate_frame_hessian(
+        hessian_fn, params, positions, cell, graph, len(atoms)
+    )
+
+
+def prepare_frame_hessian(
+    atoms,
+    model,
+    metadata,
+    *,
+    dtype: str,
+    hops: int,
+    chunk_size: int,
+    remat: bool,
+):
+    """Build one compiled sparse-Hessian function reusable across LLPR members."""
     import asdex
     import jax
 
@@ -262,10 +293,50 @@ def compute_frame_hessian(
     hessian_fn = jax.jit(
         get_hessian_fn(energy_fn, coloring, chunk_size=chunk_size, remat=remat)
     )
+    return hessian_fn, positions, cell, graph
+
+
+def evaluate_frame_hessian(hessian_fn, params, positions, cell, graph, n_atoms: int):
+    """Evaluate a prepared sparse-Hessian function for one parameter tree."""
+    import jax
+
     hessian = jax.block_until_ready(hessian_fn(params, positions, cell, graph))
     hessian = np.asarray(hessian.todense())
-    n_atoms = len(atoms)
     return hessian[:n_atoms, :, :n_atoms, :].reshape(3 * n_atoms, 3 * n_atoms)
+
+
+def llpr_member_parameter_sets(params, llpr: dict[str, object]):
+    """Yield PET-JAX parameter trees with each centered LLPR readout."""
+    import jax.numpy as jnp
+
+    central = np.concatenate(
+        [
+            np.asarray(params["params"]["node_last_0"]["kernel"]).reshape(-1),
+            np.asarray(params["params"]["edge_last_0"]["kernel"]).reshape(-1),
+        ]
+    )
+    expected = np.asarray(llpr["central_weights"])
+    if central.shape != expected.shape or not np.allclose(
+        central, expected, rtol=1e-6, atol=1e-7
+    ):
+        raise ValueError(
+            "LLPR wrapped PET readout does not match the configured PET-JAX model"
+        )
+    split = params["params"]["node_last_0"]["kernel"].shape[0]
+    for weights in np.asarray(llpr["weights"]):
+        member = dict(params)
+        member["params"] = dict(params["params"])
+        member["params"]["node_last_0"] = dict(params["params"]["node_last_0"])
+        member["params"]["edge_last_0"] = dict(params["params"]["edge_last_0"])
+        member["params"]["node_last_0"]["kernel"] = jnp.asarray(
+            weights[:split, None],
+            dtype=params["params"]["node_last_0"]["kernel"].dtype,
+        )
+        member["params"]["edge_last_0"]["kernel"] = jnp.asarray(
+            weights[split:, None],
+            dtype=params["params"]["edge_last_0"]["kernel"].dtype,
+        )
+        yield member
 
 
 def signed_frequencies_from_hessian(
@@ -339,6 +410,11 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
         raise FileNotFoundError(f"trajectory not found: {trajectory_path}")
 
     dtype = args.dtype or config.heat_dtype
+    if args.llpr_checkpoint is not None and dtype != "float64":
+        raise ValueError(
+            "LLPR Hessians require float64 because the sampled readout weights "
+            "contain cancellation-sensitive covariance directions"
+        )
     hops = config.heat_hops if args.hops is None else args.hops
     chunk_size = config.heat_chunk_size if args.chunk_size is None else args.chunk_size
     remat = config.heat_remat if args.remat is None else args.remat
@@ -418,22 +494,34 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
     temperatures = parse_temperatures(temperature_spec)
     jax_checkpoint = ensure_jax_checkpoint(config.checkpoint, config.jax_checkpoint)
     model, params, metadata = load_pet(jax_checkpoint, dtype=dtype)
+    llpr = (
+        load_llpr_energy_parameters(args.llpr_checkpoint)
+        if args.llpr_checkpoint is not None
+        else None
+    )
+    member_params = list(llpr_member_parameter_sets(params, llpr)) if llpr else []
 
     frequencies = []
     heat_capacities = []
+    llpr_frequencies = []
+    llpr_heat_capacities = []
+    llpr_hessian_rms_deviations = []
+    llpr_hessian_rms_standard_deviations = []
     for index, selected_frame in zip(indices, selected_frames, strict=True):
         atoms = selected_frame.copy()
         atoms.calc = None
         print(f"Computing Hessian for frame {index} ({len(atoms)} atoms)")
-        hessian = compute_frame_hessian(
+        hessian_fn, positions, cell, graph = prepare_frame_hessian(
             atoms,
             model,
-            params,
             metadata,
             dtype=dtype,
             hops=hops,
             chunk_size=chunk_size,
             remat=remat,
+        )
+        hessian = evaluate_frame_hessian(
+            hessian_fn, params, positions, cell, graph, len(atoms)
         )
         freqs = signed_frequencies_from_hessian(
             hessian, atoms.get_masses(), enforce_asr=True
@@ -453,6 +541,50 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
             f"{near_zero_count} within +/-{IMAGINARY_THRESHOLD_CM1:g} cm^-1"
         )
         print(f"  C_v(300 K) = {cv.get(300.0, float('nan')):.6f} J/(g K)")
+        frame_member_frequencies = []
+        frame_member_cv = []
+        frame_hessian_rms_deviations = []
+        member_hessian_mean = None
+        member_hessian_m2 = None
+        for member_index, member in enumerate(member_params):
+            print(
+                f"  Computing LLPR Hessian member {member_index + 1}/"
+                f"{len(member_params)}"
+            )
+            member_hessian = evaluate_frame_hessian(
+                hessian_fn, member, positions, cell, graph, len(atoms)
+            )
+            member_freqs = signed_frequencies_from_hessian(
+                member_hessian, atoms.get_masses(), enforce_asr=True
+            )
+            frame_hessian_rms_deviations.append(
+                float(np.sqrt(np.mean((member_hessian - hessian) ** 2)))
+            )
+            if member_hessian_mean is None:
+                member_hessian_mean = member_hessian.copy()
+                member_hessian_m2 = np.zeros_like(member_hessian)
+            else:
+                delta = member_hessian - member_hessian_mean
+                member_hessian_mean += delta / (member_index + 1)
+                member_hessian_m2 += delta * (member_hessian - member_hessian_mean)
+            member_cv = cv_curve(
+                member_freqs, temperatures, float(atoms.get_masses().sum())
+            )
+            frame_member_frequencies.append(member_freqs)
+            frame_member_cv.append(
+                [member_cv[temperature] for temperature in temperatures]
+            )
+        if member_params:
+            llpr_frequencies.append(frame_member_frequencies)
+            llpr_heat_capacities.append(frame_member_cv)
+            llpr_hessian_rms_deviations.append(frame_hessian_rms_deviations)
+            llpr_hessian_rms_standard_deviations.append(
+                float(
+                    np.sqrt(
+                        np.mean(member_hessian_m2 / (len(member_params) - 1))
+                    )
+                )
+            )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
@@ -466,6 +598,27 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
         temperatures_K=temperatures,
         frequencies_cm1=np.asarray(frequencies),
         cv_J_per_gK=np.asarray(heat_capacities),
+        llpr_frequencies_cm1=np.asarray(llpr_frequencies),
+        llpr_cv_J_per_gK=np.asarray(llpr_heat_capacities),
+        llpr_frequency_standard_deviation_cm1=(
+            np.std(np.asarray(llpr_frequencies), axis=1, ddof=1)
+            if member_params
+            else np.empty((0, 0))
+        ),
+        llpr_cv_standard_deviation_J_per_gK=(
+            np.std(np.asarray(llpr_heat_capacities), axis=1, ddof=1)
+            if member_params
+            else np.empty((0, 0))
+        ),
+        llpr_hessian_member_rms_deviation_eV_per_A2=np.asarray(
+            llpr_hessian_rms_deviations
+        ),
+        llpr_hessian_rms_standard_deviation_eV_per_A2=(
+            np.asarray(llpr_hessian_rms_standard_deviations)
+        ),
+        llpr_checkpoint=str(llpr["path"]) if llpr else "",
+        llpr_checkpoint_sha256=str(llpr["sha256"]) if llpr else "",
+        llpr_member_count=len(member_params),
         metadata=json.dumps(
             {
                 "ad_backend": config.ad_backend,
@@ -477,6 +630,11 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
                 "frequency_convention": "signed",
                 "acoustic_sum_rule": "force-constant-row-sum",
                 "imaginary_threshold_cm1": IMAGINARY_THRESHOLD_CM1,
+                "llpr_method": (
+                    "persistent centered last-layer energy members at the central minimum"
+                    if llpr
+                    else None
+                ),
             }
         ),
     )

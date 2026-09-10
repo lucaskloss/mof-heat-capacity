@@ -219,10 +219,10 @@ def _volumetric_heat_capacity(
 
 def _classical_model_uncertainty(
     path: Path | None, temperatures: np.ndarray
-) -> tuple[np.ndarray, dict | None]:
+) -> tuple[np.ndarray, dict | None, np.ndarray | None]:
     """Load the CEA committee spread produced by trajectory analysis."""
     if path is None:
-        return np.zeros_like(temperatures), None
+        return np.zeros_like(temperatures), None, None
     source = path.expanduser().resolve()
     if not source.is_file():
         raise FileNotFoundError(f"model-uncertainty archive not found: {source}")
@@ -234,6 +234,7 @@ def _classical_model_uncertainty(
             "direct_effective_samples",
             "dimensionless_delta_variance",
             "model_sha256",
+            "cea_cp_by_member_J_per_gK",
         }
         missing = sorted(required.difference(data.files))
         if missing:
@@ -255,10 +256,13 @@ def _classical_model_uncertainty(
         effective_samples = np.asarray(data["direct_effective_samples"], dtype=float)
         h_variance = np.asarray(data["dimensionless_delta_variance"], dtype=float)
         model_sha256 = str(np.asarray(data["model_sha256"]).item())
+        cp_by_member = np.asarray(data["cea_cp_by_member_J_per_gK"], dtype=float)
     if model_error.shape != temperatures.shape or not np.all(np.isfinite(model_error)):
         raise ValueError(f"invalid CEA model uncertainty in {source}")
     if np.any(model_error < 0.0):
         raise ValueError(f"negative CEA model uncertainty in {source}")
+    if cp_by_member.ndim != 2 or cp_by_member.shape[1] != len(temperatures):
+        raise ValueError(f"invalid member-resolved CEA heat capacity in {source}")
     return model_error, {
         "source": str(source),
         "model_sha256": model_sha256,
@@ -269,7 +273,7 @@ def _classical_model_uncertainty(
         "maximum_dimensionless_delta_variance_by_temperature": np.max(
             h_variance, axis=0
         ).tolist(),
-    }
+    }, cp_by_member
 
 
 def plot_hybrid_heat_capacity(
@@ -393,7 +397,7 @@ def _harmonic_corrections(
     expected_mass_amu: float,
     zero_threshold_cm1: float,
     max_near_zero_modes: int,
-) -> tuple[np.ndarray, np.ndarray, list[dict]]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, str | None, list[dict]]:
     paths = {
         (int(temperature), replica): directory
         / "hessians"
@@ -410,6 +414,9 @@ def _harmonic_corrections(
             + ", ".join(str(path) for path in missing)
         )
     corrections = np.empty((len(replicas), len(temperatures)), dtype=float)
+    member_corrections = None
+    llpr_hash = None
+    saw_archive_without_llpr = False
     records = []
     conversion = EV_TO_J / (expected_mass_amu * AMU_TO_G)
     for temperature_index, temperature in enumerate(temperatures):
@@ -419,6 +426,27 @@ def _harmonic_corrections(
                 frequencies = np.asarray(data["frequencies_cm1"], dtype=float)
                 trajectory = Path(str(np.asarray(data["trajectory"]).item()))
                 metadata = json.loads(str(np.asarray(data["metadata"]).item()))
+                member_frequencies = (
+                    np.asarray(data["llpr_frequencies_cm1"], dtype=float)
+                    if "llpr_frequencies_cm1" in data.files
+                    and np.asarray(data["llpr_frequencies_cm1"]).size
+                    else None
+                )
+                current_llpr_hash = (
+                    str(np.asarray(data["llpr_checkpoint_sha256"]).item())
+                    if member_frequencies is not None
+                    else None
+                )
+            if member_frequencies is None:
+                if member_corrections is not None:
+                    raise ValueError(
+                        "LLPR Hessian uncertainty is present for only part of the grid"
+                    )
+                saw_archive_without_llpr = True
+            elif saw_archive_without_llpr:
+                raise ValueError(
+                    "LLPR Hessian uncertainty is present for only part of the grid"
+                )
             if metadata.get("frequency_convention") != "signed":
                 raise ValueError(
                     f"Hessian archive lacks signed frequencies and cannot prove that "
@@ -478,6 +506,52 @@ def _harmonic_corrections(
             corrections[replica_index, temperature_index] = (
                 quantum_eV_per_K - classical_eV_per_K
             ) * conversion
+            if member_frequencies is not None:
+                if member_frequencies.ndim == 3:
+                    if member_frequencies.shape[0] != 1:
+                        raise ValueError(f"expected one optimized LLPR frame in {path}")
+                    member_frequencies = member_frequencies[0]
+                if member_frequencies.ndim != 2 or member_frequencies.shape[0] < 2:
+                    raise ValueError(f"invalid LLPR Hessian ensemble in {path}")
+                if member_corrections is None:
+                    member_corrections = np.empty(
+                        (
+                            len(replicas),
+                            len(temperatures),
+                            member_frequencies.shape[0],
+                        ),
+                        dtype=float,
+                    )
+                    llpr_hash = current_llpr_hash
+                if (
+                    member_frequencies.shape[0] != member_corrections.shape[2]
+                    or current_llpr_hash != llpr_hash
+                ):
+                    raise ValueError(
+                        "Hessian archives do not use one persistent LLPR ensemble"
+                    )
+                member_imaginary = member_frequencies < -zero_threshold_cm1
+                member_near_zero = np.abs(member_frequencies) <= zero_threshold_cm1
+                if np.any(member_imaginary) or np.any(
+                    np.count_nonzero(member_near_zero, axis=1) > max_near_zero_modes
+                ):
+                    raise ValueError(
+                        "an LLPR member Hessian is not a stable spectrum at the central "
+                        f"minimum: {path}"
+                    )
+                for member_index, member_spectrum in enumerate(member_frequencies):
+                    member_positive = member_spectrum[
+                        member_spectrum > zero_threshold_cm1
+                    ]
+                    member_x = HC_OVER_K_CM_K * member_positive / temperature
+                    member_decay = np.exp(-member_x)
+                    member_quantum = KB_EV_PER_K * np.sum(
+                        member_x**2 * member_decay / (1.0 - member_decay) ** 2
+                    )
+                    member_classical = KB_EV_PER_K * len(member_positive)
+                    member_corrections[
+                        replica_index, temperature_index, member_index
+                    ] = (member_quantum - member_classical) * conversion
             records.append(
                 {
                     "temperature_K": float(temperature),
@@ -504,7 +578,10 @@ def _harmonic_corrections(
         if len(replicas) > 1
         else np.zeros_like(mean)
     )
-    return mean, error, records
+    mean_member_corrections = (
+        member_corrections.mean(axis=0).T if member_corrections is not None else None
+    )
+    return mean, error, mean_member_corrections, llpr_hash, records
 
 
 def run(args: argparse.Namespace) -> Path:
@@ -546,9 +623,11 @@ def run(args: argparse.Namespace) -> Path:
     conversion = EV_TO_J / (mass_amu * AMU_TO_G)
     classical_cp = cp_eV_per_K * conversion
     classical_error = sampled_cp.std(axis=0, ddof=1) * conversion
-    classical_model_error, model_uncertainty_record = _classical_model_uncertainty(
-        args.model_uncertainty, temperatures
-    )
+    (
+        classical_model_error,
+        model_uncertainty_record,
+        classical_cp_by_member,
+    ) = _classical_model_uncertainty(args.model_uncertainty, temperatures)
     if model_uncertainty_record is not None:
         if min(
             model_uncertainty_record[
@@ -574,7 +653,13 @@ def run(args: argparse.Namespace) -> Path:
     )
 
     loaded_dir = args.hybrid_dir / args.model_label / f"{args.loading}ch4"
-    correction, correction_error, hessian_records = _harmonic_corrections(
+    (
+        correction,
+        correction_error,
+        correction_by_member,
+        hessian_llpr_hash,
+        hessian_records,
+    ) = _harmonic_corrections(
         loaded_dir,
         replicas=replicas,
         temperatures=temperatures,
@@ -582,10 +667,42 @@ def run(args: argparse.Namespace) -> Path:
         zero_threshold_cm1=args.zero_threshold_cm1,
         max_near_zero_modes=args.max_near_zero_modes,
     )
+    harmonic_model_error = (
+        correction_by_member.std(axis=0, ddof=1)
+        if correction_by_member is not None
+        else np.zeros_like(correction)
+    )
+    hybrid_member_deviations = None
+    if classical_cp_by_member is not None and correction_by_member is not None:
+        if model_uncertainty_record["model_sha256"] != hessian_llpr_hash:
+            raise ValueError(
+                "enthalpy and Hessian uncertainty use different LLPR checkpoints"
+            )
+        if classical_cp_by_member.shape != correction_by_member.shape:
+            raise ValueError("enthalpy and Hessian LLPR member arrays do not align")
+        hybrid_member_deviations = (
+            classical_cp_by_member
+            - classical_cp_by_member.mean(axis=0)
+            + correction_by_member
+            - correction_by_member.mean(axis=0)
+        )
+        approximate_model_error = hybrid_member_deviations.std(axis=0, ddof=1)
+    elif classical_cp_by_member is not None:
+        approximate_model_error = classical_model_error
+        hybrid_member_deviations = (
+            classical_cp_by_member - classical_cp_by_member.mean(axis=0)
+        )
+    elif correction_by_member is not None:
+        approximate_model_error = harmonic_model_error
+        hybrid_member_deviations = (
+            correction_by_member - correction_by_member.mean(axis=0)
+        )
+    else:
+        approximate_model_error = np.zeros_like(correction)
     approximate = classical_cp + correction
     approximate_error = np.hypot(classical_error, correction_error)
     approximate_combined_uncertainty = np.hypot(
-        approximate_error, classical_model_error
+        approximate_error, approximate_model_error
     )
     mass_g = mass_amu * AMU_TO_G
     density = mass_g / (volume_A3 * ANGSTROM3_TO_CM3)
@@ -600,11 +717,13 @@ def run(args: argparse.Namespace) -> Path:
         approximate, approximate_error, density, density_error
     )
     classical_model_error_vol = classical_model_error * density
+    harmonic_model_error_vol = harmonic_model_error * density
+    approximate_model_error_vol = approximate_model_error * density
     classical_combined_uncertainty_vol = np.hypot(
         classical_error_vol, classical_model_error_vol
     )
     approximate_combined_uncertainty_vol = np.hypot(
-        approximate_error_vol, classical_model_error_vol
+        approximate_error_vol, approximate_model_error_vol
     )
     reported_model_error = (
         classical_model_error
@@ -615,6 +734,26 @@ def run(args: argparse.Namespace) -> Path:
         classical_model_error_vol
         if model_uncertainty_record is not None
         else np.full_like(classical_model_error_vol, np.nan)
+    )
+    reported_harmonic_model_error = (
+        harmonic_model_error
+        if correction_by_member is not None
+        else np.full_like(harmonic_model_error, np.nan)
+    )
+    reported_harmonic_model_error_vol = (
+        harmonic_model_error_vol
+        if correction_by_member is not None
+        else np.full_like(harmonic_model_error_vol, np.nan)
+    )
+    reported_approximate_model_error = (
+        approximate_model_error
+        if classical_cp_by_member is not None or correction_by_member is not None
+        else np.full_like(approximate_model_error, np.nan)
+    )
+    reported_approximate_model_error_vol = (
+        approximate_model_error_vol
+        if classical_cp_by_member is not None or correction_by_member is not None
+        else np.full_like(approximate_model_error_vol, np.nan)
     )
 
     output = args.output or loaded_dir / "heat-capacity.npz"
@@ -629,9 +768,20 @@ def run(args: argparse.Namespace) -> Path:
         classical_anharmonic_cp_combined_standard_uncertainty_J_per_gK=classical_combined_uncertainty,
         harmonic_quantum_correction_J_per_gK=correction,
         harmonic_quantum_correction_standard_error_J_per_gK=correction_error,
+        harmonic_quantum_correction_model_standard_deviation_J_per_gK=reported_harmonic_model_error,
+        harmonic_quantum_correction_by_member_J_per_gK=(
+            correction_by_member
+            if correction_by_member is not None
+            else np.empty((0, 0))
+        ),
         approximate_cp_J_per_gK=approximate,
         approximate_cp_standard_error_J_per_gK=approximate_error,
-        approximate_cp_model_standard_deviation_J_per_gK=reported_model_error,
+        approximate_cp_model_standard_deviation_J_per_gK=reported_approximate_model_error,
+        approximate_cp_model_deviation_by_member_J_per_gK=(
+            hybrid_member_deviations
+            if hybrid_member_deviations is not None
+            else np.empty((0, 0))
+        ),
         approximate_cp_combined_standard_uncertainty_J_per_gK=approximate_combined_uncertainty,
         mean_volume_A3=volume_A3,
         mean_volume_standard_error_A3=volume_error_A3,
@@ -643,11 +793,22 @@ def run(args: argparse.Namespace) -> Path:
         classical_anharmonic_cp_combined_standard_uncertainty_J_per_cm3K=classical_combined_uncertainty_vol,
         harmonic_quantum_correction_J_per_cm3K=correction_vol,
         harmonic_quantum_correction_standard_error_J_per_cm3K=correction_error_vol,
+        harmonic_quantum_correction_model_standard_deviation_J_per_cm3K=reported_harmonic_model_error_vol,
         approximate_cp_J_per_cm3K=approximate_vol,
         approximate_cp_standard_error_J_per_cm3K=approximate_error_vol,
-        approximate_cp_model_standard_deviation_J_per_cm3K=reported_model_error_vol,
+        approximate_cp_model_standard_deviation_J_per_cm3K=reported_approximate_model_error_vol,
         approximate_cp_combined_standard_uncertainty_J_per_cm3K=approximate_combined_uncertainty_vol,
-        model_uncertainty_included=model_uncertainty_record is not None,
+        model_uncertainty_included=(
+            model_uncertainty_record is not None or correction_by_member is not None
+        ),
+        llpr_checkpoint_sha256=(
+            hessian_llpr_hash
+            or (
+                model_uncertainty_record["model_sha256"]
+                if model_uncertainty_record is not None
+                else ""
+            )
+        ),
         total_mass_amu=mass_amu,
     )
     csv_path = output.with_suffix(".csv")
@@ -662,6 +823,7 @@ def run(args: argparse.Namespace) -> Path:
                 "classical_cp_combined_standard_uncertainty_J_per_gK",
                 "harmonic_quantum_correction_J_per_gK",
                 "harmonic_correction_standard_error_J_per_gK",
+                "harmonic_correction_model_standard_deviation_J_per_gK",
                 "approximate_cp_J_per_gK",
                 "approximate_cp_standard_error_J_per_gK",
                 "approximate_cp_model_standard_deviation_J_per_gK",
@@ -676,6 +838,7 @@ def run(args: argparse.Namespace) -> Path:
                 "classical_cp_combined_standard_uncertainty_J_per_cm3K",
                 "harmonic_quantum_correction_J_per_cm3K",
                 "harmonic_correction_standard_error_J_per_cm3K",
+                "harmonic_correction_model_standard_deviation_J_per_cm3K",
                 "approximate_cp_J_per_cm3K",
                 "approximate_cp_standard_error_J_per_cm3K",
                 "approximate_cp_model_standard_deviation_J_per_cm3K",
@@ -691,9 +854,10 @@ def run(args: argparse.Namespace) -> Path:
                 classical_combined_uncertainty,
                 correction,
                 correction_error,
+                reported_harmonic_model_error,
                 approximate,
                 approximate_error,
-                reported_model_error,
+                reported_approximate_model_error,
                 approximate_combined_uncertainty,
                 volume_A3,
                 volume_error_A3,
@@ -705,9 +869,10 @@ def run(args: argparse.Namespace) -> Path:
                 classical_combined_uncertainty_vol,
                 correction_vol,
                 correction_error_vol,
+                reported_harmonic_model_error_vol,
                 approximate_vol,
                 approximate_error_vol,
-                reported_model_error_vol,
+                reported_approximate_model_error_vol,
                 approximate_combined_uncertainty_vol,
                 strict=True,
             )
@@ -731,9 +896,9 @@ def run(args: argparse.Namespace) -> Path:
                     "Temperature spacing is a heat-capacity convergence parameter.",
                     "Volumetric values use the production NPT mean volume at each temperature.",
                     "Volumetric uncertainty propagation neglects covariance between heat capacity and volume.",
-                    "MLIP committee uncertainty, when supplied, applies only to the classical NPT term.",
-                    "Combined uncertainty is the quadrature sum of classical sampling, loaded-minimum/Hessian sampling, and classical committee spread; this assumes those contributions are independent.",
-                    "The PET-JAX harmonic correction does not currently include member-resolved MLIP uncertainty.",
+                    "LLPR Hessian uncertainty is evaluated at the central-model fixed-cell minimum; it does not include member-specific geometry relaxation.",
+                    "When both are present, classical and harmonic LLPR deviations are added member by member before taking the hybrid standard deviation.",
+                    "Sampling and LLPR model uncertainty are combined in quadrature, assuming those two sources are independent.",
                 ],
             },
             indent=2,
@@ -758,7 +923,9 @@ def run(args: argparse.Namespace) -> Path:
         correction_error_vol=correction_error_vol,
         approximate_vol=approximate_vol,
         approximate_error_vol=approximate_combined_uncertainty_vol,
-        model_uncertainty_included=model_uncertainty_record is not None,
+        model_uncertainty_included=(
+            model_uncertainty_record is not None or correction_by_member is not None
+        ),
     )
     print(f"Saved hybrid heat capacity: {output}")
     print(f"Saved hybrid heat-capacity plot: {plot_path}")

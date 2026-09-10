@@ -303,18 +303,21 @@ The workflow reports uncertainty components separately:
   minima for the harmonic correction; with one replica it is zero and does
   not represent numerical Hessian convergence; and
 - $\sigma_{\mathrm{MLIP,cl}}$ is the CEA committee standard deviation of the
-  classical heat capacity, not a standard error of its committee mean.
+  classical heat capacity, not a standard error of its committee mean. The
+  analogous Hessian term is evaluated across the same persistent LLPR members
+  at the central-model minimum.
 
 When requested, the hybrid output additionally reports the quadrature summary
 
-$$\sigma_{\mathrm{hyb,combined}}(T)=\sqrt{\sigma_{\mathrm{MD}}^2(T)+\sigma_{\mathrm{har}}^2(T)+\sigma_{\mathrm{MLIP,cl}}^2(T)}. $$
+$$\sigma_{\mathrm{hyb,combined}}(T)=\sqrt{\sigma_{\mathrm{MD}}^2(T)+\sigma_{\mathrm{har}}^2(T)+\sigma_{\mathrm{MLIP,hyb}}^2(T)}. $$
 
-This combined band assumes that those three contributions are independent, so
-the individual arrays remain the authoritative outputs when that assumption is
-not justified. It still omits shared committee bias, electronic-structure
-reference error, finite-size effects, temperature-grid bias, and uncertainty
-in the harmonic model itself. For volumetric heat capacity, the existing
-density uncertainty is also propagated under a zero-covariance assumption.
+Here $\sigma_{\mathrm{MLIP,hyb}}$ is obtained after adding the classical and
+harmonic deviations member by member, so their LLPR correlation is retained.
+The combined band assumes independence only between sampling and LLPR model
+uncertainty. It still omits shared committee bias, electronic-structure
+reference error, finite-size effects, temperature-grid bias, and the effect of
+member-specific geometry relaxation. For volumetric heat capacity, density
+uncertainty is propagated under a zero-covariance assumption.
 
 The command sequence is:
 
@@ -323,8 +326,7 @@ The command sequence is:
   --training-set /path/to/covariance.extxyz \
   --validation-set /path/to/calibration.extxyz
 ./scripts/properties/submit_analysis.sh --model pet-mad --loading 50 \
-  --replicas 1 --model-uncertainty \
-  --uncertainty-model models/pet-mad-1.5-s-llpr-ensemble.pt
+  --replicas 1 --model-uncertainty
 ./scripts/properties/submit_heat_capacity.sh --model pet-mad --loading 50 \
   --source-temperatures 200,225,250,275,300,325,350,375,400 --replicas 1
 ./scripts/properties/submit_hybrid_analysis.sh --model pet-mad --loading 50 \
@@ -336,11 +338,11 @@ this repository; see [LLPR_ENSEMBLE.md](LLPR_ENSEMBLE.md). The trajectory-analys
 command writes `model_uncertainty_heat_capacity.npz` below the model/loading
 trajectory-analysis directory. The final command requires that
 archive and adds its CEA spread to the hybrid NPZ, CSV, JSON, and plot. The
-currently configured central PET-MAD and PET-SOL exports do not expose
-`energy_ensemble`; a separately calibrated ensemble export is therefore needed
-for the first command. The Hessian command cannot use that metatomic ensemble:
-the current harmonic implementation supports only PET-JAX/SADMOF and has no
-member-resolved LLPR-to-PET-JAX conversion.
+analysis reads persistent energy heads directly from the matching 64-member
+LLPR checkpoint and evaluates the central export's last-layer features. The
+Hessian command injects the same centered readouts into PET-JAX and
+differentiates every member at the central-model minimum. This propagates
+Hessian uncertainty but not member-specific geometry-relaxation uncertainty.
 
 ## Scope deliberately omitted
 

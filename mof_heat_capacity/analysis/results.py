@@ -27,7 +27,11 @@ from .trajectory import (
     methane_mean_squared_displacement,
     read_trajectory_observables,
 )
-from .uncertainty import committee_standard_deviation, evaluate_trajectory_committee
+from .uncertainty import (
+    committee_standard_deviation,
+    default_llpr_checkpoint,
+    evaluate_trajectory_committee,
+)
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
@@ -492,7 +496,8 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             trajectory,
             thermodynamic_series,
             production_mask,
-            model_path=args.uncertainty_model or config.exported_model,
+            model_path=args.uncertainty_model or default_llpr_checkpoint(config.name),
+            central_model_path=config.exported_model,
             device=config.device,
             temperature_K=config.temperature_K,
             pressure_bar=config.pressure_bar,

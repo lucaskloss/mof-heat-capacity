@@ -97,11 +97,11 @@ Run the command from the repository root on an Izar login node:
 ```
 
 Remove `--dry-run` to submit one GPU job. Build PET-MAD and PET-SOL ensembles
-separately. The default outputs are:
+separately. The calibrated 64-member checkpoints currently used here are:
 
 ```text
-models/pet-mad-1.5-s-llpr-ensemble.pt
-models/pet-sol-s-best-llpr-ensemble.pt
+models/pet-mad-1.5-s_40nn_nostress-llpr.ckpt
+models/pet_sol-s-best_nostress-llpr.ckpt
 ```
 
 The command invokes metatrain's `llpr` architecture with `num_epochs: null`, so
@@ -143,12 +143,14 @@ the existing 50-methane trajectories for post-processing:
 
 ```bash
 ./scripts/properties/submit_analysis.sh --model pet-mad --loading 50 \
-  --replicas 1 --model-uncertainty \
-  --uncertainty-model models/pet-mad-1.5-s-llpr-ensemble.pt
+  --replicas 1 --model-uncertainty
 ```
 
-The same exported file is reused at every temperature so each member identity
-is persistent across the enthalpy derivative. Inspect direct-reweighting
+The same checkpoint is reused at every temperature so each member identity is
+persistent across the enthalpy derivative. The code evaluates the configured
+central export's last-layer features and applies the checkpoint's centered
+readouts directly; it does not require re-exporting the newer checkpoint with
+the pinned metatrain version. Inspect direct-reweighting
 effective sample counts and `var(beta Delta V)` alongside the CEA curve. CEA
 model spread does not replace autocorrelation-aware MD sampling errors or
 independent replicas.
@@ -205,19 +207,23 @@ higher-order terms are negligible.
 | Classical LLPR model error | Sample standard deviation across member-resolved CEA $C_P$ curves | [`write_model_uncertainty_outputs`](../mof_heat_capacity/analysis/results.py) | `cea_cp_model_standard_deviation_J_per_gK` |
 | MD sampling error | Correlated standard error $s/\sqrt{N_{\mathrm{eff}}}$ within a run, then within- and between-replica contributions | [`summarize_series`](../mof_heat_capacity/analysis/statistics.py) and [`_enthalpy_records`](../mof_heat_capacity/analysis/hybrid.py) | `classical_anharmonic_cp_standard_error_J_per_gK` |
 | Harmonic sampling error | Standard error across independently quenched loaded minima | [`_harmonic_corrections`](../mof_heat_capacity/analysis/hybrid.py) | `harmonic_quantum_correction_standard_error_J_per_gK` |
-| Combined hybrid uncertainty | Quadrature of MD, harmonic-minimum, and classical LLPR terms | [`run`](../mof_heat_capacity/analysis/hybrid.py) | `approximate_cp_combined_standard_uncertainty_J_per_gK` |
+| Hessian LLPR spread | Root mean square of the elementwise sample standard deviations across member Hessians | [`run_heat_capacity`](../mof_heat_capacity/analysis/harmonic.py) | `llpr_hessian_rms_standard_deviation_eV_per_A2` |
+| Hessian LLPR model error | Standard deviation of harmonic corrections from persistent LLPR readouts differentiated at the central minimum | [`run_heat_capacity`](../mof_heat_capacity/analysis/harmonic.py) and [`_harmonic_corrections`](../mof_heat_capacity/analysis/hybrid.py) | `harmonic_quantum_correction_model_standard_deviation_J_per_gK` |
+| Combined hybrid uncertainty | Member-correlated classical-plus-harmonic LLPR spread, combined in quadrature with sampling errors | [`run`](../mof_heat_capacity/analysis/hybrid.py) | `approximate_cp_combined_standard_uncertainty_J_per_gK` |
 
-The component arrays are more informative than the combined band. The
-quadrature result assumes independence. With only one MD replica there is no
-between-replica estimate; with only one loaded minimum the stored harmonic
-standard error is zero, which means "not estimated" rather than "known
-exactly."
+The component arrays are more informative than the combined band. Classical
+and harmonic LLPR deviations are combined member by member; the final
+quadrature assumes independence between that model spread and sampling error.
+With only one MD replica there is no between-replica estimate; with only one
+loaded minimum the stored harmonic standard error is zero, which means "not
+estimated" rather than "known exactly."
 
-The calculation does not currently propagate LLPR members through geometry
-optimization or PET-JAX Hessians. Consequently the LLPR term applies only to
-the classical NPT contribution. The combined band also omits shared MLIP bias,
-reference-method uncertainty, finite-size error, temperature-grid bias, and
-other systematic convergence errors.
+The calculation differentiates every LLPR member at each fixed-cell minimum of
+the central PET model. It propagates last-layer uncertainty into the Hessian,
+frequencies, and harmonic correction, but does not include the geometry shift
+that member-specific relaxation would produce. The combined band also omits
+shared MLIP bias, reference-method uncertainty, finite-size error,
+temperature-grid bias, and other systematic convergence errors.
 
 Before interpreting the result, validate normalized reference residuals and
 coverage on a held-out test set, compare analytical LLPR uncertainty with the
