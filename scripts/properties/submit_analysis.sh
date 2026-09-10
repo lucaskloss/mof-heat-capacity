@@ -15,7 +15,7 @@ LOADINGS="100"
 TEMPERATURES="200,225,250,275,300,325,350,375,400"
 REPLICAS="1"
 DISCARD_PS="100"
-DEFAULT_OUTPUT_ROOT="/work/cosmo/dealmeid/mof-heat-capacity/output"
+DEFAULT_OUTPUT_ROOT="${PROJECT_DIR}/output"
 OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
 ANALYSIS_DIR="${OUTPUT_ROOT}/post-processing/trajectory-analysis"
 PARTITION="${MOF_ANALYSIS_PARTITION:-gpu}"
@@ -35,7 +35,7 @@ DRY_RUN=0
 run_analysis_worker() {
     local runs=""
     local discard_ps="100"
-    local analysis_dir="${MOF_OUTPUT_ROOT:-/work/cosmo/dealmeid/mof-heat-capacity/output}/post-processing/trajectory-analysis"
+    local analysis_dir="${MOF_OUTPUT_ROOT:-${PROJECT_DIR}/output}/post-processing/trajectory-analysis"
     local no_plots=0
     local model_uncertainty=0
     local uncertainty_model=""
@@ -161,12 +161,12 @@ Options:
   --runs PATTERN          Advanced: explicit run-name glob(s); overrides selectors.
   --discard-ps VALUE      Initial trajectory time to discard (default: 100 ps).
   --analysis-dir PATH     Analysis output override (default:
-                          /work/cosmo/dealmeid/mof-heat-capacity/output/post-processing/trajectory-analysis/<model>/<loading>ch4).
+                          repository output/post-processing/trajectory-analysis/<model>/<loading>ch4).
   --partition NAME        Slurm partition (default: gpu).
   --qos NAME              Slurm QOS (default: normal).
   --time HH:MM:SS         Wall time (default: 01:15:00).
   --cpus N                CPUs for each trajectory-analysis job (default: 4).
-  --slurm-output-dir PATH Slurm log directory (default: /work/cosmo/dealmeid/mof-heat-capacity/output/slurm).
+  --slurm-output-dir PATH Slurm log directory (default: repository output/slurm).
   --no-plots              Skip PNG generation.
   --model-uncertainty     Evaluate energy_ensemble on production frames and
                           propagate model uncertainty into classical C_P.

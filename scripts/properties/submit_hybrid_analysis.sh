@@ -18,7 +18,7 @@ CPUS_PER_TASK="${MOF_ANALYSIS_CPUS:-4}"
 ZERO_THRESHOLD_CM1="1.0"
 MAX_NEAR_ZERO_MODES=3
 AFTEROK=""
-DEFAULT_OUTPUT_ROOT="/work/cosmo/dealmeid/mof-heat-capacity/output"
+DEFAULT_OUTPUT_ROOT="${PROJECT_DIR}/output"
 OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
 ANALYSIS_DIR="${OUTPUT_ROOT}/post-processing/trajectory-analysis"
@@ -130,8 +130,8 @@ Options:
   --model-uncertainty     Include the CEA committee spread produced by
                           submit_analysis.sh --model-uncertainty.
   --analysis-dir PATH     Trajectory-analysis root used to find that archive
-                          (default: /work/cosmo/dealmeid/mof-heat-capacity/output/post-processing/trajectory-analysis).
-  --slurm-output-dir PATH Slurm log directory (default: /work/cosmo/dealmeid/mof-heat-capacity/output/slurm).
+                          (default: repository output/post-processing/trajectory-analysis).
+  --slurm-output-dir PATH Slurm log directory (default: repository output/slurm).
   --dry-run               Print submissions without calling sbatch.
   -h, --help              Show this help.
 

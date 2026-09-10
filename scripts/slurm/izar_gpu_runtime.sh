@@ -19,6 +19,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
+MOF_OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${PROJECT_DIR}/output}"
+if [[ "${MOF_OUTPUT_ROOT}" != /* ]]; then
+    MOF_OUTPUT_ROOT="${PROJECT_DIR}/${MOF_OUTPUT_ROOT}"
+fi
+export MOF_OUTPUT_ROOT
+
 MOF_STAGE="${MOF_STAGE:-md}"
 MOF_CONFIG="${MOF_CONFIG:-}"
 MOF_ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof-heat-capacity-izar}"
@@ -89,7 +97,7 @@ if [[ "${MOF_HEAT_FRAMES}" == "array" ]]; then
 
     MOF_HEAT_FRAMES=""
     MOF_HEAT_FRAME_INDICES="${SLURM_ARRAY_TASK_ID}"
-    MOF_HEAT_OUTPUT="${MOF_HEAT_OUTPUT:-/work/cosmo/dealmeid/mof-heat-capacity/output/heat-capacity-frame-${SLURM_ARRAY_TASK_ID}.npz}"
+    MOF_HEAT_OUTPUT="${MOF_HEAT_OUTPUT:-${MOF_OUTPUT_ROOT}/heat-capacity-frame-${SLURM_ARRAY_TASK_ID}.npz}"
 fi
 
 
@@ -123,7 +131,7 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export PYTHONUNBUFFERED=1
 
-cd "${SLURM_SUBMIT_DIR}"
+cd "${PROJECT_DIR}"
 
 if [[ ! -f mof_heat_capacity/simulation/md.py \
     || ! -f mof_heat_capacity/analysis/harmonic.py ]]; then

@@ -30,7 +30,7 @@ PARTITION="${MOF_HEAT_PARTITION:-gpu}"
 QOS="${MOF_HEAT_QOS:-normal}"
 WALL_TIME="${MOF_HEAT_TIME:-08:00:00}"
 CPUS_PER_TASK="${MOF_HEAT_CPUS:-8}"
-DEFAULT_OUTPUT_ROOT="/work/cosmo/dealmeid/mof-heat-capacity/output"
+DEFAULT_OUTPUT_ROOT="${PROJECT_DIR}/output"
 OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
 if [[ "${OUTPUT_ROOT}" != /* ]]; then
     OUTPUT_ROOT="${PROJECT_DIR}/${OUTPUT_ROOT}"
@@ -73,7 +73,7 @@ Options:
   --qos NAME              Slurm QOS (default: normal).
   --time HH:MM:SS         Time per relaxation plus Hessian (default: 08:00:00).
   --cpus N                CPUs per task (default: 8).
-  --slurm-output-dir PATH Slurm log directory (default: /work/cosmo/dealmeid/mof-heat-capacity/output/slurm).
+  --slurm-output-dir PATH Slurm log directory (default: repository output/slurm).
   --overwrite             Replace existing relaxation and Hessian outputs.
   --dry-run               Validate inputs and print all submissions.
   -h, --help              Show this help.

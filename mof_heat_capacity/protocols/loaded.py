@@ -3,20 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 import re
 
 from ase import io
 
-from ..config import loaded_config_path
+from ..config import loaded_config_path, output_root
 from ..io import write_lammps_data, write_structure_pdb
 from ..structures.methane import insert_molecules
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_OUTPUT_ROOT = Path("/work/cosmo/dealmeid/mof-heat-capacity/output")
-
-
 DEFAULT_REPLICAS = 1
 CONFIG_TEMPLATE = PROJECT_DIR / "configs" / "mof5_100ch4_hybrid_npt.toml"
 MODEL_PRESETS = {
@@ -55,7 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path(os.environ.get("MOF_OUTPUT_ROOT", DEFAULT_OUTPUT_ROOT)),
+        default=output_root(),
         help="Root for generated structures and MD outputs",
     )
     parser.add_argument("--tries", type=int, default=20000)
@@ -114,8 +110,7 @@ def render_config(
     rendered = replace_once(
         rendered,
         (
-            'output_dir = "/work/cosmo/dealmeid/mof-heat-capacity/output/md/production/'
-            'REPLACE_WITH_MODEL_LABEL/100ch4/300K/rep01"'
+            'output_dir = "REPLACE_WITH_OUTPUT_DIR"'
         ),
         f'output_dir = "{output_root}/md/production/{model_label}/{loading}ch4/'
         f'{temperature}K/rep{replica:02d}"',
@@ -123,7 +118,7 @@ def render_config(
     rendered = rendered.replace(template_name, base_name)
     rendered = replace_once(
         rendered,
-        'path = "/work/cosmo/dealmeid/mof-heat-capacity/output/md/structures/100ch4/300K/rep01/structure.pdb"',
+        'path = "REPLACE_WITH_STRUCTURE_PATH"',
         f'path = "{structure_path}"',
     )
     rendered = replace_once(rendered, "temperature_K = 300.0", f"temperature_K = {temperature}.0")

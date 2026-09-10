@@ -30,7 +30,7 @@ PARTITION="${MOF_LLPR_PARTITION:-gpu}"
 QOS="${MOF_LLPR_QOS:-normal}"
 WALL_TIME="${MOF_LLPR_TIME:-04:00:00}"
 CPUS_PER_TASK="${MOF_LLPR_CPUS:-4}"
-DEFAULT_OUTPUT_ROOT="/work/cosmo/dealmeid/mof-heat-capacity/output"
+DEFAULT_OUTPUT_ROOT="${PROJECT_DIR}/output"
 OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
 DRY_RUN=0
@@ -68,7 +68,7 @@ Slurm options:
   --qos NAME               QOS (default: normal).
   --time HH:MM:SS          Wall time (default: 04:00:00).
   --cpus N                 CPUs per task (default: 4).
-  --slurm-output-dir PATH  Slurm log root (default: /work/cosmo/dealmeid/mof-heat-capacity/output/slurm).
+  --slurm-output-dir PATH  Slurm log root (default: repository output/slurm).
   --dry-run                Validate and print options/submission without writing.
   -h, --help               Show this help.
 

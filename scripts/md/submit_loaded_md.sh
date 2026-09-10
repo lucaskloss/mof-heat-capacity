@@ -22,7 +22,7 @@ if [[ -n "${MOF_MD_TIME:-}" ]]; then
     WALL_TIME_SET=1
 fi
 CPUS_PER_TASK="${MOF_MD_CPUS:-8}"
-DEFAULT_OUTPUT_ROOT="/work/cosmo/dealmeid/mof-heat-capacity/output"
+DEFAULT_OUTPUT_ROOT="${PROJECT_DIR}/output"
 OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
 if [[ "${OUTPUT_ROOT}" != /* ]]; then
     OUTPUT_ROOT="${PROJECT_DIR}/${OUTPUT_ROOT}"

@@ -10,7 +10,7 @@ import tomllib
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT_ROOT = Path("/work/cosmo/dealmeid/mof-heat-capacity/output")
+DEFAULT_OUTPUT_ROOT = PROJECT_DIR / "output"
 LOADED_RUN_PATTERN = re.compile(
     r"^mof5-(?P<loading>[1-9][0-9]*)ch4-(?P<model>.+)-npt-"
     r"(?P<temperature>[1-9][0-9]*)K-rep(?P<replica>[0-9]+)$"
