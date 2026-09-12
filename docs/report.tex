@@ -1,6 +1,6 @@
-\documentclass[11pt,a4paper]{article}
+\documentclass[10pt,a4paper,twocolumn]{article}
 
-\usepackage[margin=2.5cm]{geometry}
+\usepackage[margin=1.8cm]{geometry}
 \usepackage{amsmath,amssymb,bm}
 \usepackage{array}
 \usepackage{booktabs}
@@ -11,6 +11,7 @@
 
 \hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
 \sisetup{per-mode=symbol}
+\setlength{\columnsep}{0.7cm}
 \newcommand{\chfour}{\ensuremath{\mathrm{CH_4}}}
 \newcommand{\cv}{\ensuremath{C_V}}
 \newcommand{\cpheat}{\ensuremath{C_P}}
@@ -135,67 +136,112 @@ used later in this project.
 
 \subsubsection{From an atomic structure to a graph}
 
-A graph neural network (GNN) represents the atoms by vertices and nearby
-interactions by directed edges. For a periodic system, an edge
-$(j,\bm n)\to i$ is included when
+A graph neural network (GNN) acts on an attributed graph
+$\mathcal G=(\mathcal V,\mathcal E)$, following the notation of
+Bronstein \emph{et al.}\ \cite{bronstein2021}. The node set $\mathcal V$
+contains the $N=|\mathcal V|$ atoms. An input node signal is a map
+$\bm x:\mathcal V\to\mathbb R^s$; its value at node $u$ is
+$\bm x_u$, and stacking all node features as rows gives
+$\bm X=(\bm x_1,\ldots,\bm x_N)^{\mathrm T}\in\mathbb R^{N\times s}$.
+The edge set encodes local interactions. Because distinct periodic images of
+one atom may enter the same environment, the atomistic graph is more precisely
+a directed periodic multigraph. An edge $(v,u,\bm n)\in\mathcal E$, directed
+from the image $(v,\bm n)$ to the central atom $u$, is included when
 \begin{align}
-  \bm r_{ij\bm n}
-    &= \bm R_j+\bm h\bm n-\bm R_i,
-  & r_{ij\bm n}&=\lVert\bm r_{ij\bm n}\rVert < r_{\mathrm c},
+  \bm r_{uv\bm n}
+    &= \bm R_v+\bm h\bm n-\bm R_u,
+  \\
+  r_{uv\bm n}&=\lVert\bm r_{uv\bm n}\rVert < r_{\mathrm c},
   \label{eq:periodic-edge}
 \end{align}
 where $\bm n\in\mathbb Z^3$ identifies a periodic image and
-$r_{\mathrm c}$ is a cutoff. This construction removes dependence on the
-absolute origin. A sufficiently smooth cutoff function $f_{\mathrm c}(r)$,
-whose value and relevant derivatives vanish at $r_{\mathrm c}$, suppresses a
-neighbor's contribution as it leaves the environment. Smooth forces and
-Hessians require consistent cutoff treatment throughout the network,
-including attention normalization and energy readout, rather than continuity
-of the cutoff value alone.
+$r_{\mathrm c}$ is a cutoff. The incoming one-hop neighborhood is therefore
+the indexed set
+\begin{equation}
+  \mathcal N_u
+  =\{(v,\bm n):(v,u,\bm n)\in\mathcal E\}.
+  \label{eq:periodic-neighborhood}
+\end{equation}
+This is the periodic analogue of the neighborhood $\mathcal N_u$ in
+Ref.~\cite{bronstein2021}; retaining $\bm n$ distinguishes repeated images of
+the same node. Relative displacements remove dependence on the absolute
+origin. A sufficiently smooth cutoff function $f_{\mathrm c}(r)$, whose value
+and relevant derivatives vanish at $r_{\mathrm c}$, suppresses a neighbor's
+contribution as it leaves the environment. Smooth forces and Hessians require
+consistent cutoff treatment throughout the network, including attention
+normalization and energy readout, rather than continuity of the cutoff value
+alone.
 
 Neural networks operate on fixed-width numerical representations. Chemical
 identity is therefore mapped from a discrete species label to a trainable
 embedding vector,
 \begin{equation}
-  \bm h_i^{(0)}=\bm E_Z[Z_i]\in\mathbb R^d,
+  \bm x_u^{(0)}=\bm E_Z[Z_u]\in\mathbb R^d,
   \label{eq:species-embedding}
 \end{equation}
 where each row of the embedding matrix $\bm E_Z$ is learned during training.
-Geometry may be embedded through radial basis functions,
+In the attributed-graph notation, geometry is carried by edge features. For
+example, a radial edge signal can be written
 \begin{equation}
-  \bm e_{ij}^{\mathrm{rad}}
-  =f_{\mathrm c}(r_{ij})
-   \bigl[\phi_1(r_{ij}),\ldots,\phi_K(r_{ij})\bigr],
+  \bm x_{uv\bm n}^{\mathrm{edge}}
+  =f_{\mathrm c}(r_{uv\bm n})
+   \bigl[\varphi_1(r_{uv\bm n}),\ldots,
+          \varphi_K(r_{uv\bm n})\bigr],
   \label{eq:radial-embedding}
 \end{equation}
 and, in models that retain directional information, by the displacement
-$\bm r_{ij}$, its unit vector, spherical harmonics, or learned functions of
+$\bm r_{uv\bm n}$, its unit vector, spherical harmonics, or learned functions of
 these quantities. Here ``embedding vector'' means a vector in latent feature
 space; it need not transform as a physical three-dimensional vector.
 
+Suppressing periodic-image labels for a moment, graph connectivity may also be
+represented by an adjacency matrix $\bm A$. A relabeling of the nodes by a
+permutation matrix $\bm P$ sends
+$(\bm X,\bm A)$ to $(\bm P\bm X,\bm P\bm A\bm P^{\mathrm T})$. The geometric
+deep-learning prescription is that a node-wise GNN $F$ be permutation
+equivariant, whereas a graph-wise scalar readout $f$ be permutation invariant:
+\begin{align}
+  F(\bm P\bm X,\bm P\bm A\bm P^{\mathrm T})
+    &=\bm P F(\bm X,\bm A),
+  \\
+  f(\bm P\bm X,\bm P\bm A\bm P^{\mathrm T})
+    &=f(\bm X,\bm A).
+  \label{eq:graph-permutation}
+\end{align}
+For an interatomic potential, the first relation applies to node
+representations and the second to the total energy. Periodic-image and edge
+features must be relabeled consistently with their incident nodes.
+
 \subsubsection{Message passing and many-body representations}
 
-At message-passing layer $\ell$, a generic GNN constructs a message on each
-edge, aggregates the incoming messages in a permutation-independent way, and
-updates the central representation:
-\begin{align}
-  \bm m_{ij}^{(\ell)}
-    &=M_\ell\bigl(\bm h_i^{(\ell)},\bm h_j^{(\ell)},
-                   \bm e_{ij}\bigr),
-  \\
-  \bm m_i^{(\ell)}
-    &=\sum_{j\in\mathcal N_i}\bm m_{ij}^{(\ell)},
-  \\
-  \bm h_i^{(\ell+1)}
-    &=U_\ell\bigl(\bm h_i^{(\ell)},\bm m_i^{(\ell)}\bigr).
+In the notation of Ref.~\cite{bronstein2021}, a message-passing GNN computes a
+latent node feature $\bm h_u$ by applying a learnable message function $\psi$
+on every incoming edge, combining the messages with a
+permutation-invariant aggregation $\bigoplus$, and applying a learnable update
+function $\phi$:
+\begin{equation}
+  \bm h_u
+  =\phi\!\left(
+      \bm x_u,
+      \bigoplus_{(v,\bm n)\in\mathcal N_u}
+      \psi\!\left(\bm x_u,\bm x_v,
+                   \bm x_{uv\bm n}^{\mathrm{edge}}\right)
+    \right).
   \label{eq:message-passing}
-\end{align}
-The learned maps $M_\ell$ and $U_\ell$ are commonly multilayer
-perceptrons or attention blocks. Although the graph initially contains only
-pairwise edges, repeated updates create many-body features: after $L$ layers,
-an atom can depend on paths extending up to $L$ graph hops. A readout map then
-converts the final features into the local energies in
-Eq.~\eqref{eq:mlip-energy}.
+\end{equation}
+Equation~\eqref{eq:message-passing} extends the book's node-feature equation
+by conditioning $\psi$ on the geometric edge feature, as required for an
+attributed atomistic graph. A sum is the usual choice for $\bigoplus$, though
+means, maxima, and other symmetric multiset functions are possible. For a
+deep GNN, take $\bm h_u^{(0)}=\bm x_u^{(0)}$, apply
+Eq.~\eqref{eq:message-passing} recursively with layer-specific
+$\psi_\ell$ and $\phi_\ell$, and denote each layer's output by
+$\bm h_u^{(\ell+1)}$. Although the graph initially contains only pairwise
+edges, repeated updates create many-body features: after $L$ layers, an atom
+can depend on paths extending up to $L$ graph hops. A shared readout $\rho$
+maps the final node features to local energies,
+$\varepsilon_u=\rho(\bm h_u^{(L)})$, whose sum gives the invariant extensive
+energy in Eq.~\eqref{eq:mlip-energy}.
 
 \subsubsection{Point Edge Transformer architecture}
 \label{sec:pet-architecture}
@@ -239,14 +285,16 @@ For one attention head, with $a,b$ indexing these tokens,
 \begin{align}
   \bm q_a&=\bm W_Q\bm t_a,
   &\bm k_b&=\bm W_K\bm t_b,
-  &\bm v_b&=\bm W_V\bm t_b,
+  \\
+  \bm v_b&=\bm W_V\bm t_b,
   \\
   \alpha_{ab}
     &=\frac{\exp(\bm q_a^{\mathrm T}\bm k_b/\sqrt{d_k})
                     c_b}
             {\sum_c\exp(\bm q_a^{\mathrm T}\bm k_c/\sqrt{d_k})
                     c_c},
-  &\bm y_a&=\sum_b\alpha_{ab}\bm v_b.
+  \\
+  \bm y_a&=\sum_b\alpha_{ab}\bm v_b.
   \label{eq:self-attention}
 \end{align}
 where $c_0=1$ for the central token and $c_j=f_{\mathrm c}(r_{ij})$ for
@@ -273,11 +321,14 @@ The output neighbor tokens supply outgoing messages, updated with residual
 connections to preceding messages. Each block also contributes to the energy.
 For the summed-edge variant in the original paper,
 \begin{equation}
-  U_\theta=\sum_i b_{Z_i}
-  +\sum_{\ell=1}^{L}\sum_i\left[
+  \begin{aligned}
+  U_\theta={}&\sum_i b_{Z_i}
+  +\sum_{\ell=1}^{L}\sum_i\Bigl[
       H_c^{(\ell)}(\bm x_{i0}^{(\ell)})
-      +\sum_{j\in\mathcal N_i}f_{\mathrm c}(r_{ij})
-                         H_n^{(\ell)}(\bm x_{ij}^{(\ell)})\right],
+  \\[-0.2em]
+  &+\sum_{j\in\mathcal N_i}f_{\mathrm c}(r_{ij})
+                 H_n^{(\ell)}(\bm x_{ij}^{(\ell)})\Bigr],
+  \end{aligned}
   \label{eq:pet-readout}
 \end{equation}
 where $\bm x_{i0}$ and $\bm x_{ij}$ are central and neighbor output tokens,
@@ -294,10 +345,11 @@ For an isolated non-magnetic system without external fields, a valid scalar
 energy should be unchanged by translation, rotation or reflection of the
 whole structure and by permutation of identical atoms:
 \begin{equation}
-  U(\bm R)=U(\bm R+\bm a)
-  =U(\bm Q\bm R)
-  =U(\bm P\bm R),
-  \qquad \bm Q\in O(3).
+  \begin{aligned}
+  U(\bm R)&=U(\bm R+\bm a)=U(\bm Q\bm R)
+  \\
+           &=U(\bm P\bm R),\qquad \bm Q\in O(3).
+  \end{aligned}
   \label{eq:energy-symmetry}
 \end{equation}
 An invariant scalar is unchanged by a symmetry operation, whereas an
@@ -359,12 +411,15 @@ must therefore be distinguished from those of the deployed PET backbone.
 Given reference configurations $s$, a typical energy--force training
 objective is
 \begin{equation}
-  \mathcal L(\theta)=\sum_s\left[
+  \begin{aligned}
+  \mathcal L(\theta)=\sum_s\Biggl[{}
     w_E\left(\frac{U_\theta^{(s)}-U_{\mathrm{ref}}^{(s)}}{N_s}\right)^2
+  \\
     +\frac{w_F}{3N_s}\sum_{i\alpha}
       \left(F_{i\alpha,\theta}^{(s)}
                  -F_{i\alpha,\mathrm{ref}}^{(s)}\right)^2
-  \right],
+  \Biggr],
+  \end{aligned}
   \label{eq:mlip-loss}
 \end{equation}
 possibly augmented by stress terms and regularization. Because the force
@@ -558,10 +613,13 @@ last-layer feature vector. If $\bm F$ contains the corresponding features of a
 reference-labeled covariance set, the metatrain LLPR standard deviation has
 the form
 \begin{equation}
+  \begin{aligned}
   \sigma_{\mathrm{LLPR}}^2(\bm x)
-  =\alpha^2\bm f(\bm x)^{\mathrm T}
-  \left(\bm F^{\mathrm T}\bm F+\lambda\bm I\right)^{-1}
-  \bm f(\bm x).
+  ={}&\alpha^2\bm f(\bm x)^{\mathrm T}
+  \\
+  &\times\left(\bm F^{\mathrm T}\bm F
+        +\lambda\bm I\right)^{-1}\bm f(\bm x).
+  \end{aligned}
   \label{eq:llpr-variance}
 \end{equation}
 The regularizer $\lambda$ stabilizes weakly constrained feature directions.
@@ -577,11 +635,14 @@ propagated through an equilibrium average by itself. The propagation needs
 signed, correlated changes in energy across configurations. Metatrain
 therefore samples persistent shallow readout weights,
 \begin{equation}
-  \bm w_i\sim\mathcal N\!\left[
-  \bm w_0,
-  \alpha^2\left(\bm F^{\mathrm T}\bm F+\lambda\bm I\right)^{-1}
-  \right],
-  \qquad V^{(i)}(\bm x)=\bm w_i^{\mathrm T}\bm f(\bm x),
+  \begin{aligned}
+  \bm w_i&\sim\mathcal N\!\left[
+    \bm w_0,
+    \alpha^2\left(\bm F^{\mathrm T}\bm F
+                         +\lambda\bm I\right)^{-1}\right],
+  \\
+  V^{(i)}(\bm x)&=\bm w_i^{\mathrm T}\bm f(\bm x),
+  \end{aligned}
   \label{eq:llpr-members}
 \end{equation}
 and exports their energies as \texttt{energy\_ensemble}. In the large-member
@@ -603,19 +664,23 @@ where $K_t$ and cell volume $\mathcal V_t$ come from the central NPT
 trajectory. Normalized exponential reweighting gives
 \begin{equation}
   \left\langle H^{(i)}\right\rangle_i^{\mathrm{direct}}
-  =\frac{\sum_t\exp[-\beta\Delta V_t^{(i)}]H_t^{(i)}}
-  {\sum_t\exp[-\beta\Delta V_t^{(i)}]},
+  =\frac{\sum_t e^{-\beta\Delta V_t^{(i)}}H_t^{(i)}}
+  {\sum_t e^{-\beta\Delta V_t^{(i)}}},
   \label{eq:llpr-direct}
 \end{equation}
 but can collapse when the energy difference is extensive. The primary
 large-system estimate is therefore the first-order cumulant expansion
 approximation (CEA),
 \begin{equation}
+  \begin{aligned}
   \left\langle H^{(i)}\right\rangle_i^{\mathrm{CEA}}
-  =\left\langle H^{(i)}\right\rangle_{\bar V}
-  -\beta\operatorname{cov}_{\bar V}
+  ={}&\left\langle H^{(i)}\right\rangle_{\bar V}
+  \\
+  &-\beta\operatorname{cov}_{\bar V}
   \left(H^{(i)},\Delta V^{(i)}\right),
-  \qquad \beta=(k_{\mathrm B}T)^{-1}.
+  \\
+  &\beta=(k_{\mathrm B}T)^{-1}.
+  \end{aligned}
   \label{eq:llpr-cea}
 \end{equation}
 Direct reweighting is retained as a diagnostic. Its member-wise effective
@@ -630,12 +695,16 @@ At each temperature, independent replicas are averaged member by member. The
 same exported ensemble and member index must be used at every temperature.
 The analysis then differentiates each complete enthalpy curve,
 \begin{equation}
+  \begin{aligned}
   C_{P,\mathrm{cl}}^{(i)}(T)
-  =\frac{\mathrm d\langle H^{(i)}\rangle_i^{\mathrm{CEA}}}{\mathrm dT},
-  \qquad
+  &=\frac{\mathrm d\langle H^{(i)}\rangle_i^{\mathrm{CEA}}}
+          {\mathrm dT},
+  \\
   \sigma_{\mathrm{LLPR},C_P}(T)
-  =\sqrt{\frac{1}{M-1}\sum_{i=1}^{M}
-  \left[C_{P,\mathrm{cl}}^{(i)}(T)-\overline C_{P,\mathrm{cl}}(T)\right]^2}.
+  &=\left\{\frac{1}{M-1}\sum_{i=1}^{M}
+  \left[C_{P,\mathrm{cl}}^{(i)}(T)
+  -\overline C_{P,\mathrm{cl}}(T)\right]^2\right\}^{1/2}.
+  \end{aligned}
   \label{eq:llpr-cp-spread}
 \end{equation}
 The reported LLPR error is therefore the sample standard deviation of the
@@ -680,9 +749,13 @@ individual reference parameters.
 
 The reference heat-capacity curves were evaluated from neighboring enthalpies,
 \begin{equation}
-  C_P(T) \simeq
-  \frac{\mathcal H(T+\Delta T)-\mathcal H(T-\Delta T)}{2\Delta T},
-  \qquad \Delta T=\SI{25}{K},
+  \begin{aligned}
+  C_P(T)&\simeq
+  \frac{\mathcal H(T+\Delta T)-\mathcal H(T-\Delta T)}
+       {2\Delta T},
+  \\
+  \Delta T&=\SI{25}{K},
+  \end{aligned}
   \label{eq:finite-difference-cp}
 \end{equation}
 rather than from a single short trajectory. The present classical term uses
@@ -763,6 +836,7 @@ three attention layers per block differs from the one layer used here.
 
 \begin{table}[htbp]
 \centering
+\small
 \caption{Architecture settings recorded in the local PET-MAD and PET-SOL
 PET-JAX metadata. The species count is embedding capacity, not a measure of
 training coverage.}
@@ -856,9 +930,14 @@ and other anharmonic effects sampled by the MLIP.
 Let $\bm R_0$ be a stationary reference structure and
 $\bm u=\bm R-\bm R_0$. Expanding the potential energy gives
 \begin{equation}
-  U(\bm R_0+\bm u)=U(\bm R_0)
-  +\underbrace{\nabla U(\bm R_0)\cdot\bm u}_{=0\ \mathrm{at\ a\ minimum}}
-  +\frac{1}{2}\bm u^{\mathrm T}\bm H\bm u+\mathcal O(u^3),
+  \begin{aligned}
+  U(\bm R_0+\bm u)={}&U(\bm R_0)
+  +\underbrace{\nabla U(\bm R_0)\cdot\bm u}
+       _{=0\ \mathrm{at\ a\ minimum}}
+  \\
+  &+\frac{1}{2}\bm u^{\mathrm T}\bm H\bm u
+  +\mathcal O(u^3),
+  \end{aligned}
   \label{eq:taylor}
 \end{equation}
 with Cartesian Hessian
@@ -962,18 +1041,24 @@ frames are not treated as normal-mode reference structures. If $N_m$
 independent optimized minima are retained, the mean harmonic quantum
 correction is
 \begin{equation}
+  \begin{aligned}
   \overline{\Delta c^{\mathrm{har}}}(T)
-  =\frac{1}{N_m}\sum_{s=1}^{N_m}
-  \left[c_{\mathrm{qn},s}^{\mathrm{har}}(T)
-       -c_{\mathrm{cl},s}^{\mathrm{har}}\right],
+  ={}&\frac{1}{N_m}\sum_{s=1}^{N_m}
+  \Bigl[c_{\mathrm{qn},s}^{\mathrm{har}}(T)
+  \\
+  &\hspace{4em}-c_{\mathrm{cl},s}^{\mathrm{har}}\Bigr],
+  \end{aligned}
   \label{eq:minimum-average}
 \end{equation}
 with sample variance
 \begin{equation}
-  s_{\Delta c}^2(T)=\frac{1}{N_m-1}
-  \sum_{s=1}^{N_m}\left[
+  \begin{aligned}
+  s_{\Delta c}^2(T)={}&\frac{1}{N_m-1}
+  \sum_{s=1}^{N_m}\Bigl[
     \Delta c_s^{\mathrm{har}}(T)
-    -\overline{\Delta c^{\mathrm{har}}}(T)\right]^2.
+  \\
+  &-\overline{\Delta c^{\mathrm{har}}}(T)\Bigr]^2.
+  \end{aligned}
 \end{equation}
 
 For each minimum, the quantum and classical harmonic terms use exactly the
@@ -984,12 +1069,14 @@ cannot supply this correction.
 
 The final estimator is
 \begin{equation}
+  \begin{aligned}
   c_P^{\mathrm{approx}}(T)
-  =c_{P,\mathrm{cl}}^{\mathrm{anh}}(T)
-  +\overline{\Delta c^{\mathrm{har}}}(T),
-  \qquad
+  &=c_{P,\mathrm{cl}}^{\mathrm{anh}}(T)
+    +\overline{\Delta c^{\mathrm{har}}}(T),
+  \\
   c_{P,\mathrm{cl}}^{\mathrm{anh}}(T)
-  =\frac{\mathrm d\langle H\rangle_{\mathrm{cl}}}{\mathrm dT}.
+  &=\frac{\mathrm d\langle H\rangle_{\mathrm{cl}}}{\mathrm dT}.
+  \end{aligned}
   \label{eq:hybrid-cp}
 \end{equation}
 Extensive terms are combined before division by the total mass of the loaded
@@ -1002,10 +1089,13 @@ limited validation below roughly \SI{200}{K} must be stated with the result.
 
 The final standard-uncertainty components are summarized as
 \begin{equation}
-  \sigma_{\mathrm{hyb}}(T)=\sqrt{
-    \sigma_{\mathrm{MD}}^2(T)
+  \begin{aligned}
+  \sigma_{\mathrm{hyb}}(T)=\bigl[{}
+    &\sigma_{\mathrm{MD}}^2(T)
     +\sigma_{\mathrm{har}}^2(T)
-    +\sigma_{\mathrm{LLPR},C_P}^2(T)},
+  \\
+    &+\sigma_{\mathrm{LLPR},C_P}^2(T)\bigr]^{1/2},
+  \end{aligned}
   \label{eq:combined-uncertainty}
 \end{equation}
 where $\sigma_{\mathrm{MD}}$ is the propagated standard error of the central
@@ -1143,10 +1233,15 @@ size, and rematerialization choice. Finally,
 enthalpies and writes the classical term, harmonic correction, combined curve,
 uncertainties, and provenance as NPZ, CSV, and JSON files.
 
-The uncertainty calculations and their stored locations are as follows:
+The uncertainty calculations and their stored locations are summarized in
+Table~\ref{tab:uncertainty-outputs}.
 
-\begin{center}
+\begin{table*}[t]
+\centering
 \small
+\caption{Uncertainty components, their calculation locations, and their
+stored outputs.}
+\label{tab:uncertainty-outputs}
 \begin{tabular}{@{}p{3.3cm}p{5.0cm}p{5.4cm}@{}}
 \toprule
 Quantity & Where it is calculated & Stored result \\
@@ -1178,7 +1273,7 @@ Combined standard uncertainty & quadrature in
 \texttt{approximate\_cp\_combined\_standard\_uncertainty} \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table*}
 
 The scalar analytical LLPR energy uncertainty is archived but is not used
 directly as the heat-capacity error. That error is calculated only after CEA
@@ -1194,7 +1289,9 @@ replica, or optimized-minimum jobs are the available level of parallelism.
 Slurm job identifiers and resource use should be retained; elapsed time and peak
 memory can be recovered with, for example,
 \begin{verbatim}
-sacct -j JOB_ID --format=JobID,State,Elapsed,MaxRSS,AllocTRES
+sacct -j JOB_ID \
+  --format=JobID,State,Elapsed,\
+MaxRSS,AllocTRES
 \end{verbatim}
 Wall time and memory requests should be based on representative jobs.
 Separate output directories and
@@ -1274,6 +1371,12 @@ motivated by Kapil \emph{et al.}\ to the PET potential; it does not seek to
 reproduce the reference force field, sampling protocol, or numerical curves.
 
 \begin{thebibliography}{10}
+
+\bibitem{bronstein2021}
+M. M. Bronstein, J. Bruna, T. Cohen, and P. Veli\v{c}kovi\'c,
+\emph{Geometric Deep Learning: Grids, Groups, Graphs, Geodesics, and Gauges},
+arXiv:2104.13478 (2021),
+\href{https://arxiv.org/abs/2104.13478}{arXiv:2104.13478}.
 
 \bibitem{kapil2019}
 V. Kapil \emph{et al.},

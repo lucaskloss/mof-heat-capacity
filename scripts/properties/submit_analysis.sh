@@ -24,7 +24,7 @@ WALL_TIME="${MOF_ANALYSIS_TIME:-01:15:00}"
 CPUS_PER_TASK="${MOF_ANALYSIS_CPUS:-4}"
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
 NO_PLOTS=0
-MODEL_UNCERTAINTY=0
+MODEL_UNCERTAINTY=1
 UNCERTAINTY_MODEL=""
 UNCERTAINTY_STRIDE=20
 UNCERTAINTY_BATCH_SIZE=4
@@ -108,7 +108,7 @@ run_analysis_worker() {
     echo "Discard:         ${discard_ps} ps"
     echo "Analysis output: ${analysis_dir}"
     if ((model_uncertainty)); then
-        echo "Model UQ:        enabled (configured energy ensemble)"
+        echo "Model UQ:        enabled (matching LLPR checkpoint)"
     else
         echo "Model UQ:        disabled"
     fi
@@ -168,8 +168,8 @@ Options:
   --cpus N                CPUs for each trajectory-analysis job (default: 4).
   --slurm-output-dir PATH Slurm log directory (default: repository output/slurm).
   --no-plots              Skip PNG generation.
-  --model-uncertainty     Evaluate persistent LLPR energy members on production
-                          frames and propagate uncertainty into classical C_P.
+  --model-uncertainty     Enable persistent LLPR member propagation (default).
+  --no-model-uncertainty  Skip LLPR propagation for a central-model-only run.
   --uncertainty-model PATH
                           LLPR checkpoint or exported ensemble override; use
                           with one MLIP. Defaults to the matching model/*.ckpt.
@@ -223,6 +223,7 @@ while (($#)); do
         --slurm-output-dir) require_value "$@"; SLURM_OUTPUT_DIR="$2"; shift 2 ;;
         --no-plots) NO_PLOTS=1; shift ;;
         --model-uncertainty) MODEL_UNCERTAINTY=1; shift ;;
+        --no-model-uncertainty) MODEL_UNCERTAINTY=0; shift ;;
         --uncertainty-model) require_value "$@"; UNCERTAINTY_MODEL="$2"; shift 2 ;;
         --uncertainty-stride) require_value "$@"; UNCERTAINTY_STRIDE="$2"; shift 2 ;;
         --uncertainty-batch-size) require_value "$@"; UNCERTAINTY_BATCH_SIZE="$2"; shift 2 ;;
