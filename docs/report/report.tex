@@ -170,7 +170,30 @@ and relevant derivatives vanish at $r_{\mathrm c}$, suppresses a neighbor's
 contribution as it leaves the environment. Smooth forces and Hessians require
 consistent cutoff treatment throughout the network, including attention
 normalization and energy readout, rather than continuity of the cutoff value
-alone.
+alone. The representative single cutoff and the comparison of cutoff
+functions are shown in Figures~\ref{fig:cutoff-single} and
+\ref{fig:cutoff-functions}, respectively; both are from the PET paper
+\cite{pet}.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{figures/cutoff_single.pdf}
+  \caption{A smooth radial cutoff suppresses a neighbor contribution as its
+  distance approaches the outer cutoff $r_{\mathrm c}$. Smooth decay is needed
+  for continuous energies, forces, and Hessians. Figure from the PET paper
+  \cite{pet}.}
+  \label{fig:cutoff-single}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{figures/cutoff_functions.pdf}
+  \caption{Comparison of radial cutoff functions used to attenuate neighbor
+  contributions near $r_{\mathrm c}$. The value and the derivatives relevant
+  to the model must be treated consistently in every energy contribution.
+  Figure from the PET paper \cite{pet}.}
+  \label{fig:cutoff-functions}
+\end{figure}
 
 Neural networks operate on fixed-width numerical representations. Chemical
 identity is therefore mapped from a discrete species label to a trainable
@@ -254,6 +277,16 @@ together and produces a separate outgoing message for each neighbor. This
 avoids compressing the entire neighborhood into a single atom representation
 before forming outgoing messages. Attention still performs weighted sums
 internally; the distinction is that the edge identities survive the update.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/pet_final.pdf}
+  \caption{Point Edge Transformer (PET) message-passing architecture. Edge
+  messages associated with a central atom are jointly processed by attention
+  while retaining their individual edge identities for the outgoing update.
+  Figure from the PET paper \cite{pet}.}
+  \label{fig:pet-architecture}
+\end{figure*}
 
 In the original formulation (Ref.~\cite{pet}, Appendix A), neighbor species,
 relative Cartesian position, and an incoming message
@@ -375,6 +408,17 @@ symmetry on a smooth, translation- and permutation-invariant backbone
 \cite{pet}. Each ordered noncollinear neighbor pair $(j,k)$ defines a local
 frame $\bm Q_{ijk}$ that rotates with the atomic environment. For a scalar
 local prediction, the symmetrized model is
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/ecse_final.pdf}
+  \caption{Equivariant Coordinate System Ensemble (ECSE). Local coordinate
+  frames constructed from noncollinear neighbor pairs rotate with the atomic
+  environment; predictions evaluated in these frames are transformed as
+  needed and smoothly averaged. Figure from the PET paper \cite{pet}.}
+  \label{fig:ecse}
+\end{figure*}
+
 \begin{equation}
   \varepsilon_i^{\mathrm{ECSE}}=
     \frac{\sum_{j\ne k}w_{ijk}\,
