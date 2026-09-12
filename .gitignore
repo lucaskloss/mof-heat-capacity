@@ -12,3 +12,4 @@ slurm-*.out
 configs/*
 !configs/metatomic_md_template.toml
 !configs/mof5_100ch4_hybrid_npt.toml
+/docs/arXiv*
