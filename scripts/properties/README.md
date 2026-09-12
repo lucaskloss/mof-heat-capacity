@@ -48,8 +48,10 @@ LAMMPS thermo logs retain equilibration records, whereas the coordinate dump
 intentionally begins at the configured production start. Analysis aligns the
 two by their LAMMPS timestep, so their frame counts are not expected to match.
 
-`--model-uncertainty` uses the matching calibrated LLPR checkpoint by default
-and combines its persistent readouts with system-level last-layer features
+Trajectory analysis uses the matching calibrated LLPR checkpoint by default.
+`--model-uncertainty` is retained as an explicit no-op for compatibility;
+`--no-model-uncertainty` requests a central-model-only diagnostic. LLPR mode
+combines its persistent readouts with system-level last-layer features
 from the configured central export. Analytical `energy_uncertainty` is also
 reconstructed and archived. Use `--uncertainty-model` to select another LLPR
 checkpoint or a compatible exported ensemble
