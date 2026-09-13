@@ -44,6 +44,12 @@ example, `--model pet-mad --loading 100` writes below
 changes the base directory while retaining the model/loading subdirectories.
 Each run is below `<temperature>K/repNN/`, with concise products such as
 `summary.json`, `timeseries.csv`, and `structure.png`.
+The analysis also writes `enthalpy_convergence.{csv,png}` at 25 ps cumulative
+production-time intervals. These files compare the autocorrelation-corrected
+sampling standard error with the LLPR committee standard deviation and show
+the prefix mean's deviation from the complete-run mean. Change the interval
+with `--enthalpy-convergence-step-ps`; this is accumulated trajectory time in
+ps, not the MD integration timestep in fs.
 LAMMPS thermo logs retain equilibration records, whereas the coordinate dump
 intentionally begins at the configured production start. Analysis aligns the
 two by their LAMMPS timestep, so their frame counts are not expected to match.
@@ -87,6 +93,9 @@ the derivative. It does not replace the existing sampling uncertainty. The
 Hessian workflow propagates the same persistent readouts through PET-JAX at
 the central minimum and reports the harmonic model contribution separately.
 Member-specific geometry relaxation remains outside the uncertainty estimate.
+Prefix convergence from one trajectory is a retrospective truncation test,
+not independent validation: use it to nominate a shorter duration, then check
+that duration with independent replicas before changing the production target.
 
 After a model-uncertainty analysis has completed, include its classical CEA
 band in final assembly with:

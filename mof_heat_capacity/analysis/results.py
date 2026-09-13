@@ -28,6 +28,8 @@ from .trajectory import (
     read_trajectory_observables,
 )
 from .uncertainty import (
+    BAR_A3_TO_EV,
+    committee_enthalpy_estimates,
     committee_standard_deviation,
     default_llpr_checkpoint,
     evaluate_trajectory_committee,
@@ -42,6 +44,7 @@ CORE_SERIES = (
     "total_energy_eV",
     "potential_energy_eV",
     "kinetic_energy_eV",
+    "enthalpy_eV",
     "volume_A3",
     "density_g_cm3",
     "pressure_bar",
@@ -88,6 +91,15 @@ def parse_args() -> argparse.Namespace:
         "--block-size",
         type=int,
         help="Block length in saved frames; defaults to twice each series' tau_int",
+    )
+    parser.add_argument(
+        "--enthalpy-convergence-step-ps",
+        type=float,
+        default=25.0,
+        help=(
+            "Cumulative production-time interval for enthalpy uncertainty "
+            "diagnostics (default: 25 ps)"
+        ),
     )
     parser.add_argument(
         "--model-uncertainty",
@@ -209,6 +221,13 @@ def aggregate_from_summary(summary: dict) -> dict:
             "integrated_autocorrelation_time_ps"
         ],
         "potential_energy_eV": statistics["potential_energy_eV"]["mean"],
+        "enthalpy_eV": statistics["enthalpy_eV"]["mean"],
+        "enthalpy_sampling_standard_error_eV": statistics["enthalpy_eV"][
+            "standard_error"
+        ],
+        "enthalpy_tau_ps": statistics["enthalpy_eV"][
+            "integrated_autocorrelation_time_ps"
+        ],
         "energy_tau_ps": statistics["total_energy_eV"][
             "integrated_autocorrelation_time_ps"
         ],
@@ -264,6 +283,151 @@ def running_production_mean(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
     result = np.full(len(values), np.nan)
     result[mask] = running_mean(values[mask])
     return result
+
+
+def enthalpy_convergence_rows(
+    series: dict[str, np.ndarray],
+    production_mask: np.ndarray,
+    *,
+    step_ps: float,
+    committee: dict | None = None,
+    temperature_K: float | None = None,
+    pressure_bar: float | None = None,
+) -> list[dict]:
+    """Summarize central and LLPR enthalpy uncertainty for growing prefixes."""
+    if step_ps <= 0.0:
+        raise ValueError("enthalpy convergence step must be positive")
+    production_times = np.asarray(series["time_ps"])[production_mask]
+    production_enthalpy = np.asarray(series["enthalpy_eV"])[production_mask]
+    available_ps = float(production_times[-1] - production_times[0])
+    endpoints = np.arange(step_ps, available_ps, step_ps).tolist()
+    endpoints.append(available_ps)
+    rows = []
+    for elapsed_ps in endpoints:
+        end_time_ps = float(production_times[0] + elapsed_ps)
+        prefix = production_times <= end_time_ps + 1e-10
+        if np.count_nonzero(prefix) < 4:
+            continue
+        sampling = summarize_series(
+            production_enthalpy[prefix], production_times[prefix]
+        )
+        row = {
+            "production_length_ps": elapsed_ps,
+            "end_time_ps": end_time_ps,
+            "central_mean_enthalpy_eV": sampling["mean"],
+            "sampling_standard_error_eV": sampling["standard_error"],
+            "integrated_autocorrelation_time_ps": sampling[
+                "integrated_autocorrelation_time_ps"
+            ],
+            "sampling_effective_samples": sampling["effective_samples"],
+            "split_stationarity_z": sampling["split_stationarity_z"],
+        }
+        if committee is not None:
+            row.update(
+                {
+                    "llpr_sampled_frames": 0,
+                    "cea_mean_enthalpy_eV": float("nan"),
+                    "llpr_model_standard_deviation_eV": float("nan"),
+                    "combined_standard_uncertainty_eV": float("nan"),
+                    "minimum_direct_effective_samples": float("nan"),
+                    "maximum_dimensionless_delta_variance": float("nan"),
+                }
+            )
+            committee_times = np.asarray(committee["time_ps"], dtype=float)
+            selected = committee_times <= end_time_ps + 1e-10
+            if np.count_nonzero(selected) >= 2:
+                estimates = committee_enthalpy_estimates(
+                    np.asarray(committee["logged_central_potential_eV"])[selected],
+                    np.asarray(committee["member_potential_eV"])[selected],
+                    np.asarray(committee["kinetic_energy_eV"])[selected],
+                    np.asarray(committee["volume_A3"])[selected],
+                    temperature_K=float(temperature_K),
+                    pressure_bar=float(pressure_bar),
+                )
+                cea = estimates["cea_mean_enthalpy_eV"]
+                model_std = float(committee_standard_deviation(cea))
+                row.update(
+                    {
+                        "llpr_sampled_frames": int(np.count_nonzero(selected)),
+                        "cea_mean_enthalpy_eV": float(np.mean(cea)),
+                        "llpr_model_standard_deviation_eV": model_std,
+                        "combined_standard_uncertainty_eV": math.hypot(
+                            float(sampling["standard_error"]), model_std
+                        ),
+                        "minimum_direct_effective_samples": float(
+                            np.min(estimates["effective_samples"])
+                        ),
+                        "maximum_dimensionless_delta_variance": float(
+                            np.max(estimates["dimensionless_delta_variance"])
+                        ),
+                    }
+                )
+        rows.append(row)
+
+    if rows:
+        final_mean = float(rows[-1]["central_mean_enthalpy_eV"])
+        final_model_std = rows[-1].get("llpr_model_standard_deviation_eV")
+        for row in rows:
+            row["central_mean_difference_from_full_eV"] = (
+                float(row["central_mean_enthalpy_eV"]) - final_mean
+            )
+            if (
+                final_model_std is not None
+                and np.isfinite(final_model_std)
+                and final_model_std > 0.0
+            ):
+                row["llpr_standard_deviation_fraction_of_full"] = (
+                    float(row["llpr_model_standard_deviation_eV"])
+                    / float(final_model_std)
+                )
+    return rows
+
+
+def plot_enthalpy_convergence(path: Path, rows: list[dict]) -> None:
+    """Plot uncertainty estimates against accumulated production time."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    time = np.asarray([row["production_length_ps"] for row in rows])
+    figure, axes = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
+    axes[0].plot(
+        time,
+        [row["sampling_standard_error_eV"] for row in rows],
+        marker="o",
+        label="MD sampling SE",
+    )
+    if "llpr_model_standard_deviation_eV" in rows[-1]:
+        axes[0].plot(
+            time,
+            [row["llpr_model_standard_deviation_eV"] for row in rows],
+            marker="o",
+            label="LLPR model SD",
+        )
+        axes[0].plot(
+            time,
+            [row["combined_standard_uncertainty_eV"] for row in rows],
+            marker="o",
+            label="quadrature combined",
+        )
+    axes[0].set_ylabel("Enthalpy uncertainty (eV)")
+    axes[0].legend(fontsize=8)
+    axes[1].plot(
+        time,
+        [row["central_mean_difference_from_full_eV"] for row in rows],
+        marker="o",
+    )
+    axes[1].axhline(0.0, color="black", linewidth=0.7)
+    axes[1].set(
+        xlabel="Accumulated production time (ps)",
+        ylabel="Mean minus full-run mean (eV)",
+    )
+    for axis in axes:
+        axis.grid(alpha=0.2)
+    figure.tight_layout()
+    figure.savefig(path, dpi=180)
+    plt.close(figure)
 
 
 def plot_run(
@@ -434,6 +598,10 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
         thermodynamic_series=thermodynamic_series,
     )
     series = extracted["series"]
+    series["enthalpy_eV"] = (
+        series["total_energy_eV"]
+        + config.pressure_bar * series["volume_A3"] * BAR_A3_TO_EV
+    )
     structural = extracted["structural"]
     production_mask = series["time_ps"] >= start_ps
     if np.count_nonzero(production_mask) < 4:
@@ -495,6 +663,7 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
         committee = evaluate_trajectory_committee(
             trajectory,
             thermodynamic_series,
+            series["md_step"],
             production_mask,
             model_path=args.uncertainty_model or default_llpr_checkpoint(config.name),
             central_model_path=config.exported_model,
@@ -539,6 +708,7 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             ],
         }
     else:
+        committee = None
         model_uncertainty = {
             "available": False,
             "reason": (
@@ -554,7 +724,7 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
 
     maximum_lag = min(500, np.count_nonzero(production_mask) - 1)
     correlation_names = (
-        "temperature_K", "total_energy_eV", "potential_energy_eV",
+        "temperature_K", "enthalpy_eV", "total_energy_eV", "potential_energy_eV",
         "density_g_cm3", "pressure_bar",
     )
     correlations = {
@@ -640,7 +810,9 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
     write_json(run_output / "summary.json", summary)
 
     time_rows = []
-    running_names = ("temperature_K", "total_energy_eV", "density_g_cm3")
+    running_names = (
+        "temperature_K", "enthalpy_eV", "total_energy_eV", "density_g_cm3"
+    )
     running = {
         name: running_production_mean(series[name], production_mask)
         for name in running_names
@@ -652,6 +824,20 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             row[f"running_mean_{name}"] = running[name][index]
         time_rows.append(row)
     write_rows(run_output / "timeseries.csv", time_rows)
+
+    convergence_rows = enthalpy_convergence_rows(
+        series,
+        production_mask,
+        step_ps=args.enthalpy_convergence_step_ps,
+        committee=committee,
+        temperature_K=config.temperature_K,
+        pressure_bar=config.pressure_bar,
+    )
+    write_rows(run_output / "enthalpy_convergence.csv", convergence_rows)
+    if not args.no_plots and convergence_rows:
+        plot_enthalpy_convergence(
+            run_output / "enthalpy_convergence.png", convergence_rows
+        )
 
     structural_rows = []
     plain_structural_names = [
@@ -1010,6 +1196,8 @@ def main() -> None:
         raise ValueError("--rdf-stride must be an integer multiple of --structural-stride")
     if args.block_size is not None and args.block_size < 2:
         raise ValueError("--block-size must be at least two")
+    if args.enthalpy_convergence_step_ps <= 0.0:
+        raise ValueError("--enthalpy-convergence-step-ps must be positive")
     if args.uncertainty_stride < 1 or args.uncertainty_batch_size < 1:
         raise ValueError("uncertainty stride and batch size must be positive")
     if args.uncertainty_central_tolerance_eV <= 0.0:

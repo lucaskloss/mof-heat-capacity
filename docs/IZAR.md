@@ -78,6 +78,12 @@ These jobs use the production-appropriate `normal` QOS by default; `debug` is
 reserved for testing. The analysis itself is CPU-based, although Izar's normal
 QOS requires allocating one GPU.
 
+Each run also reports cumulative enthalpy sampling and LLPR uncertainty versus
+production length in `enthalpy_convergence.{csv,png}`. A shorter target is
+acceptable only if its mean, sampling error, LLPR spread, and stationarity are
+stable across temperatures and are reproduced by independent replicas; a
+prefix of the same 500 ps trajectory is not an independent replicate.
+
 Trajectory diagnostics use the matching model-first layout:
 
 ```text
