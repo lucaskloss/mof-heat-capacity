@@ -170,9 +170,55 @@ def _model_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _use_vesin_neighbor_lists() -> None:
+    """Avoid the incompatible CUDA nvalchemi neighbor-list implementation.
+
+    The installed metatomic-ase/nvalchemiops combination computes a float
+    ``max_neighbors`` value for PET's 24-angstrom cutoff.  PyTorch rejects that
+    value, while using it after an integer cast allocates an impractically large
+    dense neighbor matrix.  Vesin is metatomic-ase's supported CUDA fallback and
+    keeps the model evaluation itself on the requested GPU.
+    """
+    import metatomic_ase._neighbors as neighbors
+
+    neighbors.HAS_NVALCHEMIOPS = False
+
+
+def _selected_thermodynamic_indices(
+    thermodynamic_series: dict[str, np.ndarray],
+    trajectory_steps: np.ndarray,
+    production_mask: np.ndarray,
+    stride: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Match selected trajectory frames to thermo records by LAMMPS timestep."""
+    raw_steps = np.asarray(thermodynamic_series["md_step"])
+    dump_steps = np.asarray(trajectory_steps)
+    mask = np.asarray(production_mask, dtype=bool)
+    if dump_steps.ndim != 1 or len(dump_steps) != len(mask):
+        raise ValueError("trajectory steps and production mask must have the same length")
+
+    thermo_index_by_step: dict[int, int] = {}
+    for index, raw_step in enumerate(raw_steps):
+        step = int(raw_step)
+        if step not in thermo_index_by_step:
+            thermo_index_by_step[step] = index
+    selected_trajectory = np.flatnonzero(mask)[::stride]
+    try:
+        selected_raw = np.asarray(
+            [thermo_index_by_step[int(dump_steps[index])] for index in selected_trajectory],
+            dtype=int,
+        )
+    except KeyError as error:
+        raise ValueError(
+            "a trajectory timestep is absent from the LAMMPS thermo log"
+        ) from error
+    return selected_trajectory, selected_raw
+
+
 def evaluate_trajectory_committee(
     trajectory_path: Path,
     thermodynamic_series: dict[str, np.ndarray],
+    trajectory_steps: np.ndarray,
     production_mask: np.ndarray,
     *,
     model_path: Path,
@@ -198,16 +244,12 @@ def evaluate_trajectory_committee(
     if not model.is_file():
         raise FileNotFoundError(f"uncertainty model not found: {model}")
 
-    raw_steps = np.asarray(thermodynamic_series["md_step"])
-    keep_raw = np.ones(len(raw_steps), dtype=bool)
-    keep_raw[1:] = raw_steps[1:] != raw_steps[:-1]
-    unique_raw_indices = np.flatnonzero(keep_raw)
-    mask = np.asarray(production_mask, dtype=bool)
-    if len(unique_raw_indices) != len(mask):
-        raise ValueError("unique thermo frames do not align with trajectory analysis")
-    selected_unique = np.flatnonzero(mask)[::stride]
-    selected_raw = unique_raw_indices[selected_unique]
-    selected_raw_set = set(int(index) for index in selected_raw)
+    _use_vesin_neighbor_lists()
+
+    selected_trajectory, selected_raw = _selected_thermodynamic_indices(
+        thermodynamic_series, trajectory_steps, production_mask, stride
+    )
+    selected_trajectory_set = set(int(index) for index in selected_trajectory)
 
     checkpoint_mode = model.suffix == ".ckpt"
     llpr = load_llpr_energy_parameters(model) if checkpoint_mode else None
@@ -289,7 +331,7 @@ def evaluate_trajectory_committee(
         structures.clear()
 
     for raw_index, atoms in enumerate(iread(str(trajectory_path), index=":")):
-        if raw_index not in selected_raw_set:
+        if raw_index not in selected_trajectory_set:
             continue
         structures.append(atoms)
         if len(structures) == batch_size:
@@ -301,7 +343,7 @@ def evaluate_trajectory_committee(
     central = np.concatenate(central_batches)
     members = np.concatenate(member_batches)
     analytical_uncertainty = np.concatenate(uncertainty_batches)
-    if len(central) != len(selected_unique):
+    if len(central) != len(selected_trajectory):
         raise ValueError("trajectory ended before all uncertainty frames were evaluated")
     logged_central = np.asarray(
         thermodynamic_series["potential_energy_eV"], dtype=float
@@ -332,11 +374,13 @@ def evaluate_trajectory_committee(
             f"{sampling_model_max:.6g} eV exceeds {central_tolerance_eV:.6g} eV"
         )
     return {
-        "frame": selected_unique.astype(np.int64),
+        "frame": selected_trajectory.astype(np.int64),
         "md_step": np.asarray(thermodynamic_series["md_step"])[selected_raw],
         "time_ps": np.asarray(thermodynamic_series["time_ps"])[selected_raw],
         "central_potential_eV": central,
         "logged_central_potential_eV": logged_central,
+        "kinetic_energy_eV": kinetic,
+        "volume_A3": volume,
         "member_potential_eV": members,
         "analytical_energy_uncertainty_eV": analytical_uncertainty,
         **estimates,

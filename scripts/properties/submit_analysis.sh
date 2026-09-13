@@ -15,6 +15,7 @@ LOADINGS="100"
 TEMPERATURES="200,225,250,275,300,325,350,375,400"
 REPLICAS="1"
 DISCARD_PS="100"
+ENTHALPY_CONVERGENCE_STEP_PS="25"
 DEFAULT_OUTPUT_ROOT="${PROJECT_DIR}/output"
 OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
 ANALYSIS_DIR="${OUTPUT_ROOT}/post-processing/trajectory-analysis"
@@ -35,6 +36,7 @@ DRY_RUN=0
 run_analysis_worker() {
     local runs=""
     local discard_ps="100"
+    local enthalpy_convergence_step_ps="25"
     local analysis_dir="${MOF_OUTPUT_ROOT:-${PROJECT_DIR}/output}/post-processing/trajectory-analysis"
     local no_plots=0
     local model_uncertainty=0
@@ -50,6 +52,7 @@ run_analysis_worker() {
         case "$1" in
             --runs) runs="$2"; shift 2 ;;
             --discard-ps) discard_ps="$2"; shift 2 ;;
+            --enthalpy-convergence-step-ps) enthalpy_convergence_step_ps="$2"; shift 2 ;;
             --analysis-dir) analysis_dir="$2"; shift 2 ;;
             --no-plots) no_plots=1; shift ;;
             --model-uncertainty) model_uncertainty=1; shift ;;
@@ -68,6 +71,8 @@ run_analysis_worker() {
         exit 2
     fi
     if [[ ! "${discard_ps}" =~ ^[0-9]+([.][0-9]+)?$ \
+        || ! "${enthalpy_convergence_step_ps}" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ \
+        || ! "${enthalpy_convergence_step_ps}" =~ [1-9] \
         || ! "${uncertainty_stride}" =~ ^[1-9][0-9]*$ \
         || ! "${uncertainty_batch_size}" =~ ^[1-9][0-9]*$ \
         || ! "${uncertainty_central_tolerance_eV}" =~ ^[0-9]+([.][0-9]+)?$ \
@@ -117,6 +122,7 @@ run_analysis_worker() {
         "${analysis_python}" -m mof_heat_capacity.analysis.results
         --runs "${runs}"
         --discard-ps "${discard_ps}"
+        --enthalpy-convergence-step-ps "${enthalpy_convergence_step_ps}"
         --analysis-dir "${analysis_dir}"
     )
     if ((no_plots)); then
@@ -160,6 +166,9 @@ Options:
   --replicas LIST         Comma-separated replica numbers (default: 1).
   --runs PATTERN          Advanced: explicit run-name glob(s); overrides selectors.
   --discard-ps VALUE      Initial trajectory time to discard (default: 100 ps).
+  --enthalpy-convergence-step-ps VALUE
+                          Interval between cumulative enthalpy uncertainty
+                          estimates (default: 25 ps).
   --analysis-dir PATH     Analysis output override (default:
                           repository output/post-processing/trajectory-analysis/<model>/<loading>ch4).
   --partition NAME        Slurm partition (default: gpu).
@@ -215,6 +224,7 @@ while (($#)); do
         --replicas) require_value "$@"; REPLICAS="$2"; shift 2 ;;
         --runs) require_value "$@"; RUNS="$2"; shift 2 ;;
         --discard-ps) require_value "$@"; DISCARD_PS="$2"; shift 2 ;;
+        --enthalpy-convergence-step-ps) require_value "$@"; ENTHALPY_CONVERGENCE_STEP_PS="$2"; shift 2 ;;
         --analysis-dir) require_value "$@"; ANALYSIS_DIR="$2"; shift 2 ;;
         --partition) require_value "$@"; PARTITION="$2"; shift 2 ;;
         --qos) require_value "$@"; QOS="$2"; shift 2 ;;
@@ -276,6 +286,11 @@ fi
 
 if [[ ! "${DISCARD_PS}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
     echo "error: --discard-ps must be a non-negative number" >&2
+    exit 2
+fi
+if [[ ! "${ENTHALPY_CONVERGENCE_STEP_PS}" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ \
+    || ! "${ENTHALPY_CONVERGENCE_STEP_PS}" =~ [1-9] ]]; then
+    echo "error: --enthalpy-convergence-step-ps must be positive" >&2
     exit 2
 fi
 if [[ ! "${CPUS_PER_TASK}" =~ ^[1-9][0-9]*$ ]]; then
@@ -468,6 +483,7 @@ for record in "${SELECTED_RUN_RECORDS[@]}"; do
         --internal-analysis-worker
         --runs "${run_name}"
         --discard-ps "${DISCARD_PS}"
+        --enthalpy-convergence-step-ps "${ENTHALPY_CONVERGENCE_STEP_PS}"
         --analysis-dir "${run_analysis_dir}"
         --run-only
     )
@@ -521,6 +537,7 @@ for group_key in "${GROUP_KEYS[@]}"; do
         --internal-analysis-worker
         --runs "${GROUP_RUNS[${group_key}]}"
         --discard-ps "${DISCARD_PS}"
+        --enthalpy-convergence-step-ps "${ENTHALPY_CONVERGENCE_STEP_PS}"
         --analysis-dir "${GROUP_DIRS[${group_key}]}"
         --aggregate-only
     )
