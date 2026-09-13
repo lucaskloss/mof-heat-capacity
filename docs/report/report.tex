@@ -994,35 +994,124 @@ with Cartesian Hessian
 For $N$ atoms, $\bm H$ has dimensions $3N\times3N$; for the 100-methane cell
 this is $2772\times2772$.
 
-PET-JAX differentiates the model computation graph rather than using displaced
-finite differences. The implementation uses forward-over-reverse
-Hessian--vector products,
+\subsubsection{Automatic differentiation through a neural network}
+
+A neural-network potential is a composition of elementary differentiable
+operations. Schematically, with the model parameters $\theta$ fixed during
+inference,
+\begin{equation}
+  \bm z^{(0)}=\bm R,qquad
+  \bm z^{(\ell+1)}=\phi_\ell(\bm z^{(\ell)};\theta),qquad
+  U_\theta=\rho(\bm z^{(L)}).
+  \label{eq:nn-computational-graph}
+\end{equation}
+The functions $\phi_\ell$ include PET's coordinate encoding, attention,
+message updates, cutoff weighting, and nonlinear layers, while $\rho$ is the
+scalar energy readout. Automatic differentiation (AD) records this
+computational graph and applies the chain rule to the derivative rules of its
+elementary operations \cite{baydin2018}. It therefore differentiates the
+energy function implemented by the model, up to floating-point arithmetic,
+without choosing the displacement step required by finite differences. AD
+does not improve the learned potential itself: an exact derivative of an
+inaccurate $U_\theta$ remains an inaccurate force or curvature.
+
+Reverse-mode AD propagates one scalar output backward through the graph and is
+well suited to obtaining all $3N$ components of
+$\bm g=\nabla_{\bm R}U_\theta$ in one reverse sweep. The model forces are
+$\bm F=-\bm g$. Differentiating this gradient again would give the full
+Hessian. Rather than materializing it directly, PET-JAX and SADMOF use a
+forward-mode directional derivative of the reverse-mode gradient, commonly
+called forward-over-reverse AD. For a seed direction $\bm v$ this evaluates
 \begin{equation}
   \bm H\bm v=
   \left.\frac{\mathrm d}{\mathrm d\epsilon}
-  \nabla U(\bm R+\epsilon\bm v)\right|_{\epsilon=0}.
+  \nabla_{\bm R}U_\theta(\bm R+\epsilon\bm v)
+  \right|_{\epsilon=0}.
+  \label{eq:hessian-vector-product}
 \end{equation}
-Because a local message-passing model couples only graph-connected atoms, the
-Hessian has a block-sparse structure. SADMOF \cite{sadMof} constructs a
-graph-derived sparsity pattern and ASDEX colors its columns so that several independent
-columns can be reconstructed from one differentiated evaluation. The current
-settings are single precision, graph depth \texttt{hops=3}, HVP chunk size 1,
-and rematerialization enabled. The implementation calls
-\texttt{get\_energy\_fn(..., no\_shadow=True)}, which stops derivatives
-through the adaptive cutoff and confines the sparse treatment to the selected
-graph. Thus this is a specified derivative convention; unrestricted AD
-through adaptive selection includes additional couplings. Its consistency
-with the MD force convention requires explicit comparison.
+Equation~\eqref{eq:hessian-vector-product} is a Hessian--vector product (HVP).
+Using each Cartesian basis vector in turn would recover all Hessian columns,
+but would still require $3N$ differentiated evaluations. SADMOF reduces that
+count by exploiting locality.
 
-These settings are not established convergence values. In particular,
-\texttt{hops} is the depth of the Hessian sparsity pattern, not the number of
+The validity of these derivatives also depends on the differentiability of
+the complete model. In particular, the cutoff factors illustrated in
+Figures~\ref{fig:cutoff-single} and \ref{fig:cutoff-functions} occur inside
+the computational graph. Their smoothness controls the continuity of forces
+and Hessians as neighbors approach the cutoff. Discrete neighbor selection is
+a separate issue and is handled by the fixed-graph derivative convention
+described below.
+
+\subsubsection{Sparse Hessian reconstruction with SADMOF}
+
+For a local message-passing potential, the energy associated with an atom can
+depend only on atoms reachable through a finite number of neighbor-graph
+hops. Consequently, many atom-pair blocks
+$\bm H_{ij}\in\mathbb R^{3\times3}$ are structurally zero. SADMOF
+\cite{sadMof} first uses PET's selected-neighbor graph to construct a Boolean
+sparsity pattern $\bm S$ at a specified reachability depth
+\texttt{hops}, then expands every connected atom pair into its Cartesian
+$3\times3$ block.
+
+ASDEX colors the columns of $\bm S$ so that two columns assigned the same
+color do not have possible nonzero entries in the same row. If
+$\mathcal C_a$ is one color class, SADMOF uses the compressed seed
+\begin{equation}
+  \bm v_a=\sum_{q\in\mathcal C_a}\bm e_q,
+  \qquad
+  \bm H\bm v_a=\sum_{q\in\mathcal C_a}\bm H\bm e_q.
+  \label{eq:colored-hvp}
+\end{equation}
+The known sparsity pattern makes the contributing column unambiguous in every
+row, so the individual columns can be decoded from the single colored HVP.
+The number of differentiated directions is therefore the number of colors,
+rather than $3N$, and several colors may additionally be evaluated together
+as one GPU batch.
+
+The project implementation follows six steps. It converts the ASE structure
+to padded PET-JAX positions, cell, species, masks, and graphs with
+\texttt{atoms\_to\_inputs}; constructs the pattern with
+\texttt{sparsity\_pattern}; obtains a forward-over-reverse coloring with
+\texttt{asdex.hessian\_coloring\_from\_sparsity}; constructs the scalar PET
+energy with \texttt{get\_energy\_fn}; builds the colored HVP evaluator with
+\texttt{get\_hessian\_fn}; and compiles it for the GPU using
+\texttt{jax.jit}. The returned JAX sparse array is finally densified, PET-JAX
+padding atoms are removed, and the real-atom $(3N)\times(3N)$ matrix is passed
+to the normal-mode calculation. Sparsity therefore reduces the expensive AD
+work; the present eigendecomposition still consumes a dense matrix.
+
+The current calls use
+\texttt{get\_energy\_fn(..., no\_shadow=True)}. This stops derivatives through
+PET's adaptive neighbor-selection mechanism and differentiates the energy on
+the selected graph. Allowing shadow derivatives introduces couplings outside
+that sparse graph and requires a dense treatment, so the project rejects
+\texttt{shadow=true} in this path. This convention must be checked for
+consistency with the forces used in MD.
+
+Sparse reconstruction is not a modified physical definition of the Hessian.
+It reproduces the dense AD Hessian only when $\bm S$ contains every nonzero
+entry of the differentiated model. In particular,
+\texttt{hops} is the reach of the proposed Hessian pattern, not the number of
 PET message-passing blocks. The local SADMOF implementation identifies seven
 hops as the structurally exact pattern for its three-layer PET-MAD-S graph
-construction \cite{sadMof}. The project's three-hop setting is therefore a
-truncation: it must be enlarged until frequencies and \cv{} stop changing,
-and checked against a dense or less aggressively truncated reference where
-feasible. Precision and the adaptive-cutoff derivative convention also need
-validation, especially for the low-frequency modes.
+construction \cite{sadMof}. The project's current value
+\texttt{hops=3} is therefore a truncation and must be increased until the
+frequencies and heat-capacity correction converge.
+
+The other numerical controls do not change the intended Hessian:
+\texttt{chunk\_size} controls how many colored directions are batched,
+\texttt{remat=true} asks JAX to recompute selected intermediates during the
+backward pass to reduce memory, and \texttt{dtype} selects floating-point
+precision. The configured calculation uses \texttt{float32},
+\texttt{chunk\_size=1}, and rematerialization. These settings must be checked
+against higher precision and alternative resource settings; changing
+\texttt{hops}, by contrast, can change the mathematical sparsity
+approximation itself.
+
+None of the resource settings is presently an established convergence value.
+Comparisons must use separately tagged outputs and should include a dense or
+less aggressively truncated reference where feasible, especially for the
+low-frequency modes.
 
 \subsection{Normal modes and quantum harmonic heat capacity}
 
@@ -1480,6 +1569,12 @@ G. Imbalzano \emph{et al.},
 \emph{Uncertainty estimation for molecular dynamics and sampling}, Journal of
 Chemical Physics \textbf{154}, 074102 (2021),
 \href{https://doi.org/10.1063/5.0036522}{doi:10.1063/5.0036522}.
+
+\bibitem{baydin2018}
+A. G. Baydin, B. A. Pearlmutter, A. A. Radul, and J. M. Siskind,
+\emph{Automatic Differentiation in Machine Learning: A Survey}, Journal of
+Machine Learning Research \textbf{18}, 1--43 (2018),
+\href{https://jmlr.org/papers/v18/17-468.html}{JMLR 18(153)}.
 
 \bibitem{sadMof}
 M. F. Langer, M. Ceriotti, and collaborators,
