@@ -23,6 +23,8 @@ OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
 ANALYSIS_DIR="${OUTPUT_ROOT}/post-processing/trajectory-analysis"
 MODEL_UNCERTAINTY=0
+DISCARD_IMAGINARY_MODES=0
+CENTRAL_HESSIANS_ONLY=0
 DRY_RUN=0
 
 
@@ -35,6 +37,8 @@ run_hybrid_worker() {
     local zero_threshold=""
     local max_near_zero=""
     local model_uncertainty=""
+    local discard_imaginary_modes=0
+    local central_hessians_only=0
 
     shift
     while (($#)); do
@@ -46,6 +50,8 @@ run_hybrid_worker() {
             --output) output="$2"; shift 2 ;;
             --zero-threshold-cm1) zero_threshold="$2"; shift 2 ;;
             --max-near-zero-modes) max_near_zero="$2"; shift 2 ;;
+            --discard-imaginary-modes) discard_imaginary_modes=1; shift ;;
+            --central-hessians-only) central_hessians_only=1; shift ;;
             --model-uncertainty) model_uncertainty="$2"; shift 2 ;;
             *) echo "error: unknown hybrid-worker argument: $1" >&2; exit 2 ;;
         esac
@@ -100,6 +106,12 @@ run_hybrid_worker() {
     if [[ -n "${model_uncertainty}" ]]; then
         command+=(--model-uncertainty "${model_uncertainty}")
     fi
+    if ((discard_imaginary_modes)); then
+        command+=(--discard-imaginary-modes)
+    fi
+    if ((central_hessians_only)); then
+        command+=(--central-hessians-only)
+    fi
     srun --ntasks=1 "${command[@]}"
 }
 
@@ -126,6 +138,12 @@ Options:
   --cpus N                CPUs per task (default: 4).
   --zero-threshold-cm1 X  Imaginary/near-zero cutoff (default: 1.0 cm^-1).
   --max-near-zero-modes N Maximum allowed near-zero modes (default: 3).
+  --discard-imaginary-modes
+                          EXPLORATORY ONLY: discard modes at or below the
+                          cutoff and write a clearly non-canonical result.
+  --central-hessians-only
+                          EXPLORATORY ONLY: ignore LLPR ensemble spectra to use
+                          a mixed central-Hessian grid (omits harmonic MLIP uncertainty).
   --afterok JOBS          Comma-separated upstream job IDs that must all succeed.
   --model-uncertainty     Include the CEA committee spread produced by
                           submit_analysis.sh --model-uncertainty.
@@ -161,6 +179,8 @@ while (($#)); do
         --cpus) require_value "$@"; CPUS_PER_TASK="$2"; shift 2 ;;
         --zero-threshold-cm1) require_value "$@"; ZERO_THRESHOLD_CM1="$2"; shift 2 ;;
         --max-near-zero-modes) require_value "$@"; MAX_NEAR_ZERO_MODES="$2"; shift 2 ;;
+        --discard-imaginary-modes) DISCARD_IMAGINARY_MODES=1; shift ;;
+        --central-hessians-only) CENTRAL_HESSIANS_ONLY=1; shift ;;
         --afterok) require_value "$@"; AFTEROK="$2"; shift 2 ;;
         --model-uncertainty) MODEL_UNCERTAINTY=1; shift ;;
         --analysis-dir) require_value "$@"; ANALYSIS_DIR="$2"; shift 2 ;;
@@ -190,6 +210,10 @@ if [[ ! "${ZERO_THRESHOLD_CM1}" =~ ^[0-9]+([.][0-9]+)?$ \
 fi
 if [[ -n "${AFTEROK}" && ! "${AFTEROK}" =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]]; then
     echo "error: --afterok must contain comma-separated positive Slurm job IDs" >&2
+    exit 2
+fi
+if ((CENTRAL_HESSIANS_ONLY)) && ((!DISCARD_IMAGINARY_MODES)); then
+    echo "error: --central-hessians-only is allowed only with --discard-imaginary-modes" >&2
     exit 2
 fi
 IFS=',' read -r -a REPLICA_VALUES <<< "${REPLICAS}"
@@ -254,6 +278,12 @@ if [[ -n "${AFTEROK}" ]]; then
 fi
 for model_label in "${MODEL_LABELS[@]}"; do
     output="${OUTPUT_ROOT}/post-processing/harmonic-correction/${model_label}/${LOADING}ch4/heat-capacity.npz"
+    if ((DISCARD_IMAGINARY_MODES)); then
+        output="${output%.npz}.exploratory-discard-imaginary.npz"
+    fi
+    if ((CENTRAL_HESSIANS_ONLY)); then
+        output="${output%.npz}.central-only.npz"
+    fi
     model_uncertainty_path="${ANALYSIS_DIR}/${model_label}/${LOADING}ch4/model_uncertainty_heat_capacity.npz"
     slurm_hybrid_dir="${SLURM_OUTPUT_DIR}/hybrid-analysis/${model_label}/${LOADING}ch4"
     command=(
@@ -276,6 +306,12 @@ for model_label in "${MODEL_LABELS[@]}"; do
     )
     if ((MODEL_UNCERTAINTY)); then
         command+=(--model-uncertainty "${model_uncertainty_path}")
+    fi
+    if ((DISCARD_IMAGINARY_MODES)); then
+        command+=(--discard-imaginary-modes)
+    fi
+    if ((CENTRAL_HESSIANS_ONLY)); then
+        command+=(--central-hessians-only)
     fi
     if ((DRY_RUN)); then
         printf 'DRY RUN:'; printf ' %q' "${command[@]}"; printf '\n'

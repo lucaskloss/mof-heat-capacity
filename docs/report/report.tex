@@ -1000,7 +1000,7 @@ A neural-network potential is a composition of elementary differentiable
 operations. Schematically, with the model parameters $\theta$ fixed during
 inference,
 \begin{equation}
-  \bm z^{(0)}=\bm R,qquad
+  \bm z^{(0)}=\bm R,\qquad
   \bm z^{(\ell+1)}=\phi_\ell(\bm z^{(\ell)};\theta),qquad
   U_\theta=\rho(\bm z^{(L)}).
   \label{eq:nn-computational-graph}
@@ -1014,6 +1014,23 @@ energy function implemented by the model, up to floating-point arithmetic,
 without choosing the displacement step required by finite differences. AD
 does not improve the learned potential itself: an exact derivative of an
 inaccurate $U_\theta$ remains an inaccurate force or curvature.
+
+It is useful first to separate a derivative \emph{operator} from its matrix
+representation. For a differentiable map
+$\bm f:\mathbb R^n\to\mathbb R^m$, the Jacobian is
+\begin{equation}
+  (\bm J_f)_{pq}=\frac{\partial f_p}{\partial x_q},
+  \qquad \bm J_f\in\mathbb R^{m\times n}.
+  \label{eq:jacobian-definition}
+\end{equation}
+Forward-mode AD evaluates the Jacobian--vector product (JVP)
+$\bm J_f\bm v$ without constructing $\bm J_f$, whereas reverse-mode AD
+evaluates the vector--Jacobian product (VJP) $\bm w^{\mathrm T}\bm J_f$.
+Consequently, a dense Jacobian can be materialized column by column using
+$n$ JVPs with the coordinate vectors $\bm e_q$, or row by row using $m$ VJPs.
+The intermediate Jacobians of the neural-network layers need never be stored:
+AD propagates only tangent values in forward mode or adjoint values in reverse
+mode \cite{hill2025asd}.
 
 Reverse-mode AD propagates one scalar output backward through the graph and is
 well suited to obtaining all $3N$ components of
@@ -1053,20 +1070,95 @@ sparsity pattern $\bm S$ at a specified reachability depth
 \texttt{hops}, then expands every connected atom pair into its Cartesian
 $3\times3$ block.
 
-ASDEX colors the columns of $\bm S$ so that two columns assigned the same
-color do not have possible nonzero entries in the same row. If
-$\mathcal C_a$ is one color class, SADMOF uses the compressed seed
+Here ``structurally zero'' is stronger than being numerically zero at one
+geometry. Writing Cartesian indices as $p,q\in\{1,\ldots,3N\}$, the pattern
+is intended to satisfy
+\begin{equation}
+  S_{pq}=0\quad\Longrightarrow\quad H_{pq}=0
+  \quad\text{for every geometry covered by the pattern}.
+  \label{eq:hessian-sparsity-pattern}
+\end{equation}
+An entry allowed by $S_{pq}=1$ may nevertheless vanish at a particular
+geometry because of symmetry or cancellation. Such an overestimate merely
+stores extra entries and can require extra colors; an underestimate with
+$S_{pq}=0$ where $H_{pq}\ne0$ discards curvature and makes reconstruction
+incorrect. For a Hessian, detecting the pattern is intrinsically a
+second-order problem: linear dependence can later participate in a nonlinear
+operation and create a mixed second derivative. The general automatic sparse
+differentiation pipeline therefore tracks nonlinear and cross-argument
+dependence, while SADMOF obtains a conservative pattern from the finite
+receptive field of the local interatomic potential \cite{hill2025asd}.
+
+The simplest compression scheme ignores Hessian symmetry and forms the
+column-intersection graph $\mathcal G_S$. Its vertices are the Cartesian
+columns, and two distinct columns are adjacent precisely when their possible
+supports overlap:
+\begin{equation}
+  (q,r)\in\mathcal E_S
+  \quad\Longleftrightarrow\quad
+  \exists p:\ S_{pq}=S_{pr}=1.
+  \label{eq:column-intersection-graph}
+\end{equation}
+A proper coloring $c(q)\in\{1,\ldots,n_c\}$ assigns different colors to
+adjacent columns. Columns of one color are then \emph{structurally
+orthogonal}: no output row can contain a possible nonzero from two of them.
+Finding the minimum number of colors is NP-hard in general, so practical ASD
+software uses inexpensive greedy heuristics. Optimality affects speed, not
+the reconstructed values: any valid coloring is sufficient
+\cite{hill2025asd}.
+
+For this nonsymmetric column-coloring construction, let $\mathcal C_a$ be one
+color class and define the compressed seed
 \begin{equation}
   \bm v_a=\sum_{q\in\mathcal C_a}\bm e_q,
   \qquad
   \bm H\bm v_a=\sum_{q\in\mathcal C_a}\bm H\bm e_q.
   \label{eq:colored-hvp}
 \end{equation}
-The known sparsity pattern makes the contributing column unambiguous in every
-row, so the individual columns can be decoded from the single colored HVP.
-The number of differentiated directions is therefore the number of colors,
-rather than $3N$, and several colors may additionally be evaluated together
-as one GPU batch.
+Collecting these seeds as columns of
+$\bm V\in\{0,1\}^{3N\times n_c}$, with
+$V_{qa}=1$ exactly when $c(q)=a$, gives the compressed derivative matrix
+\begin{equation}
+  \bm Y=\bm H\bm V,
+  \qquad
+  Y_{pa}=\sum_{q:c(q)=a}H_{pq}.
+  \label{eq:compressed-hessian}
+\end{equation}
+The pattern makes the contributing column unambiguous in every row. In fact,
+for every entry permitted by the pattern, direct decompression is simply
+\begin{equation}
+  H_{pq}=Y_{p,c(q)}\qquad\text{when }S_{pq}=1,
+  \label{eq:hessian-decompression}
+\end{equation}
+and all entries with $S_{pq}=0$ are set to zero. Equation
+\eqref{eq:hessian-decompression} works because a proper coloring guarantees
+that every other term in the sum in Eq.~\eqref{eq:compressed-hessian} is zero
+in row $p$.
+
+SADMOF's call to \texttt{asdex.hessian\_coloring\_from\_sparsity} instead
+uses the Hessian symmetry $H_{pq}=H_{qp}$ through a star coloring. A star
+coloring is a proper coloring of the undirected Hessian sparsity graph in
+which every path on four vertices uses at least three colors; equivalently,
+each subgraph induced by any two colors is a collection of stars. This weaker
+condition allows some column-support collisions that
+Eq.~\eqref{eq:hessian-decompression} alone could not decode. For each
+unordered nonzero pair $\{p,q\}$, the
+coloring records a hub--spoke orientation for which one of the two compressed
+locations is uncontaminated. ASDEX gathers that value and writes it to both
+$H_{pq}$ and $H_{qp}$. Symmetry thus acts as a second possible route to each
+off-diagonal entry and can reduce $n_c$ relative to ordinary column coloring
+\cite{hill2025asd,sadMof}.
+
+The complete compression pipeline is therefore: detect $\bm S$, color the
+associated graph, evaluate the $n_c$ colored HVPs, and decompress their nonzero
+entries. Dense forward-over-reverse materialization needs $3N$ HVPs; the
+sparse route needs $n_c$, so its expensive differentiated work is reduced by
+an ideal factor of approximately $3N/n_c$. Pattern construction, coloring,
+decompression, compilation, and GPU utilization add overhead, so this ratio
+is not a wall-clock guarantee. The setup cost can be amortized over repeated
+Hessians only while the structural pattern remains valid. Several colors may
+also be evaluated together as one GPU batch; batching changes throughput and
+memory use but not the number of mathematical seed directions.
 
 The project implementation follows six steps. It converts the ASE structure
 to padded PET-JAX positions, cell, species, masks, and graphs with
@@ -1575,6 +1667,13 @@ A. G. Baydin, B. A. Pearlmutter, A. A. Radul, and J. M. Siskind,
 \emph{Automatic Differentiation in Machine Learning: A Survey}, Journal of
 Machine Learning Research \textbf{18}, 1--43 (2018),
 \href{https://jmlr.org/papers/v18/17-468.html}{JMLR 18(153)}.
+
+\bibitem{hill2025asd}
+A. Hill, G. Dalle, and A. Montoison,
+\emph{An Illustrated Guide to Automatic Sparse Differentiation},
+ICLR Blogposts (2025),
+\href{https://iclr-blogposts.github.io/2025/blog/sparse-autodiff/}
+{online article}.
 
 \bibitem{sadMof}
 M. F. Langer, M. Ceriotti, and collaborators,
