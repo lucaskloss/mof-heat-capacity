@@ -54,6 +54,22 @@ def parse_args() -> argparse.Namespace:
         default=3,
         help="Maximum modes allowed within the zero-frequency threshold",
     )
+    parser.add_argument(
+        "--discard-imaginary-modes",
+        action="store_true",
+        help=(
+            "EXPLORATORY ONLY: exclude modes at or below the zero-frequency "
+            "threshold instead of requiring a stable Hessian spectrum"
+        ),
+    )
+    parser.add_argument(
+        "--central-hessians-only",
+        action="store_true",
+        help=(
+            "EXPLORATORY ONLY: ignore LLPR ensemble spectra and use central "
+            "Hessians only; this omits harmonic MLIP uncertainty"
+        ),
+    )
     parser.add_argument("--bootstrap-samples", type=int, default=10000)
     parser.add_argument(
         "--model-uncertainty",
@@ -397,6 +413,8 @@ def _harmonic_corrections(
     expected_mass_amu: float,
     zero_threshold_cm1: float,
     max_near_zero_modes: int,
+    discard_imaginary_modes: bool,
+    central_hessians_only: bool,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, str | None, list[dict]]:
     paths = {
         (int(temperature), replica): directory
@@ -437,6 +455,9 @@ def _harmonic_corrections(
                     if member_frequencies is not None
                     else None
                 )
+            if central_hessians_only:
+                member_frequencies = None
+                current_llpr_hash = None
             if member_frequencies is None:
                 if member_corrections is not None:
                     raise ValueError(
@@ -485,13 +506,16 @@ def _harmonic_corrections(
             if not math.isclose(current_mass, expected_mass_amu, rel_tol=1e-10):
                 raise ValueError(f"Hessian and classical-MD masses differ: {path}")
             imaginary = frequencies < -zero_threshold_cm1
-            if np.any(imaginary):
+            if np.any(imaginary) and not discard_imaginary_modes:
                 raise ValueError(
                     f"optimized Hessian contains {np.count_nonzero(imaginary)} imaginary "
                     f"mode(s) below {-zero_threshold_cm1:g} cm^-1: {path}"
                 )
             near_zero = np.abs(frequencies) <= zero_threshold_cm1
-            if np.count_nonzero(near_zero) > max_near_zero_modes:
+            if (
+                np.count_nonzero(near_zero) > max_near_zero_modes
+                and not discard_imaginary_modes
+            ):
                 raise ValueError(
                     f"optimized Hessian contains {np.count_nonzero(near_zero)} near-zero "
                     f"mode(s), exceeding the allowed {max_near_zero_modes}: {path}"
@@ -532,8 +556,12 @@ def _harmonic_corrections(
                     )
                 member_imaginary = member_frequencies < -zero_threshold_cm1
                 member_near_zero = np.abs(member_frequencies) <= zero_threshold_cm1
-                if np.any(member_imaginary) or np.any(
-                    np.count_nonzero(member_near_zero, axis=1) > max_near_zero_modes
+                if not discard_imaginary_modes and (
+                    np.any(member_imaginary)
+                    or np.any(
+                        np.count_nonzero(member_near_zero, axis=1)
+                        > max_near_zero_modes
+                    )
                 ):
                     raise ValueError(
                         "an LLPR member Hessian is not a stable spectrum at the central "
@@ -567,6 +595,9 @@ def _harmonic_corrections(
                     "retained_modes": int(len(positive)),
                     "imaginary_modes": int(np.count_nonzero(imaginary)),
                     "near_zero_modes": int(np.count_nonzero(near_zero)),
+                    "discarded_nonpositive_or_near_zero_modes": int(
+                        np.count_nonzero(frequencies <= zero_threshold_cm1)
+                    ),
                     "minimum_frequency_cm1": float(frequencies.min()),
                     "maximum_frequency_cm1": float(frequencies.max()),
                     "hessian_metadata": metadata,
@@ -666,6 +697,8 @@ def run(args: argparse.Namespace) -> Path:
         expected_mass_amu=mass_amu,
         zero_threshold_cm1=args.zero_threshold_cm1,
         max_near_zero_modes=args.max_near_zero_modes,
+        discard_imaginary_modes=args.discard_imaginary_modes,
+        central_hessians_only=args.central_hessians_only,
     )
     harmonic_model_error = (
         correction_by_member.std(axis=0, ddof=1)
@@ -758,6 +791,11 @@ def run(args: argparse.Namespace) -> Path:
 
     output = args.output or loaded_dir / "heat-capacity.npz"
     output = output.expanduser().resolve()
+    canonical_output = (loaded_dir / "heat-capacity.npz").resolve()
+    if args.discard_imaginary_modes and output == canonical_output:
+        raise ValueError(
+            "--discard-imaginary-modes requires a non-canonical exploratory output path"
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
         output,
@@ -810,6 +848,8 @@ def run(args: argparse.Namespace) -> Path:
             )
         ),
         total_mass_amu=mass_amu,
+        exploratory_discard_imaginary_modes=args.discard_imaginary_modes,
+        exploratory_central_hessians_only=args.central_hessians_only,
     )
     csv_path = output.with_suffix(".csv")
     with csv_path.open("w", newline="") as handle:
@@ -886,6 +926,8 @@ def run(args: argparse.Namespace) -> Path:
                 "temperatures_K": temperatures.tolist(),
                 "zero_threshold_cm1": args.zero_threshold_cm1,
                 "max_near_zero_modes": args.max_near_zero_modes,
+                "exploratory_discard_imaginary_modes": args.discard_imaginary_modes,
+                "exploratory_central_hessians_only": args.central_hessians_only,
                 "classical_md_records": md_records,
                 "hessian_records": hessian_records,
                 "classical_model_uncertainty": model_uncertainty_record,
@@ -899,6 +941,22 @@ def run(args: argparse.Namespace) -> Path:
                     "LLPR Hessian uncertainty is evaluated at the central-model fixed-cell minimum; it does not include member-specific geometry relaxation.",
                     "When both are present, classical and harmonic LLPR deviations are added member by member before taking the hybrid standard deviation.",
                     "Sampling and LLPR model uncertainty are combined in quadrature, assuming those two sources are independent.",
+                    *(
+                        [
+                            "EXPLORATORY ONLY: modes at or below the zero-frequency threshold were discarded without establishing that each structure is a stable minimum."
+                        ]
+                        if args.discard_imaginary_modes
+                        else []
+                    ),
+                    *(
+                        [
+                            "EXPLORATORY ONLY: LLPR ensemble Hessian spectra were "
+                            "ignored, so this result does not include harmonic MLIP "
+                            "model uncertainty."
+                        ]
+                        if args.central_hessians_only
+                        else []
+                    ),
                 ],
             },
             indent=2,
