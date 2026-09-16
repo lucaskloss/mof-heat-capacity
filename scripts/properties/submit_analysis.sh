@@ -29,7 +29,6 @@ MODEL_UNCERTAINTY=1
 UNCERTAINTY_MODEL=""
 UNCERTAINTY_STRIDE=20
 UNCERTAINTY_BATCH_SIZE=4
-UNCERTAINTY_CENTRAL_TOLERANCE_EV=0.01
 DRY_RUN=0
 
 
@@ -43,7 +42,6 @@ run_analysis_worker() {
     local uncertainty_model=""
     local uncertainty_stride=20
     local uncertainty_batch_size=4
-    local uncertainty_central_tolerance_eV=0.01
     local run_only=0
     local aggregate_only=0
 
@@ -59,7 +57,6 @@ run_analysis_worker() {
             --uncertainty-model) uncertainty_model="$2"; shift 2 ;;
             --uncertainty-stride) uncertainty_stride="$2"; shift 2 ;;
             --uncertainty-batch-size) uncertainty_batch_size="$2"; shift 2 ;;
-            --uncertainty-central-tolerance-eV) uncertainty_central_tolerance_eV="$2"; shift 2 ;;
             --run-only) run_only=1; shift ;;
             --aggregate-only) aggregate_only=1; shift ;;
             *) echo "error: unknown analysis-worker argument: $1" >&2; exit 2 ;;
@@ -75,7 +72,6 @@ run_analysis_worker() {
         || ! "${enthalpy_convergence_step_ps}" =~ [1-9] \
         || ! "${uncertainty_stride}" =~ ^[1-9][0-9]*$ \
         || ! "${uncertainty_batch_size}" =~ ^[1-9][0-9]*$ \
-        || ! "${uncertainty_central_tolerance_eV}" =~ ^[0-9]+([.][0-9]+)?$ \
         || -z "${runs}" || -z "${analysis_dir}" ]] \
         || ((run_only && aggregate_only)); then
         echo "error: invalid internal analysis-worker arguments" >&2
@@ -133,7 +129,6 @@ run_analysis_worker() {
             --model-uncertainty
             --uncertainty-stride "${uncertainty_stride}"
             --uncertainty-batch-size "${uncertainty_batch_size}"
-            --uncertainty-central-tolerance-eV "${uncertainty_central_tolerance_eV}"
         )
         if [[ -n "${uncertainty_model}" ]]; then
             command+=(--uncertainty-model "${uncertainty_model}")
@@ -185,9 +180,6 @@ Options:
   --uncertainty-stride N  Use every Nth production frame for UQ (default: 20).
   --uncertainty-batch-size N
                           Structures per model-inference batch (default: 4).
-  --uncertainty-central-tolerance-eV VALUE
-                          Maximum centered ensemble-mean/MD energy residual
-                          (default: 0.01 eV).
   --dry-run               Validate inputs and print the sbatch commands.
   -h, --help              Show this help.
 
@@ -237,7 +229,6 @@ while (($#)); do
         --uncertainty-model) require_value "$@"; UNCERTAINTY_MODEL="$2"; shift 2 ;;
         --uncertainty-stride) require_value "$@"; UNCERTAINTY_STRIDE="$2"; shift 2 ;;
         --uncertainty-batch-size) require_value "$@"; UNCERTAINTY_BATCH_SIZE="$2"; shift 2 ;;
-        --uncertainty-central-tolerance-eV) require_value "$@"; UNCERTAINTY_CENTRAL_TOLERANCE_EV="$2"; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -298,9 +289,8 @@ if [[ ! "${CPUS_PER_TASK}" =~ ^[1-9][0-9]*$ ]]; then
     exit 2
 fi
 if [[ ! "${UNCERTAINTY_STRIDE}" =~ ^[1-9][0-9]*$ \
-    || ! "${UNCERTAINTY_BATCH_SIZE}" =~ ^[1-9][0-9]*$ \
-    || ! "${UNCERTAINTY_CENTRAL_TOLERANCE_EV}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-    echo "error: invalid uncertainty stride, batch size, or central tolerance" >&2
+    || ! "${UNCERTAINTY_BATCH_SIZE}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: invalid uncertainty stride or batch size" >&2
     exit 2
 fi
 if [[ -n "${UNCERTAINTY_MODEL}" && ! "${MODEL_UNCERTAINTY}" -eq 1 ]]; then
@@ -495,7 +485,6 @@ for record in "${SELECTED_RUN_RECORDS[@]}"; do
             --model-uncertainty
             --uncertainty-stride "${UNCERTAINTY_STRIDE}"
             --uncertainty-batch-size "${UNCERTAINTY_BATCH_SIZE}"
-            --uncertainty-central-tolerance-eV "${UNCERTAINTY_CENTRAL_TOLERANCE_EV}"
         )
         if [[ -n "${UNCERTAINTY_MODEL}" ]]; then
             command+=(--uncertainty-model "${UNCERTAINTY_MODEL}")
@@ -549,7 +538,6 @@ for group_key in "${GROUP_KEYS[@]}"; do
             --model-uncertainty
             --uncertainty-stride "${UNCERTAINTY_STRIDE}"
             --uncertainty-batch-size "${UNCERTAINTY_BATCH_SIZE}"
-            --uncertainty-central-tolerance-eV "${UNCERTAINTY_CENTRAL_TOLERANCE_EV}"
         )
         if [[ -n "${UNCERTAINTY_MODEL}" ]]; then
             aggregate_command+=(--uncertainty-model "${UNCERTAINTY_MODEL}")

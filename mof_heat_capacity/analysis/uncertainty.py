@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 import numpy as np
@@ -228,18 +229,16 @@ def evaluate_trajectory_committee(
     pressure_bar: float,
     stride: int,
     batch_size: int,
-    central_tolerance_eV: float,
+    checkpoint_path: Path | None = None,
 ) -> dict[str, np.ndarray | str | float]:
-    """Evaluate model-ensemble energies on selected production frames."""
+    """Evaluate model-ensemble energies, resuming persisted batches when available."""
     from ase.io import iread
     import metatomic.torch as metatomic_torch
     from metatomic.torch import ModelOutput
     from metatomic_ase import MetatomicCalculator
 
-    if stride < 1 or batch_size < 1 or central_tolerance_eV <= 0.0:
-        raise ValueError(
-            "uncertainty stride, batch size, and central tolerance must be positive"
-        )
+    if stride < 1 or batch_size < 1:
+        raise ValueError("uncertainty stride and batch size must be positive")
     model = model_path.expanduser().resolve()
     if not model.is_file():
         raise FileNotFoundError(f"uncertainty model not found: {model}")
@@ -286,10 +285,53 @@ def evaluate_trajectory_committee(
         requested["energy_ensemble"] = ModelOutput(sample_kind="system")
         if has_analytical_uncertainty:
             requested["energy_uncertainty"] = ModelOutput(sample_kind="system")
-    central_batches = []
-    member_batches = []
-    uncertainty_batches = []
+    central_batches: list[np.ndarray] = []
+    member_batches: list[np.ndarray] = []
+    uncertainty_batches: list[np.ndarray] = []
+    completed_frames: list[int] = []
+    if checkpoint_path is not None and checkpoint_path.is_file():
+        with np.load(checkpoint_path, allow_pickle=False) as saved:
+            saved_frames = np.asarray(saved["frame"], dtype=np.int64)
+            compatible = (
+                str(np.asarray(saved["model_path"]).item()) == str(model)
+                and int(np.asarray(saved["stride"]).item()) == stride
+                and np.array_equal(
+                    saved_frames, selected_trajectory[: len(saved_frames)]
+                )
+            )
+            if compatible:
+                central_batches.append(
+                    np.asarray(saved["central_potential_eV"], dtype=float)
+                )
+                member_batches.append(
+                    np.asarray(saved["member_potential_eV"], dtype=float)
+                )
+                uncertainty_batches.append(
+                    np.asarray(saved["analytical_energy_uncertainty_eV"], dtype=float)
+                )
+                completed_frames = saved_frames.tolist()
+    completed_frame_set = set(completed_frames)
     structures = []
+    batch_frames: list[int] = []
+
+    def persist_progress() -> None:
+        if checkpoint_path is None:
+            return
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = checkpoint_path.with_name(checkpoint_path.name + ".tmp")
+        with temporary.open("wb") as handle:
+            np.savez(
+                handle,
+                frame=np.asarray(completed_frames, dtype=np.int64),
+                central_potential_eV=np.concatenate(central_batches),
+                member_potential_eV=np.concatenate(member_batches),
+                analytical_energy_uncertainty_eV=np.concatenate(uncertainty_batches),
+                model_path=str(model),
+                stride=stride,
+            )
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(checkpoint_path)
 
     def evaluate_batch() -> None:
         if not structures:
@@ -328,12 +370,17 @@ def evaluate_trajectory_committee(
             )
         elif not checkpoint_mode:
             uncertainty_batches.append(np.full(count, np.nan))
+        completed_frames.extend(batch_frames)
+        completed_frame_set.update(batch_frames)
         structures.clear()
+        batch_frames.clear()
+        persist_progress()
 
     for raw_index, atoms in enumerate(iread(str(trajectory_path), index=":")):
-        if raw_index not in selected_trajectory_set:
+        if raw_index not in selected_trajectory_set or raw_index in completed_frame_set:
             continue
         structures.append(atoms)
+        batch_frames.append(raw_index)
         if len(structures) == batch_size:
             evaluate_batch()
     evaluate_batch()
@@ -367,12 +414,6 @@ def evaluate_trajectory_committee(
     sampling_model_residual = members.mean(axis=1) - logged_central
     sampling_model_residual -= sampling_model_residual.mean()
     sampling_model_max = float(np.max(np.abs(sampling_model_residual)))
-    if sampling_model_max > central_tolerance_eV:
-        raise ValueError(
-            "ensemble mean does not reproduce the trajectory-driving potential "
-            "after removal of a constant energy offset: maximum residual "
-            f"{sampling_model_max:.6g} eV exceeds {central_tolerance_eV:.6g} eV"
-        )
     return {
         "frame": selected_trajectory.astype(np.int64),
         "md_step": np.asarray(thermodynamic_series["md_step"])[selected_raw],

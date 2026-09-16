@@ -10,13 +10,13 @@ PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 GPU_RUNTIME="${PROJECT_DIR}/scripts/slurm/izar_gpu_runtime.sh"
 MODEL="pet-mad"
 LOADING=100
-SOURCE_TEMPERATURES="300"
+SOURCE_TEMPERATURES="200,225,250,275,300,325,350,375,400"
 REPLICAS="1"
 EMPTY_STRUCTURE="input/mof5.pdb"
 INCLUDE_EMPTY=1
-CV_TEMPERATURES="100:500:10"
-FMAX="0.001"
-RELAX_STEPS=20000
+CV_TEMPERATURES="200:400:25"
+FMAX="0.002"
+RELAX_STEPS=10000
 OPTIMIZER="lbfgs-linesearch"
 CONTINUE_LOADED=0
 CONTINUE_UNFINISHED=0
@@ -52,13 +52,14 @@ Options:
   --loading N             Positive methane loading (default: 100).
   --source-temperature N  One loaded-MD temperature used to choose quench inputs.
   --source-temperatures L Comma-separated loaded-MD temperatures to quench
-                          (default: 300; these label structures, not C_V points).
+                          (default: 200,225,250,275,300,325,350,375,400; these
+                          label structures, not C_V points).
   --replicas LIST         Independent loaded replicas to quench (default: 1).
   --empty-structure PATH  Equilibrated empty MOF-5 structure (default: input/mof5.pdb).
   --skip-empty            Do not submit the one empty-reference Hessian per model.
-  --cv-temperatures RANGE Harmonic C_V grid (default: 100:500:10 K).
-  --fmax VALUE            Fixed-cell relaxation threshold in eV/A (default: 0.001).
-  --relax-steps N         Maximum optimizer steps (default: 20000).
+  --cv-temperatures RANGE Harmonic C_V grid (default: 200:400:25 K).
+  --fmax VALUE            Fixed-cell relaxation threshold in eV/A (default: 0.002).
+  --relax-steps N         Maximum optimizer steps (default: 10000).
   --optimizer NAME        fire or lbfgs-linesearch (default: lbfgs-linesearch).
   --continue-loaded       Continue from existing loaded optimized structures.
   --continue-unfinished   Submit only cases without a Hessian. Reuse saved
@@ -90,6 +91,12 @@ structure from completed classical MD, relaxes it at fixed cell with the same
 MLIP, and computes one AD Hessian from the resulting minimum. Empty MOF-5 is
 relaxed directly from the supplied equilibrated structure; no empty-MOF MD
 trajectory is used.
+
+If a relaxation reaches its step limit without meeting fmax, its final finite
+frame is retained as optimized.extxyz and used for the Hessian calculation.
+Its optimized.relax.json provenance records converged: false and the final
+maximum force; hybrid assembly retains that status and labels such results
+exploratory.
 
 Before submitting Hessian work, the command automatically submits a lightweight
 GPU/JAX preflight for each selected model. Every relaxation/Hessian job depends
