@@ -66,10 +66,10 @@ override can analyze only one MLIP per submission; invoke `--model pet-mad` and
 `--model pet-sol` separately when their ensemble exports differ. The analysis
 evaluates every 20th production frame by default; change
 this convergence parameter with `--uncertainty-stride`, and control GPU memory
-with `--uncertainty-batch-size`. The analysis also removes a constant energy
-offset and requires the ensemble mean to reproduce the trajectory-driving
-potential within `--uncertainty-central-tolerance-eV` (default: 0.01 eV) on
-every selected frame. Each run writes `model_uncertainty.npz` with
+with `--uncertainty-batch-size`. The analysis records the centered residual
+between the ensemble mean and the trajectory-driving potential but does not
+reject a trajectory based on that diagnostic. Each run writes
+`model_uncertainty.npz` with
 the framewise central, analytical, and member energies plus exact-reweighting
 overlap diagnostics. The dependent summary job writes
 `model_uncertainty_heat_capacity.{npz,csv,png}` after averaging replicas and
@@ -77,6 +77,14 @@ differentiating each persistent member's enthalpy curve. The CSV reports both
 direct and CEA results; use the CEA committee standard deviation as the primary
 large-system MLIP error bar and inspect `minimum_direct_effective_samples` and
 `maximum_dimensionless_delta_variance` before interpreting it.
+The same aggregate also writes `model_uncertainty_enthalpy.{csv,png}`; its CEA
+and direct enthalpy columns and plot include the corresponding member standard
+deviations in eV at every temperature.
+While LLPR inference is running, `model_uncertainty.progress.npz` is updated
+atomically after each inference batch. If a Slurm job reaches its wall-time
+limit, resubmitting the same trajectory analysis resumes from its completed
+LLPR frames; the progress file is removed after a successful final archive is
+written.
 
 The CEA implementation follows the Atomistic Cookbook's
 [PET-MAD uncertainty example](https://atomistic-cookbook.org/examples/pet-mad-uq/pet-mad-uq.html#cumulant-expansion-approximation-cea),
