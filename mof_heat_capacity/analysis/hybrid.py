@@ -497,11 +497,13 @@ def _harmonic_corrections(
                 raise ValueError(
                     f"Hessian input was not relaxed at fixed cell: {trajectory}"
                 )
-            if (
-                relaxation["final_max_force_eV_per_A"]
-                > relaxation["fmax_target_eV_per_A"]
-            ):
-                raise ValueError(f"Hessian input relaxation is unconverged: {trajectory}")
+            relaxation_converged = bool(
+                relaxation.get(
+                    "converged",
+                    relaxation["final_max_force_eV_per_A"]
+                    <= relaxation["fmax_target_eV_per_A"],
+                )
+            )
             current_mass = float(read(optimized_path).get_masses().sum())
             if not math.isclose(current_mass, expected_mass_amu, rel_tol=1e-10):
                 raise ValueError(f"Hessian and classical-MD masses differ: {path}")
@@ -589,6 +591,7 @@ def _harmonic_corrections(
                     "archived_trajectory": str(trajectory),
                     "relaxation": str(relaxation_path),
                     "relaxation_steps": int(relaxation["steps"]),
+                    "relaxation_converged": relaxation_converged,
                     "final_max_force_eV_per_A": float(
                         relaxation["final_max_force_eV_per_A"]
                     ),
@@ -955,6 +958,18 @@ def run(args: argparse.Namespace) -> Path:
                             "model uncertainty."
                         ]
                         if args.central_hessians_only
+                        else []
+                    ),
+                    *(
+                        [
+                            "EXPLORATORY ONLY: one or more Hessians were evaluated "
+                            "at final relaxation frames that did not meet the requested "
+                            "maximum-force threshold."
+                        ]
+                        if any(
+                            not record["relaxation_converged"]
+                            for record in hessian_records
+                        )
                         else []
                     ),
                 ],
