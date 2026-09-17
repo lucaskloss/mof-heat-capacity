@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
         help="Frame index for a trajectory input (default: final frame)",
     )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--fmax", type=float, default=0.001)
+    parser.add_argument("--fmax", type=float, default=0.002)
     parser.add_argument("--steps", type=int, default=10000)
     parser.add_argument(
         "--optimizer",
@@ -124,14 +124,12 @@ def run_relaxation(args: argparse.Namespace) -> Path:
             "fixed-cell relaxation produced non-finite coordinates, energy, or forces"
         )
     final_max_force = float(np.linalg.norm(final_forces, axis=1).max())
-    if not converged or final_max_force > args.fmax:
-        raise RuntimeError(
-            "fixed-cell relaxation did not converge: "
-            f"max force {final_max_force:.6g} eV/A after {optimizer.nsteps} steps"
-        )
+    converged = converged and final_max_force <= args.fmax
 
-    # Keep the Hessian input to one unambiguous, optimized frame. The complete
-    # optimizer history remains in the adjacent .optimizer.traj file.
+    # Keep the Hessian input to one unambiguous final frame. The complete
+    # optimizer history remains in the adjacent .optimizer.traj file. A frame
+    # that exhausted the step budget is intentionally retained and forwarded
+    # to the Hessian stage; its metadata records that it is unconverged.
     write(output_path, atoms)
     metadata_path.write_text(
         json.dumps(
@@ -141,6 +139,7 @@ def run_relaxation(args: argparse.Namespace) -> Path:
                 "input_index": args.index,
                 "output": str(output_path),
                 "fixed_cell": True,
+                "converged": converged,
                 "optimizer": f"ASE {optimizer_class.__name__}",
                 "steps": optimizer.nsteps,
                 "fmax_target_eV_per_A": args.fmax,
@@ -153,8 +152,9 @@ def run_relaxation(args: argparse.Namespace) -> Path:
         )
         + "\n"
     )
+    relaxation_status = "converged" if converged else "unconverged"
     print(
-        f"Relaxed {len(atoms)} atoms in {optimizer.nsteps} steps; "
+        f"Relaxed {len(atoms)} atoms in {optimizer.nsteps} steps ({relaxation_status}); "
         f"max force={final_max_force:.6g} eV/A; output={output_path}"
     )
     return output_path

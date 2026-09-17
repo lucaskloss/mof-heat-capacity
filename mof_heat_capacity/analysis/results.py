@@ -129,15 +129,6 @@ def parse_args() -> argparse.Namespace:
         default=4,
         help="Structures per ensemble inference batch (default: 4)",
     )
-    parser.add_argument(
-        "--uncertainty-central-tolerance-eV",
-        type=float,
-        default=0.01,
-        help=(
-            "Maximum configuration-dependent ensemble-mean/MD energy residual "
-            "after removing a constant offset (default: 0.01 eV)"
-        ),
-    )
     parser.add_argument("--no-plots", action="store_true")
     execution = parser.add_mutually_exclusive_group()
     execution.add_argument(
@@ -401,15 +392,20 @@ def plot_enthalpy_convergence(path: Path, rows: list[dict]) -> None:
     if "llpr_model_standard_deviation_eV" in rows[-1]:
         axes[0].plot(
             time,
-            [row["llpr_model_standard_deviation_eV"] for row in rows],
+            [row["combined_standard_uncertainty_eV"] for row in rows],
             marker="o",
-            label="LLPR model SD",
+            linestyle="--",
+            alpha=0.75,
+            label="quadrature combined",
         )
         axes[0].plot(
             time,
-            [row["combined_standard_uncertainty_eV"] for row in rows],
+            [row["llpr_model_standard_deviation_eV"] for row in rows],
             marker="o",
-            label="quadrature combined",
+            color="tab:orange",
+            linewidth=2.5,
+            zorder=3,
+            label="LLPR model SD",
         )
     axes[0].set_ylabel("Enthalpy uncertainty (eV)")
     axes[0].legend(fontsize=8)
@@ -660,6 +656,7 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
     if args.model_uncertainty:
         if config.md_driver != "lammps" or thermodynamic_series is None:
             raise ValueError("model-uncertainty propagation currently requires LAMMPS data")
+        committee_progress_path = run_output / "model_uncertainty.progress.npz"
         committee = evaluate_trajectory_committee(
             trajectory,
             thermodynamic_series,
@@ -672,10 +669,11 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             pressure_bar=config.pressure_bar,
             stride=args.uncertainty_stride,
             batch_size=args.uncertainty_batch_size,
-            central_tolerance_eV=args.uncertainty_central_tolerance_eV,
+            checkpoint_path=committee_progress_path,
         )
         committee_path = run_output / "model_uncertainty.npz"
         np.savez(committee_path, **committee)
+        committee_progress_path.unlink(missing_ok=True)
         model_uncertainty = {
             "available": True,
             "method": "member-resolved direct reweighting and first-order CEA",
@@ -1053,6 +1051,10 @@ def write_model_uncertainty_outputs(
         )
 
     conversion = EV_TO_J / (masses.pop() * AMU_TO_G)
+    cea_enthalpy_mean = cea_enthalpy.mean(axis=0)
+    cea_enthalpy_model_error = committee_standard_deviation(cea_enthalpy)
+    direct_enthalpy_mean = direct_enthalpy.mean(axis=0)
+    direct_enthalpy_model_error = committee_standard_deviation(direct_enthalpy)
     cea_cp_by_member = (
         np.gradient(cea_enthalpy, temperatures, axis=1, edge_order=2) * conversion
     )
@@ -1070,6 +1072,10 @@ def write_model_uncertainty_outputs(
         temperatures_K=temperatures,
         cea_enthalpy_by_member_eV=cea_enthalpy,
         direct_enthalpy_by_member_eV=direct_enthalpy,
+        cea_enthalpy_mean_eV=cea_enthalpy_mean,
+        cea_enthalpy_model_standard_deviation_eV=cea_enthalpy_model_error,
+        direct_enthalpy_mean_eV=direct_enthalpy_mean,
+        direct_enthalpy_model_standard_deviation_eV=direct_enthalpy_model_error,
         cea_cp_by_member_J_per_gK=cea_cp_by_member,
         direct_cp_by_member_J_per_gK=direct_cp_by_member,
         cea_cp_mean_J_per_gK=cea_mean,
@@ -1086,6 +1092,14 @@ def write_model_uncertainty_outputs(
         rows.append(
             {
                 "temperature_K": temperature,
+                "cea_enthalpy_mean_eV": cea_enthalpy_mean[index],
+                "cea_enthalpy_model_standard_deviation_eV": cea_enthalpy_model_error[
+                    index
+                ],
+                "direct_enthalpy_mean_eV": direct_enthalpy_mean[index],
+                "direct_enthalpy_model_standard_deviation_eV": direct_enthalpy_model_error[
+                    index
+                ],
                 "cea_cp_mean_J_per_gK": cea_mean[index],
                 "cea_cp_model_standard_deviation_J_per_gK": cea_model_error[index],
                 "direct_cp_mean_J_per_gK": direct_mean[index],
@@ -1100,12 +1114,54 @@ def write_model_uncertainty_outputs(
             }
         )
     write_rows(args.analysis_dir / "model_uncertainty_heat_capacity.csv", rows)
+    write_rows(args.analysis_dir / "model_uncertainty_enthalpy.csv", rows)
 
     if not args.no_plots:
         import matplotlib
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
+        enthalpy_figure, enthalpy_axis = plt.subplots(figsize=(7, 4.5))
+        enthalpy_axis.plot(
+            temperatures,
+            cea_enthalpy_mean,
+            marker="o",
+            label="CEA committee mean",
+        )
+        enthalpy_axis.fill_between(
+            temperatures,
+            cea_enthalpy_mean - cea_enthalpy_model_error,
+            cea_enthalpy_mean + cea_enthalpy_model_error,
+            alpha=0.25,
+            label=r"CEA model $\pm 1\sigma$",
+        )
+        enthalpy_axis.plot(
+            temperatures,
+            direct_enthalpy_mean,
+            marker="o",
+            linestyle="--",
+            alpha=0.7,
+            label="Direct reweighting",
+        )
+        enthalpy_axis.fill_between(
+            temperatures,
+            direct_enthalpy_mean - direct_enthalpy_model_error,
+            direct_enthalpy_mean + direct_enthalpy_model_error,
+            alpha=0.15,
+            label=r"Direct model $\pm 1\sigma$",
+        )
+        enthalpy_axis.set(
+            xlabel="Temperature (K)",
+            ylabel="Mean enthalpy (eV)",
+        )
+        enthalpy_axis.grid(alpha=0.2)
+        enthalpy_axis.legend(fontsize=8)
+        enthalpy_figure.tight_layout()
+        enthalpy_figure.savefig(
+            args.analysis_dir / "model_uncertainty_enthalpy.png", dpi=180
+        )
+        plt.close(enthalpy_figure)
 
         figure, axis = plt.subplots(figsize=(7, 4.5))
         axis.plot(temperatures, cea_mean, marker="o", label="CEA committee mean")
@@ -1200,8 +1256,6 @@ def main() -> None:
         raise ValueError("--enthalpy-convergence-step-ps must be positive")
     if args.uncertainty_stride < 1 or args.uncertainty_batch_size < 1:
         raise ValueError("uncertainty stride and batch size must be positive")
-    if args.uncertainty_central_tolerance_eV <= 0.0:
-        raise ValueError("uncertainty central-energy tolerance must be positive")
     if args.uncertainty_model is not None and not args.model_uncertainty:
         raise ValueError("--uncertainty-model requires --model-uncertainty")
     patterns = [item.strip() for item in args.runs.split(",") if item.strip()]

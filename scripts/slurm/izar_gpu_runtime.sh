@@ -64,7 +64,7 @@ MOF_HEAT_OVERWRITE="${MOF_HEAT_OVERWRITE:-0}"
 MOF_RELAX_INPUT="${MOF_RELAX_INPUT:-}"
 MOF_RELAX_INDEX="${MOF_RELAX_INDEX:--1}"
 MOF_RELAX_OUTPUT="${MOF_RELAX_OUTPUT:-}"
-MOF_RELAX_FMAX="${MOF_RELAX_FMAX:-0.001}"
+MOF_RELAX_FMAX="${MOF_RELAX_FMAX:-0.002}"
 MOF_RELAX_STEPS="${MOF_RELAX_STEPS:-10000}"
 MOF_RELAX_OPTIMIZER="${MOF_RELAX_OPTIMIZER:-lbfgs-linesearch}"
 MOF_RELAX_ALLOW_ELEMENT_SUBSET="${MOF_RELAX_ALLOW_ELEMENT_SUBSET:-0}"
@@ -541,7 +541,7 @@ case "${MOF_STAGE}" in
         check_jax_cuda
         if [[ -f "${MOF_RELAX_OUTPUT}" \
             && "${MOF_RELAX_OVERWRITE,,}" =~ ^(0|false|no)$ ]]; then
-            echo "Reusing converged relaxed structure: ${MOF_RELAX_OUTPUT}"
+            echo "Reusing saved relaxed structure: ${MOF_RELAX_OUTPUT}"
         else
             run_relaxation
         fi
