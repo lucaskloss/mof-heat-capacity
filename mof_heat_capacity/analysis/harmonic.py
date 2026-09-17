@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -46,6 +47,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dtype", choices=("float32", "float64"))
     parser.add_argument("--chunk-size", type=int)
     parser.add_argument("--hops", type=int)
+    parser.add_argument("--central-archive", type=Path, help="Reuse a precomputed central Hessian for LLPR workers")
+    parser.add_argument("--llpr-member-range", help="Zero-based half-open member range, e.g. 0:8")
     parser.add_argument(
         "--llpr-checkpoint",
         type=Path,
@@ -569,6 +572,37 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
         else None
     )
     member_params = list(llpr_member_parameter_sets(params, llpr)) if llpr else []
+    member_ids = np.arange(len(member_params))
+    total_member_count = len(member_params)
+    central_archive = None
+    central_archive_hash = ""
+    trajectory_hash = hashlib.sha256(trajectory_path.read_bytes()).hexdigest()
+    if args.llpr_member_range is not None:
+        if llpr is None or args.central_archive is None:
+            raise ValueError("--llpr-member-range requires --llpr-checkpoint and --central-archive")
+        if total_member_count != 64:
+            raise ValueError("Distributed LLPR workers require exactly 64 members")
+        start, stop = (int(value) for value in args.llpr_member_range.split(":"))
+        if not 0 <= start < stop <= total_member_count or stop - start < 2:
+            raise ValueError("LLPR member range must select at least two valid members")
+        member_ids = member_ids[start:stop]
+        member_params = member_params[start:stop]
+    if args.central_archive is not None:
+        central_path = args.central_archive.expanduser().resolve()
+        central_archive_hash = hashlib.sha256(central_path.read_bytes()).hexdigest()
+        with np.load(central_path, allow_pickle=False) as archive:
+            central_archive = {key: archive[key] for key in archive.files}
+        central_metadata = json.loads(str(central_archive["metadata"].item()))
+        for key, value in dict(dtype=dtype, hops=hops, chunk_size=chunk_size, remat=remat).items():
+            if central_metadata[key] != value:
+                raise ValueError(f"Central archive {key} does not match worker settings")
+        for key, value in dict(frame_indices=indices, temperatures_K=temperatures).items():
+            if not np.array_equal(central_archive[key], value):
+                raise ValueError(f"Central archive {key} does not match worker inputs")
+        if str(central_archive["trajectory_sha256"].item()) != trajectory_hash:
+            raise ValueError("Central archive was computed for a different geometry")
+        if str(central_archive["checkpoint"].item()) != str(jax_checkpoint):
+            raise ValueError("Central archive uses a different PET-JAX checkpoint")
 
     frequencies = []
     heat_capacities = []
@@ -577,7 +611,9 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
     llpr_hessian_rms_deviations = []
     llpr_hessian_rms_standard_deviations = []
     completed_checkpoint_paths = []
-    for index, selected_frame in zip(indices, selected_frames, strict=True):
+    central_hessians = []
+    member_means, member_m2s = [], []
+    for frame_number, (index, selected_frame) in enumerate(zip(indices, selected_frames, strict=True)):
         atoms = selected_frame.copy()
         atoms.calc = None
         print(f"Computing Hessian for frame {index} ({len(atoms)} atoms)")
@@ -597,6 +633,8 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
             if llpr
             else ""
         )
+        if llpr and (args.llpr_member_range is not None or central_archive is not None):
+            signature = json.dumps([signature, member_ids.tolist(), central_archive_hash])
         resumed = bool(llpr and checkpoint_path.is_file())
         if resumed:
             checkpoint = _load_frame_checkpoint(checkpoint_path, signature)
@@ -627,14 +665,19 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
                 chunk_size=chunk_size,
                 remat=remat,
             )
-            hessian = evaluate_frame_hessian(
-                hessian_fn, params, positions, cell, graph, len(atoms)
-            )
-            freqs = signed_frequencies_from_hessian(
-                hessian, atoms.get_masses(), enforce_asr=True
-            )
-            cv = cv_curve(freqs, temperatures, float(atoms.get_masses().sum()))
-            frame_cv = np.asarray([cv[temperature] for temperature in temperatures])
+            if central_archive is None:
+                hessian = evaluate_frame_hessian(
+                    hessian_fn, params, positions, cell, graph, len(atoms)
+                )
+                freqs = signed_frequencies_from_hessian(
+                    hessian, atoms.get_masses(), enforce_asr=True
+                )
+                cv = cv_curve(freqs, temperatures, float(atoms.get_masses().sum()))
+                frame_cv = np.asarray([cv[temperature] for temperature in temperatures])
+            else:
+                hessian = central_archive["central_hessians_eV_per_A2"][frame_number]
+                freqs = central_archive["frequencies_cm1"][frame_number]
+                frame_cv = central_archive["cv_J_per_gK"][frame_number]
             frame_member_frequencies = []
             frame_member_cv = []
             frame_hessian_rms_deviations = []
@@ -643,6 +686,7 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
             completed_members = 0
 
         frequencies.append(freqs)
+        central_hessians.append(hessian)
         heat_capacities.append(frame_cv)
         imaginary_count = int(np.count_nonzero(freqs < -IMAGINARY_THRESHOLD_CM1))
         near_zero_count = int(np.count_nonzero(np.abs(freqs) <= IMAGINARY_THRESHOLD_CM1))
@@ -671,8 +715,8 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
                 member_params[completed_members:], start=completed_members
             ):
                 print(
-                    f"  Computing LLPR Hessian member {member_index + 1}/"
-                    f"{len(member_params)}"
+                    f"  Computing LLPR Hessian member {member_ids[member_index] + 1}/"
+                    f"{total_member_count}"
                 )
                 member_hessian = evaluate_frame_hessian(
                     hessian_fn, member, positions, cell, graph, len(atoms)
@@ -722,6 +766,8 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
                         f"{len(member_params)}: {checkpoint_path}"
                     )
         if member_params:
+            member_means.append(member_hessian_mean)
+            member_m2s.append(member_hessian_m2)
             llpr_frequencies.append(frame_member_frequencies)
             llpr_heat_capacities.append(frame_member_cv)
             llpr_hessian_rms_deviations.append(frame_hessian_rms_deviations)
@@ -745,6 +791,9 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
         frame_times_ps=selected_times_ps,
         temperatures_K=temperatures,
         frequencies_cm1=np.asarray(frequencies),
+        central_hessians_eV_per_A2=np.asarray(central_hessians),
+        trajectory_sha256=trajectory_hash,
+        central_archive_sha256=central_archive_hash,
         cv_J_per_gK=np.asarray(heat_capacities),
         llpr_frequencies_cm1=np.asarray(llpr_frequencies),
         llpr_cv_J_per_gK=np.asarray(llpr_heat_capacities),
@@ -767,6 +816,10 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
         llpr_checkpoint=str(llpr["path"]) if llpr else "",
         llpr_checkpoint_sha256=str(llpr["sha256"]) if llpr else "",
         llpr_member_count=len(member_params),
+        llpr_total_member_count=total_member_count,
+        llpr_member_indices=member_ids,
+        llpr_hessian_member_mean_eV_per_A2=np.asarray(member_means),
+        llpr_hessian_member_m2_eV2_per_A4=np.asarray(member_m2s),
         metadata=json.dumps(
             {
                 "ad_backend": config.ad_backend,

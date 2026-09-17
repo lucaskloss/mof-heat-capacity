@@ -92,10 +92,28 @@ output/post-processing/trajectory-analysis/<model>/<loading>ch4/<temperature>K/r
 
 ## 3. Relax minima and compute Hessians
 
-Choose representative loaded replicas at one source temperature. The Hessian
-command uses each completed run's final structure, quenches it at fixed cell,
-verifies force convergence, and computes one PET-JAX Hessian. It also processes
-the equilibrated empty structure directly.
+Choose the highest loaded-MD source temperature (400 K for the default
+campaign). The command relaxes that run's final structure at fixed cell and
+computes its central PET-JAX Hessian and eigenfrequencies once per replica.
+Eight independent GPU array tasks then compute eight LLPR member Hessians and
+spectra each on the shared minimum; a dependent merge writes the final archive.
+Lower-temperature structures are not relaxed or differentiated. By default,
+the equilibrated empty reference is also processed; `--skip-empty` omits it.
+
+For the fresh PET-MAD/50 CH₄ campaign, run:
+
+```bash
+./scripts/properties/submit_heat_capacity.sh --model pet-mad --loading 50 \
+  --source-temperature 400 --replicas 1 --skip-empty --llpr-jobs 8 \
+  --cv-temperatures 200:400:25
+```
+
+Run one model/loading campaign at a time to limit simultaneous jobs. Save the
+printed final merge job ID for hybrid assembly. See the
+[property guide](../scripts/properties/README.md) for fresh-run and recovery options.
+The central relaxation/Hessian job and each LLPR worker request one day by
+default (`1-00:00:00`), configurable with `--time` or `MOF_HEAT_TIME`. Preflight
+and merge limits are 15 and 30 minutes, respectively.
 
 The command first submits a short GPU/JAX preflight. Each Hessian job depends
 on that check succeeding; the configured default wall time remains in use
@@ -136,11 +154,23 @@ the loaded heat capacity uses the complete loaded-system spectra.
 
 ## 4. Assemble the hybrid heat capacity
 
-After every requested temperature/replica and loaded Hessian is complete, the
+After the classical MD grid and shared loaded-Hessian merge are complete, the
 hybrid command differentiates replica-averaged classical NPT enthalpy and adds
 the loaded harmonic quantum-minus-classical correction. It writes NPZ, CSV,
 and JSON provenance below
 `output/post-processing/harmonic-correction/<model>/<loading>ch4/`.
+
+```bash
+# Replace MERGE_JOB_ID with the final merge ID printed above.
+./scripts/properties/submit_hybrid_analysis.sh --model pet-mad --loading 50 \
+  --replicas 1 --hessian-source-temperature 400 --afterok MERGE_JOB_ID
+```
+
+Assembly retains each temperature's classical NPT contribution and evaluates
+the harmonic quantum-minus-classical sum at that temperature using the shared
+400 K central and LLPR spectra. Add `--model-uncertainty` when the classical
+CEA archive has been produced. Imaginary modes still require refinement or an
+explicit exploratory `--discard-imaginary-modes` result.
 
 ## Troubleshooting
 

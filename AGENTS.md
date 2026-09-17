@@ -34,7 +34,11 @@ PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
   `mof_heat_capacity.protocols.loaded` to generate and submit loaded
   classical-NPT campaigns.
 - `scripts/properties/submit_heat_capacity.sh` quenches representative loaded structures
-  and computes loaded and empty-reference Hessians.
+  at the highest selected source temperature per replica and computes loaded
+  and empty-reference Hessians. Hybrid assembly reuses that loaded spectrum
+  at every temperature (default source: highest MD-grid temperature).
+  LLPR defaults to eight independent GPU array tasks with eight members each,
+  followed by `analysis.llpr_merge`; use the final merge job as the hybrid dependency.
 - `scripts/properties/submit_hybrid_analysis.sh` submits and assembles the final hybrid
   curve without a separate worker script.
 - `scripts/` contains every Bash entry point, grouped into `setup/`, `slurm/`,
@@ -101,6 +105,8 @@ wall-time requests. Keep MD, Hessian, and hybrid assembly as separate jobs.
   the configured
   model files and runtime dependencies; full harmonic analysis also requires
   SADMOF/PET-JAX.
+- CPU-only LLPR distribution regression checks use deterministic stand-in
+  Hessians: `python -m unittest discover -s tests -v`.
 - Keep functions focused, use `Path` for filesystem paths, and preserve clear
   validation and error messages. Use blank lines to separate imports,
   constants, functions, validation, file preparation, and runtime execution.

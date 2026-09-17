@@ -59,6 +59,9 @@ MOF_HEAT_DTYPE="${MOF_HEAT_DTYPE:-}"
 MOF_HEAT_HOPS="${MOF_HEAT_HOPS:-}"
 MOF_HEAT_CHUNK_SIZE="${MOF_HEAT_CHUNK_SIZE:-}"
 MOF_HEAT_LLPR_CHECKPOINT="${MOF_HEAT_LLPR_CHECKPOINT:-}"
+MOF_HEAT_CENTRAL_ARCHIVE="${MOF_HEAT_CENTRAL_ARCHIVE:-}"
+MOF_HEAT_MEMBER_RANGE="${MOF_HEAT_MEMBER_RANGE:-}"
+MOF_HEAT_SKIP_EXISTING="${MOF_HEAT_SKIP_EXISTING:-0}"
 MOF_HEAT_CONFIGS="${MOF_HEAT_CONFIGS:-}"
 MOF_HEAT_OVERWRITE="${MOF_HEAT_OVERWRITE:-0}"
 MOF_RELAX_INPUT="${MOF_RELAX_INPUT:-}"
@@ -414,6 +417,10 @@ run_md_with_timing() {
 
 
 run_heat_capacity() {
+    if [[ "${MOF_HEAT_SKIP_EXISTING}" == 1 && -f "${MOF_HEAT_OUTPUT}" ]]; then
+        echo "Reusing completed harmonic archive: ${MOF_HEAT_OUTPUT}"
+        return
+    fi
     local command=(python -m mof_heat_capacity.analysis.harmonic
         --config "${MOF_CONFIG}")
 
@@ -455,6 +462,12 @@ run_heat_capacity() {
 
     if [[ -n "${MOF_HEAT_LLPR_CHECKPOINT}" ]]; then
         command+=(--llpr-checkpoint "${MOF_HEAT_LLPR_CHECKPOINT}")
+    fi
+    if [[ -n "${MOF_HEAT_CENTRAL_ARCHIVE}" ]]; then
+        command+=(--central-archive "${MOF_HEAT_CENTRAL_ARCHIVE}")
+    fi
+    if [[ -n "${MOF_HEAT_MEMBER_RANGE}" ]]; then
+        command+=(--llpr-member-range "${MOF_HEAT_MEMBER_RANGE}")
     fi
 
     case "${MOF_HEAT_OVERWRITE,,}" in
@@ -532,6 +545,26 @@ case "${MOF_STAGE}" in
         check_jax_cuda
         run_heat_capacity
         ;;
+    llpr-batch)
+        check_jax_cuda
+        batch_index="${SLURM_ARRAY_TASK_ID:?LLPR worker requires an array task}"
+        if ((batch_index < 0 || batch_index > 7)); then
+            echo "error: LLPR array task must be 0..7" >&2
+            exit 2
+        fi
+        MOF_HEAT_MEMBER_RANGE="$((batch_index * 8)):$(((batch_index + 1) * 8))"
+        MOF_HEAT_OUTPUT="${MOF_HEAT_OUTPUT%.npz}.llpr-${batch_index}.npz"
+        run_heat_capacity
+        ;;
+    llpr-merge)
+        merge_command=(python -m mof_heat_capacity.analysis.llpr_merge
+            --central-archive "${MOF_HEAT_CENTRAL_ARCHIVE}"
+            --output "${MOF_HEAT_OUTPUT}")
+        if [[ "${MOF_HEAT_OVERWRITE}" == 1 ]]; then
+            merge_command+=(--overwrite)
+        fi
+        srun --ntasks=1 "${merge_command[@]}"
+        ;;
     relax)
         check_pytorch_cuda
         run_relaxation
@@ -550,7 +583,7 @@ case "${MOF_STAGE}" in
         run_heat_capacity
         ;;
     *)
-        echo "error: MOF_STAGE must be md, hessian-debug, relax, heat-capacity, or relax-and-heat-capacity" >&2
+        echo "error: unknown MOF_STAGE: ${MOF_STAGE}" >&2
         exit 2
         ;;
 esac

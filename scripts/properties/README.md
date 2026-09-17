@@ -18,11 +18,35 @@ Run commands from the repository root:
   --replicas 1
 ./scripts/properties/submit_analysis.sh --model pet-mad --loading 100 \
   --replicas 1 --model-uncertainty
-./scripts/properties/submit_heat_capacity.sh --model both --loading 100 \
-  --source-temperatures 200,225,250,275,300,325,350,375,400 --replicas 1
-./scripts/properties/submit_hybrid_analysis.sh --model both --loading 100 \
-  --replicas 1
+./scripts/properties/submit_heat_capacity.sh --model pet-mad --loading 50 \
+  --source-temperature 400 --replicas 1 --skip-empty --llpr-jobs 8 \
+  --cv-temperatures 200:400:25
+# Replace MERGE_JOB_ID with the final merge ID printed by the command above.
+./scripts/properties/submit_hybrid_analysis.sh --model pet-mad --loading 50 \
+  --replicas 1 --hessian-source-temperature 400 --afterok MERGE_JOB_ID
 ```
+
+Submit one model/loading campaign at a time. The command above is the fresh
+PET-MAD/50 CH₄ run after removal of its old relaxation outputs: it starts from
+`output/md/production/pet-mad-1.5-s-40nn/50ch4/400K/rep01/md.final.data`.
+It submits a preflight, one 400 K relaxation/central-Hessian job, eight LLPR
+workers with eight members each, and a final merge. Dependencies ensure that
+the eight workers start after the central calculation and that the merge
+starts after all workers succeed. They do not serialize separate campaigns;
+wait for this campaign to finish before submitting the next model/loading.
+The central relaxation/Hessian job and each LLPR worker default to a one-day
+wall time (`1-00:00:00`); override it with `--time` or `MOF_HEAT_TIME`.
+The preflight retains its 15-minute limit and the merge its 30-minute limit.
+`--skip-empty` avoids an additional empty-reference campaign; the loaded hybrid
+correction uses the loaded-system spectrum.
+
+For a fresh relaxation, omit `--hessian-only`, `--reuse-relaxed`, and continuation
+options. With saved outputs present, an ordinary submission may reuse the
+minimum; intentionally replacing it requires `--overwrite` and clearing
+incompatible Hessian restart files first. To recover an interrupted campaign
+with unchanged settings, repeat the command with `--continue-unfinished`, after
+checking that no matching jobs are still active. Both loading-100 campaigns
+already have complete 400 K central/64-member spectra and need no Hessian rerun.
 
 The LLPR preparation command requires reference-labeled structures that are
 not distributed with this repository. It wraps the selected PET checkpoint,
@@ -119,18 +143,48 @@ classical and harmonic `model_standard_deviation` components, and a
 member by member before the hybrid model spread is evaluated; only the final
 combination of sampling and LLPR model uncertainty uses quadrature.
 
-The first command produces trajectory diagnostics. The second relaxes selected
-structures and computes harmonic Hessians. The third combines classical
+The first command produces trajectory diagnostics. The second relaxes only the
+highest selected source temperature for each model, loading, and replica and
+computes its harmonic Hessian and eigenfrequencies once. The same spectrum is
+evaluated over the full `--cv-temperatures` grid. The third combines classical
 enthalpy derivatives with the harmonic quantum correction. Their reusable
 implementations live in `mof_heat_capacity/analysis/`.
 
-Hessian submission defaults to fixed-cell `lbfgs-linesearch`, at most 20,000
-optimizer steps, and a maximum force of $0.001\ \mathrm{eV\ \AA^{-1}}$.
+Hybrid assembly uses the highest temperature in its MD grid as the shared
+Hessian source by default, including the corresponding LLPR member spectra.
+If the Hessian submission used a higher source temperature than the assembly
+grid, pass `--hessian-source-temperature N` to `submit_hybrid_analysis.sh`.
+Lower-temperature minima and Hessian archives are not needed or read. Each
+harmonic sum uses its evaluation temperature with the shared eigenfrequencies;
+both quantum and classical harmonic terms use the same retained modes.
+
+Hessian submission defaults to fixed-cell `lbfgs-linesearch`, at most 10,000
+optimizer steps, and a maximum force of $0.002\ \mathrm{eV\ \AA^{-1}}$.
 These are deliberate minimum-validation settings: a saved Hessian with modes
 below the imaginary-frequency threshold is not accepted for hybrid assembly.
 Each archive includes the central Hessian spectrum and all 64 LLPR-member
-spectra by default, so its wall time is substantially longer than a central-only
-calculation. Benchmark a representative allocation before selecting `--time`;
+spectra by default. Submission now uses one relaxation/central-Hessian job,
+then a Slurm array of eight GPU jobs, each computing eight LLPR member Hessians
+and their eigenfrequencies on that shared minimum. A final merge job waits for
+all eight tasks and writes the canonical archive expected by hybrid assembly.
+Use the printed **final merge job ID** with hybrid `--afterok`, rather than the
+central job or array ID. The merge checks shared geometry, numerical settings,
+LLPR checkpoint identity, and exact coverage of all 64 member indices; it pools
+matrix moments and restores member order for correlated hybrid uncertainties.
+
+Intermediate files are `hessian.central.npz` and `hessian.llpr-0.npz` through
+`hessian.llpr-7.npz` beside the final `hessian.npz` (tags are preserved).
+Each batch has its own restart checkpoint. `--continue-unfinished` reuses
+completed central/batch archives and resumes unfinished batches. Changing the
+geometry or calculation settings requires a fresh output tag or deliberately
+removing incompatible intermediate/restart files. Existing serial jobs retain
+their original execution plan. `--llpr-jobs 1` selects the serial workflow;
+`--no-model-uncertainty` submits just the relaxation/central-Hessian job.
+All jobs use one node, one task, and one GPU; the merge is CPU-based but retains
+the GPU allocation required by Izar's normal QOS.
+
+The one-day limit applies to each job, rather than the entire dependent chain.
+Inspect measured runtimes when selecting a different `--time`;
 use `--no-model-uncertainty` only for an explicitly central-only diagnostic.
 LLPR Hessians use `float64` because the sampled last-layer weights contain
 cancellation-sensitive covariance directions; central-only runs retain the
@@ -153,8 +207,9 @@ accompanying JSON notes the uncertainty assumptions.
 Classical analysis and hybrid assembly default to the same 200–400 K grid in
 25 K steps as MD submission. Interior enthalpy derivatives are centered; the
 200 and 400 K values use second-order one-sided estimates. The independently
-configurable harmonic diagnostic grid remains broader because normal-mode
-$C_V(T)$ is evaluated analytically and does not require neighboring MD runs.
+configurable harmonic diagnostic grid defaults to `200:400:25`; normal-mode
+$C_V(T)$ is evaluated analytically and can use another grid without additional
+Hessian calculations.
 
 This workflow is independent of the simulation commands: results are read from
 the shared work output tree or selected explicitly where the underlying command
@@ -182,8 +237,8 @@ has completed successfully.
 
 Before Hessian jobs are submitted, `submit_heat_capacity.sh` automatically
 submits a lightweight GPU/JAX preflight for each model. The relaxation/Hessian
-jobs run only when that preflight succeeds. Every selected model, loaded
-temperature, and replica combination is submitted as its own independent job;
+jobs run only when that preflight succeeds. Every selected model and replica
+gets one loaded job at the highest selected source temperature;
 each model's empty reference is also independent. They run in parallel as
 resources become available. Their wall time continues to use the configured
 default (or an explicit `--time` override).
@@ -199,5 +254,5 @@ diagnostic Hessian. Precision, graph hops, force tolerance, and optimizer choice
 are convergence parameters. Use `--dtype`, `--hops`, and `--chunk-size` for
 explicit Hessian tests rather than changing campaign settings silently. A tag
 such as `--hessian-tag fp64-h4` preserves a non-canonical comparison; hybrid
-assembly reads only canonical `TEMPERATUREK/repNN/hessian.npz` archives matching each
-classical-MD temperature.
+assembly reads the canonical `SOURCE_TEMPERATUREK/repNN/hessian.npz` archive
+at the shared highest source temperature for each replica.

@@ -28,9 +28,10 @@ HESSIAN_HOPS=""
 HESSIAN_CHUNK_SIZE=""
 HESSIAN_TAG=""
 MODEL_UNCERTAINTY=1
+LLPR_JOBS=8
 PARTITION="${MOF_HEAT_PARTITION:-gpu}"
 QOS="${MOF_HEAT_QOS:-normal}"
-WALL_TIME="${MOF_HEAT_TIME:-3-00:00:00}"
+WALL_TIME="${MOF_HEAT_TIME:-1-00:00:00}"
 CPUS_PER_TASK="${MOF_HEAT_CPUS:-8}"
 DEFAULT_OUTPUT_ROOT="${PROJECT_DIR}/output"
 OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
@@ -51,9 +52,9 @@ Options:
   --model NAME            pet-mad, pet-sol, or both (default: pet-mad).
   --loading N             Positive methane loading (default: 100).
   --source-temperature N  One loaded-MD temperature used to choose quench inputs.
-  --source-temperatures L Comma-separated loaded-MD temperatures to quench
-                          (default: 200,225,250,275,300,325,350,375,400; these
-                          label structures, not C_V points).
+  --source-temperatures L Comma-separated loaded-MD campaign temperatures
+                          (default: 200,225,250,275,300,325,350,375,400;
+                          only the highest is quenched; not C_V points).
   --replicas LIST         Independent loaded replicas to quench (default: 1).
   --empty-structure PATH  Equilibrated empty MOF-5 structure (default: input/mof5.pdb).
   --skip-empty            Do not submit the one empty-reference Hessian per model.
@@ -77,18 +78,25 @@ Options:
   --chunk-size N          Hessian AD chunk size (default: config).
   --hessian-tag NAME      Write a non-canonical archive for a convergence test.
   --no-model-uncertainty  Skip the default 64-member LLPR Hessian propagation.
+  --llpr-jobs N           8: eight GPU jobs with eight members each (default).
+                          1: compute all members in the central job.
   --partition NAME        Slurm partition (default: gpu).
   --qos NAME              Slurm QOS (default: normal).
-  --time HH:MM:SS         Time per relaxation plus Hessian (default: 3-00:00:00).
+  --time D-HH:MM:SS       Time per central job and LLPR worker (default: 1-00:00:00).
   --cpus N                CPUs per task (default: 8).
   --slurm-output-dir PATH Slurm log directory (default: repository output/slurm).
   --overwrite             Replace existing relaxation and Hessian outputs.
   --dry-run               Validate inputs and print all submissions.
   -h, --help              Show this help.
 
-Each loaded temperature/replica gets an independent task. It reads the final
+Each loaded replica gets one task at the highest selected source temperature.
+It reads the final
 structure from completed classical MD, relaxes it at fixed cell with the same
-MLIP, and computes one AD Hessian from the resulting minimum. Empty MOF-5 is
+MLIP, and computes one AD Hessian from the resulting minimum. Its spectrum is
+evaluated at every --cv-temperatures point; lower-temperature structures are
+not relaxed. Hybrid assembly also reuses this spectrum at each MD temperature
+(use --hessian-source-temperature there if its grid has a different maximum).
+Empty MOF-5 is
 relaxed directly from the supplied equilibrated structure; no empty-MOF MD
 trajectory is used.
 
@@ -106,6 +114,8 @@ This command estimates minimum-to-minimum sampling of the harmonic correction
 through independent replicas and, by default, differentiates the matching
 PET-MAD or PET-SOL LLPR energy members at every central-model minimum. Run
 submit_analysis.sh --model-uncertainty for the member-resolved enthalpy curve.
+By default, one relaxation/central-Hessian job is followed by an eight-task
+GPU array and a merge job. Use the final merge job ID for hybrid --afterok.
 EOF
 }
 
@@ -141,6 +151,7 @@ while (($#)); do
         --chunk-size) require_value "$@"; HESSIAN_CHUNK_SIZE="$2"; shift 2 ;;
         --hessian-tag) require_value "$@"; HESSIAN_TAG="$2"; shift 2 ;;
         --no-model-uncertainty) MODEL_UNCERTAINTY=0; shift ;;
+        --llpr-jobs) require_value "$@"; LLPR_JOBS="$2"; shift 2 ;;
         --partition) require_value "$@"; PARTITION="$2"; shift 2 ;;
         --qos) require_value "$@"; QOS="$2"; shift 2 ;;
         --time) require_value "$@"; WALL_TIME="$2"; shift 2 ;;
@@ -162,6 +173,10 @@ case "${MODEL}" in
 esac
 if ((MODEL_UNCERTAINTY)) && [[ -z "${HESSIAN_DTYPE}" ]]; then
     HESSIAN_DTYPE="float64"
+fi
+if [[ "${LLPR_JOBS}" != 1 && "${LLPR_JOBS}" != 8 ]]; then
+    echo "error: --llpr-jobs must be 1 or 8" >&2
+    exit 2
 fi
 if [[ ! "${LOADING}" =~ ^[1-9][0-9]*$ ]]; then
     echo "error: --loading must be a positive methane count" >&2
@@ -298,7 +313,7 @@ for model_name in "${MODEL_NAMES[@]}"; do
         exit 2
     fi
     carrier_config=""
-    for source_temperature in "${SOURCE_TEMPERATURE_VALUES[@]}"; do
+    for source_temperature in "${previous_source_temperature}"; do
         for replica in "${REPLICA_VALUES[@]}"; do
             printf -v replica_tag '%02d' "${replica}"
             run="mof5-${LOADING}ch4-${model_name}-npt-${source_temperature}K-rep${replica_tag}"
@@ -440,11 +455,14 @@ done
 
 
 echo "Hybrid Hessian campaign: ${#CONFIGS[@]} fixed-cell relaxation/Hessian task(s)"
-echo "Loaded sources: ${LOADING} CH4 at ${SOURCE_TEMPERATURES} K; replicas ${REPLICAS}"
+echo "Loaded source: ${LOADING} CH4 at ${previous_source_temperature} K (highest of ${SOURCE_TEMPERATURES}); replicas ${REPLICAS}"
 echo "Harmonic grid: ${CV_TEMPERATURES} K; fmax=${FMAX} eV/A; optimizer=${OPTIMIZER}"
 echo "Hessian overrides: dtype=${HESSIAN_DTYPE:-config}; hops=${HESSIAN_HOPS:-config}; chunk=${HESSIAN_CHUNK_SIZE:-config}"
 echo "Hessian output: ${HESSIAN_TAG:-canonical}"
 echo "LLPR Hessians: $([[ ${MODEL_UNCERTAINTY} -eq 1 ]] && echo enabled || echo disabled)"
+if ((MODEL_UNCERTAINTY)); then
+    echo "LLPR distribution: ${LLPR_JOBS} GPU job(s) per minimum; final merge ID is the hybrid dependency"
+fi
 if ((CONTINUE_LOADED)); then
     echo "Continuation: existing loaded optimized structure(s)"
 fi
@@ -521,6 +539,16 @@ for index in "${!CONFIGS[@]}"; do
         hessian_temperature=$(basename "$(dirname "${hessian_parent}")")
         slurm_hessian_dir="${SLURM_OUTPUT_DIR}/hybrid-hessian/${model_name}/${LOADING}ch4/${hessian_temperature}/${hessian_replica}"
     fi
+    task_output="${hessian}"
+    central_llpr_checkpoint="${llpr_checkpoint}"
+    skip_existing=0
+    if ((MODEL_UNCERTAINTY && LLPR_JOBS == 8)); then
+        task_output="${hessian%.npz}.central.npz"
+        central_llpr_checkpoint=""
+        if ((CONTINUE_UNFINISHED || RESTART_UNFINISHED)); then
+            skip_existing=1
+        fi
+    fi
     command=(
         sbatch --parsable
         --job-name="mof5-hybrid-${label}"
@@ -529,14 +557,53 @@ for index in "${!CONFIGS[@]}"; do
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1 --time="${WALL_TIME}"
         --output="${slurm_hessian_dir}/%j.out"
-        --export="ALL,MOF_STAGE=relax-and-heat-capacity,MOF_CONFIG=${config},MOF_RELAX_INPUT=${input},MOF_RELAX_INDEX=-1,MOF_RELAX_OUTPUT=${relaxed},MOF_RELAX_FMAX=${FMAX},MOF_RELAX_STEPS=${RELAX_STEPS},MOF_RELAX_OPTIMIZER=${OPTIMIZER},MOF_RELAX_ALLOW_ELEMENT_SUBSET=${allow_subset},MOF_RELAX_OVERWRITE=${relax_overwrite},MOF_HEAT_TEMPERATURES=${CV_TEMPERATURES},MOF_HEAT_OUTPUT=${hessian},MOF_HEAT_DTYPE=${HESSIAN_DTYPE},MOF_HEAT_HOPS=${HESSIAN_HOPS},MOF_HEAT_CHUNK_SIZE=${HESSIAN_CHUNK_SIZE},MOF_HEAT_LLPR_CHECKPOINT=${llpr_checkpoint},MOF_HEAT_OVERWRITE=${heat_overwrite}"
+        --export="ALL,MOF_STAGE=relax-and-heat-capacity,MOF_CONFIG=${config},MOF_RELAX_INPUT=${input},MOF_RELAX_INDEX=-1,MOF_RELAX_OUTPUT=${relaxed},MOF_RELAX_FMAX=${FMAX},MOF_RELAX_STEPS=${RELAX_STEPS},MOF_RELAX_OPTIMIZER=${OPTIMIZER},MOF_RELAX_ALLOW_ELEMENT_SUBSET=${allow_subset},MOF_RELAX_OVERWRITE=${relax_overwrite},MOF_HEAT_TEMPERATURES=${CV_TEMPERATURES},MOF_HEAT_OUTPUT=${task_output},MOF_HEAT_DTYPE=${HESSIAN_DTYPE},MOF_HEAT_HOPS=${HESSIAN_HOPS},MOF_HEAT_CHUNK_SIZE=${HESSIAN_CHUNK_SIZE},MOF_HEAT_LLPR_CHECKPOINT=${central_llpr_checkpoint},MOF_HEAT_CENTRAL_ARCHIVE=,MOF_HEAT_MEMBER_RANGE=,MOF_HEAT_SKIP_EXISTING=${skip_existing},MOF_HEAT_OVERWRITE=${heat_overwrite}"
         "${GPU_RUNTIME}"
     )
     if ((DRY_RUN)); then
         printf 'DRY RUN:'; printf ' %q' "${command[@]}"; printf '\n'
+        central_job="<central-job>"
     else
         mkdir -p "${slurm_hessian_dir}"
         submission=$("${command[@]}")
+        central_job="${submission%%;*}"
         echo "Submitted ${label}: ${submission%%;*}"
+    fi
+    if ((MODEL_UNCERTAINTY && LLPR_JOBS == 8)); then
+        worker_command=(
+            sbatch --parsable --array=0-7
+            --job-name="mof5-llpr-${label}"
+            --dependency="afterok:${central_job}"
+            --partition="${PARTITION}" --qos="${QOS}"
+            --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
+            --gres=gpu:1 --time="${WALL_TIME}"
+            --output="${slurm_hessian_dir}/llpr-%A_%a.out"
+            --export="ALL,MOF_STAGE=llpr-batch,MOF_CONFIG=${config},MOF_HEAT_TRAJECTORY=${relaxed},MOF_HEAT_FRAME_INDICES=0,MOF_HEAT_TEMPERATURES=${CV_TEMPERATURES},MOF_HEAT_OUTPUT=${hessian},MOF_HEAT_DTYPE=${HESSIAN_DTYPE},MOF_HEAT_HOPS=${HESSIAN_HOPS},MOF_HEAT_CHUNK_SIZE=${HESSIAN_CHUNK_SIZE},MOF_HEAT_LLPR_CHECKPOINT=${llpr_checkpoint},MOF_HEAT_CENTRAL_ARCHIVE=${task_output},MOF_HEAT_SKIP_EXISTING=${skip_existing},MOF_HEAT_OVERWRITE=${heat_overwrite}"
+            "${GPU_RUNTIME}"
+        )
+        if ((DRY_RUN)); then
+            printf 'DRY RUN:'; printf ' %q' "${worker_command[@]}"; printf '\n'
+            worker_job="<llpr-array-job>"
+        else
+            submission=$("${worker_command[@]}")
+            worker_job="${submission%%;*}"
+            echo "Submitted ${label} LLPR members: ${worker_job} (8 tasks x 8 members)"
+        fi
+        merge_command=(
+            sbatch --parsable --job-name="mof5-llpr-merge-${label}"
+            --dependency="afterok:${worker_job}"
+            --partition="${PARTITION}" --qos="${QOS}"
+            --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
+            --gres=gpu:1 --time=00:30:00
+            --output="${slurm_hessian_dir}/merge-%j.out"
+            --export="ALL,MOF_STAGE=llpr-merge,MOF_CONFIG=${config},MOF_HEAT_OUTPUT=${hessian},MOF_HEAT_CENTRAL_ARCHIVE=${task_output},MOF_HEAT_OVERWRITE=${heat_overwrite}"
+            "${GPU_RUNTIME}"
+        )
+        if ((DRY_RUN)); then
+            printf 'DRY RUN:'; printf ' %q' "${merge_command[@]}"; printf '\n'
+        else
+            submission=$("${merge_command[@]}")
+            echo "Submitted ${label} final merge: ${submission%%;*} (use this ID for hybrid --afterok)"
+        fi
     fi
 done
