@@ -11,6 +11,7 @@ MODEL="pet-mad"
 LOADING=100
 REPLICAS="1"
 TEMPERATURES="200,225,250,275,300,325,350,375,400"
+HESSIAN_SOURCE_TEMPERATURE=""
 PARTITION="${MOF_ANALYSIS_PARTITION:-gpu}"
 QOS="${MOF_ANALYSIS_QOS:-normal}"
 WALL_TIME="${MOF_ANALYSIS_TIME:-00:30:00}"
@@ -39,6 +40,7 @@ run_hybrid_worker() {
     local model_uncertainty=""
     local discard_imaginary_modes=0
     local central_hessians_only=0
+    local hessian_source_temperature=""
 
     shift
     while (($#)); do
@@ -47,6 +49,7 @@ run_hybrid_worker() {
             --loading) loading="$2"; shift 2 ;;
             --replicas) replicas="$2"; shift 2 ;;
             --temperatures) temperatures="$2"; shift 2 ;;
+            --hessian-source-temperature) hessian_source_temperature="$2"; shift 2 ;;
             --output) output="$2"; shift 2 ;;
             --zero-threshold-cm1) zero_threshold="$2"; shift 2 ;;
             --max-near-zero-modes) max_near_zero="$2"; shift 2 ;;
@@ -106,6 +109,9 @@ run_hybrid_worker() {
     if [[ -n "${model_uncertainty}" ]]; then
         command+=(--model-uncertainty "${model_uncertainty}")
     fi
+    if [[ -n "${hessian_source_temperature}" ]]; then
+        command+=(--hessian-source-temperature "${hessian_source_temperature}")
+    fi
     if ((discard_imaginary_modes)); then
         command+=(--discard-imaginary-modes)
     fi
@@ -132,6 +138,8 @@ Options:
   --replicas LIST         Classical MD replicas (default: 1).
   --temperatures LIST     Classical MD temperatures
                           (default: 200 to 400 K in 25 K steps).
+  --hessian-source-temperature N
+                          Shared spectrum source (default: highest MD temperature).
   --partition NAME        Slurm partition (default: gpu).
   --qos NAME              Slurm QOS (default: normal).
   --time HH:MM:SS         Wall time per model (default: 00:30:00).
@@ -173,6 +181,7 @@ while (($#)); do
         --loading) require_value "$@"; LOADING="$2"; shift 2 ;;
         --replicas) require_value "$@"; REPLICAS="$2"; shift 2 ;;
         --temperatures) require_value "$@"; TEMPERATURES="$2"; shift 2 ;;
+        --hessian-source-temperature) require_value "$@"; HESSIAN_SOURCE_TEMPERATURE="$2"; shift 2 ;;
         --partition) require_value "$@"; PARTITION="$2"; shift 2 ;;
         --qos) require_value "$@"; QOS="$2"; shift 2 ;;
         --time) require_value "$@"; WALL_TIME="$2"; shift 2 ;;
@@ -253,6 +262,13 @@ done
 if [[ "${SLURM_OUTPUT_DIR}" != /* ]]; then
     SLURM_OUTPUT_DIR="${PROJECT_DIR}/${SLURM_OUTPUT_DIR}"
 fi
+if [[ -n "${HESSIAN_SOURCE_TEMPERATURE}" ]]; then
+    if [[ ! "${HESSIAN_SOURCE_TEMPERATURE}" =~ ^[1-9][0-9]*$ ]] \
+        || ((HESSIAN_SOURCE_TEMPERATURE < previous_temperature)); then
+        echo "error: --hessian-source-temperature must be at least the highest MD temperature" >&2
+        exit 2
+    fi
+fi
 if [[ "${OUTPUT_ROOT}" != /* ]]; then
     OUTPUT_ROOT="${PROJECT_DIR}/${OUTPUT_ROOT}"
 fi
@@ -306,6 +322,9 @@ for model_label in "${MODEL_LABELS[@]}"; do
     )
     if ((MODEL_UNCERTAINTY)); then
         command+=(--model-uncertainty "${model_uncertainty_path}")
+    fi
+    if [[ -n "${HESSIAN_SOURCE_TEMPERATURE}" ]]; then
+        command+=(--hessian-source-temperature "${HESSIAN_SOURCE_TEMPERATURE}")
     fi
     if ((DISCARD_IMAGINARY_MODES)); then
         command+=(--discard-imaginary-modes)

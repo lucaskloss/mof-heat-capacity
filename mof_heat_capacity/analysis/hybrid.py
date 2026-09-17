@@ -47,6 +47,14 @@ def parse_args() -> argparse.Namespace:
         default=output_root() / "post-processing/harmonic-correction",
     )
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--hessian-source-temperature",
+        type=int,
+        help=(
+            "Reuse this source-temperature spectrum at all MD temperatures "
+            "(default: highest MD temperature)"
+        ),
+    )
     parser.add_argument("--zero-threshold-cm1", type=float, default=1.0)
     parser.add_argument(
         "--max-near-zero-modes",
@@ -415,11 +423,21 @@ def _harmonic_corrections(
     max_near_zero_modes: int,
     discard_imaginary_modes: bool,
     central_hessians_only: bool,
+    hessian_source_temperature: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, str | None, list[dict]]:
+    source_temperature = (
+        int(max(temperatures))
+        if hessian_source_temperature is None
+        else hessian_source_temperature
+    )
+    if source_temperature < max(temperatures):
+        raise ValueError(
+            "Hessian source temperature must be at least the highest MD temperature"
+        )
     paths = {
         (int(temperature), replica): directory
         / "hessians"
-        / f"{temperature:g}K"
+        / f"{source_temperature:g}K"
         / f"rep{replica:02d}"
         / "hessian.npz"
         for temperature in temperatures
@@ -428,8 +446,8 @@ def _harmonic_corrections(
     missing = [path for path in paths.values() if not path.is_file()]
     if missing:
         raise FileNotFoundError(
-            "missing temperature-specific loaded Hessian archive(s): "
-            + ", ".join(str(path) for path in missing)
+            "missing shared highest-temperature loaded Hessian archive(s): "
+            + ", ".join(str(path) for path in dict.fromkeys(missing))
         )
     corrections = np.empty((len(replicas), len(temperatures)), dtype=float)
     member_corrections = None
@@ -480,7 +498,7 @@ def _harmonic_corrections(
             minimum_directory = (
                 directory
                 / "minima"
-                / f"{temperature:g}K"
+                / f"{source_temperature:g}K"
                 / f"rep{replica:02d}"
             )
             optimized_path = minimum_directory / "optimized.extxyz"
@@ -585,6 +603,7 @@ def _harmonic_corrections(
             records.append(
                 {
                     "temperature_K": float(temperature),
+                    "hessian_source_temperature_K": source_temperature,
                     "replica": replica,
                     "source": str(path),
                     "optimized_structure": str(optimized_path),
@@ -702,6 +721,7 @@ def run(args: argparse.Namespace) -> Path:
         max_near_zero_modes=args.max_near_zero_modes,
         discard_imaginary_modes=args.discard_imaginary_modes,
         central_hessians_only=args.central_hessians_only,
+        hessian_source_temperature=args.hessian_source_temperature,
     )
     harmonic_model_error = (
         correction_by_member.std(axis=0, ddof=1)
@@ -927,6 +947,11 @@ def run(args: argparse.Namespace) -> Path:
                 "loading": args.loading,
                 "replicas": replicas,
                 "temperatures_K": temperatures.tolist(),
+                "hessian_source_temperature_K": (
+                    args.hessian_source_temperature
+                    if args.hessian_source_temperature is not None
+                    else int(max(temperatures))
+                ),
                 "zero_threshold_cm1": args.zero_threshold_cm1,
                 "max_near_zero_modes": args.max_near_zero_modes,
                 "exploratory_discard_imaginary_modes": args.discard_imaginary_modes,
@@ -937,6 +962,7 @@ def run(args: argparse.Namespace) -> Path:
                 "notes": [
                     "Classical term is d<Etot + Pext*V>/dT from loaded NPT MD.",
                     "Harmonic correction is C_qn_har - C_cl_har for identical retained modes.",
+                    "Each replica reuses its highest-source-temperature spectrum at every evaluation temperature, including LLPR member spectra.",
                     "Endpoint derivatives are second-order one-sided estimates.",
                     "Temperature spacing is a heat-capacity convergence parameter.",
                     "Volumetric values use the production NPT mean volume at each temperature.",

@@ -51,6 +51,13 @@ structures and configurations, then submits its automated preflight,
 calibration, and production stages. Property commands consume completed MD
 outputs in order: trajectory analysis, Hessians, then hybrid assembly.
 
+The harmonic workflow relaxes only the highest-temperature loaded structure
+per replica, computes its central spectrum once, and distributes the 64 LLPR
+members across eight GPU jobs before merging. Hybrid assembly reuses this
+spectrum at every temperature. Submit one model/loading campaign at a time;
+the [property guide](scripts/properties/README.md) includes the fresh
+PET-MAD/50 CH₄ command and the merge dependency for final assembly.
+
 The exact Bash commands and options are documented once in
 [scripts/md/README.md](scripts/md/README.md) and
 [scripts/properties/README.md](scripts/properties/README.md). Results are

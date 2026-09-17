@@ -239,8 +239,9 @@ subtracted from the loaded spectrum in the current hybrid formula.
 
 ## Files and provenance
 
-For each selected loaded temperature and replica, the property workflow
-normally creates:
+For each replica, the property workflow relaxes only the highest selected
+loaded source temperature. `TEMPERATUREK` below labels that shared source
+(400 K for the default campaign), rather than the evaluation temperature:
 
 - `minima/TEMPERATUREK/repNN/optimized.extxyz`: the optimized Hessian input;
 - `minima/TEMPERATUREK/repNN/optimized.optimizer.traj`: optimization history;
@@ -250,11 +251,22 @@ normally creates:
 - `hessians/TEMPERATUREK/repNN/hessian.npz`: signed frequencies and harmonic $C_V$,
   temperature grid, model path, frame selection, and Hessian settings.
 
+The default LLPR workflow first saves `hessian.central.npz`, then uses eight
+independent GPU array tasks to compute eight members each, saving
+`hessian.llpr-0.npz` through `hessian.llpr-7.npz`. Each worker reuses the central
+Hessian and has a separate restart checkpoint. The merge restores member
+indices 0–63, validates shared provenance, and pools matrix moments to retain
+the same sample variance as the serial calculation. The final merge job ID
+is the upstream dependency for hybrid assembly. `--llpr-jobs 1` retains serial
+execution; `--no-model-uncertainty` computes only the central spectrum.
+
 The empty reference uses the same concise role filenames below `0ch4/`, without
 a redundant temperature or replica directory. The final hybrid NPZ, CSV, and JSON record the classical term, the
 harmonic correction, uncertainties, and the Hessian provenance consumed. At
-each classical-MD temperature, hybrid assembly uses the Hessian obtained by
-quenching the final structure from that same temperature.
+each classical-MD temperature, hybrid assembly uses the same highest-source
+central and LLPR spectra with that temperature in the harmonic sum. Classical
+NPT enthalpy and volume remain temperature-dependent. The JSON records both
+the evaluation temperature and `hessian_source_temperature_K`.
 
 Important Hessian-archive fields are:
 
@@ -265,6 +277,10 @@ Important Hessian-archive fields are:
 | `temperatures_K` | Temperature grid corresponding to the diagnostic curve. |
 | `trajectory` | Optimized structure used as the Hessian input. |
 | `checkpoint` | PET-JAX checkpoint directory actually loaded. |
+| `central_hessians_eV_per_A2` | Central Hessian matrices reused by LLPR workers. |
+| `trajectory_sha256` | Geometry file identity checked by workers and merge. |
+| `llpr_member_indices` | Persistent ensemble member identities, sorted 0–63 in the merged archive. |
+| `llpr_frequencies_cm1` | Signed LLPR member spectra, shape `(1, 64, 3N)` in the merged archive. |
 | `metadata` | Precision, hops, chunk size, rematerialization, frequency convention, ASR, and diagnostic threshold. |
 
 ## A practical debugging order
