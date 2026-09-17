@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -49,6 +50,15 @@ def parse_args() -> argparse.Namespace:
         "--llpr-checkpoint",
         type=Path,
         help="Calibrated LLPR checkpoint whose persistent energy members are differentiated",
+    )
+    parser.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=4,
+        help=(
+            "Save an atomic LLPR-Hessian restart checkpoint after this many "
+            "members (default: 4; use 0 to disable)"
+        ),
     )
     parser.add_argument("--remat", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--shadow", action="store_true")
@@ -386,6 +396,63 @@ def signed_frequencies_from_hessian(
     )
 
 
+def _frame_checkpoint_path(output_path: Path, frame_index: int) -> Path:
+    """Return the private restart archive for one selected structure."""
+    return output_path.with_name(f".{output_path.stem}.frame-{frame_index}.checkpoint.npz")
+
+
+def _checkpoint_signature(
+    *,
+    frame_index: int,
+    atom_count: int,
+    temperatures: np.ndarray,
+    dtype: str,
+    hops: int,
+    chunk_size: int,
+    remat: bool,
+    llpr: dict[str, object],
+    member_count: int,
+) -> str:
+    """Describe the invariants required to safely resume one LLPR frame."""
+    return json.dumps(
+        {
+            "version": 1,
+            "frame_index": frame_index,
+            "atom_count": atom_count,
+            "temperatures_K": temperatures.tolist(),
+            "dtype": dtype,
+            "hops": hops,
+            "chunk_size": chunk_size,
+            "remat": remat,
+            "llpr_checkpoint_sha256": str(llpr["sha256"]),
+            "llpr_member_count": member_count,
+        },
+        sort_keys=True,
+    )
+
+
+def _write_frame_checkpoint(path: Path, **arrays) -> None:
+    """Write a restart archive atomically so cancellation cannot corrupt it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp.npz")
+    try:
+        np.savez(temporary, **arrays)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _load_frame_checkpoint(path: Path, signature: str) -> dict[str, np.ndarray]:
+    """Load a compatible LLPR restart archive or fail rather than mix campaigns."""
+    with np.load(path, allow_pickle=False) as archive:
+        saved_signature = str(archive["signature"].item())
+        if saved_signature != signature:
+            raise ValueError(
+                f"LLPR restart checkpoint is incompatible with this calculation: {path}"
+            )
+        return {name: archive[name] for name in archive.files if name != "signature"}
+
+
 def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
     """Evaluate SADMOF's PET sparse-Hessian path for selected trajectory frames."""
     if config.ad_backend != "pet-jax":
@@ -439,6 +506,8 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
         )
     if hops < 0 or chunk_size < 1:
         raise ValueError("hops must be non-negative and chunk-size must be positive")
+    if args.checkpoint_interval < 0:
+        raise ValueError("--checkpoint-interval must be non-negative")
 
     import jax
     from ase.io import read
@@ -507,73 +576,151 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
     llpr_heat_capacities = []
     llpr_hessian_rms_deviations = []
     llpr_hessian_rms_standard_deviations = []
+    completed_checkpoint_paths = []
     for index, selected_frame in zip(indices, selected_frames, strict=True):
         atoms = selected_frame.copy()
         atoms.calc = None
         print(f"Computing Hessian for frame {index} ({len(atoms)} atoms)")
-        hessian_fn, positions, cell, graph = prepare_frame_hessian(
-            atoms,
-            model,
-            metadata,
-            dtype=dtype,
-            hops=hops,
-            chunk_size=chunk_size,
-            remat=remat,
+        checkpoint_path = _frame_checkpoint_path(output_path, index)
+        signature = (
+            _checkpoint_signature(
+                frame_index=index,
+                atom_count=len(atoms),
+                temperatures=temperatures,
+                dtype=dtype,
+                hops=hops,
+                chunk_size=chunk_size,
+                remat=remat,
+                llpr=llpr,
+                member_count=len(member_params),
+            )
+            if llpr
+            else ""
         )
-        hessian = evaluate_frame_hessian(
-            hessian_fn, params, positions, cell, graph, len(atoms)
-        )
-        freqs = signed_frequencies_from_hessian(
-            hessian, atoms.get_masses(), enforce_asr=True
-        )
-        cv = cv_curve(
-            freqs, temperatures, float(atoms.get_masses().sum())
-        )
+        resumed = bool(llpr and checkpoint_path.is_file())
+        if resumed:
+            checkpoint = _load_frame_checkpoint(checkpoint_path, signature)
+            hessian = checkpoint["central_hessian"]
+            freqs = checkpoint["frequencies_cm1"]
+            frame_cv = checkpoint["cv_J_per_gK"]
+            frame_member_frequencies = list(checkpoint["llpr_frequencies_cm1"])
+            frame_member_cv = list(checkpoint["llpr_cv_J_per_gK"])
+            frame_hessian_rms_deviations = list(
+                checkpoint["llpr_hessian_rms_deviation_eV_per_A2"]
+            )
+            member_hessian_mean = checkpoint["member_hessian_mean"]
+            member_hessian_m2 = checkpoint["member_hessian_m2"]
+            completed_members = len(frame_member_frequencies)
+            if completed_members > len(member_params):
+                raise ValueError(f"invalid LLPR restart checkpoint: {checkpoint_path}")
+            print(
+                f"  Resuming LLPR Hessians from member {completed_members + 1}/"
+                f"{len(member_params)}: {checkpoint_path}"
+            )
+        else:
+            hessian_fn, positions, cell, graph = prepare_frame_hessian(
+                atoms,
+                model,
+                metadata,
+                dtype=dtype,
+                hops=hops,
+                chunk_size=chunk_size,
+                remat=remat,
+            )
+            hessian = evaluate_frame_hessian(
+                hessian_fn, params, positions, cell, graph, len(atoms)
+            )
+            freqs = signed_frequencies_from_hessian(
+                hessian, atoms.get_masses(), enforce_asr=True
+            )
+            cv = cv_curve(freqs, temperatures, float(atoms.get_masses().sum()))
+            frame_cv = np.asarray([cv[temperature] for temperature in temperatures])
+            frame_member_frequencies = []
+            frame_member_cv = []
+            frame_hessian_rms_deviations = []
+            member_hessian_mean = np.empty((0, 0))
+            member_hessian_m2 = np.empty((0, 0))
+            completed_members = 0
+
         frequencies.append(freqs)
-        heat_capacities.append([cv[temperature] for temperature in temperatures])
+        heat_capacities.append(frame_cv)
         imaginary_count = int(np.count_nonzero(freqs < -IMAGINARY_THRESHOLD_CM1))
-        near_zero_count = int(
-            np.count_nonzero(np.abs(freqs) <= IMAGINARY_THRESHOLD_CM1)
-        )
+        near_zero_count = int(np.count_nonzero(np.abs(freqs) <= IMAGINARY_THRESHOLD_CM1))
         print(
             f"  modes: {imaginary_count} imaginary below "
             f"-{IMAGINARY_THRESHOLD_CM1:g} cm^-1; "
             f"{near_zero_count} within +/-{IMAGINARY_THRESHOLD_CM1:g} cm^-1"
         )
-        print(f"  C_v(300 K) = {cv.get(300.0, float('nan')):.6f} J/(g K)")
-        frame_member_frequencies = []
-        frame_member_cv = []
-        frame_hessian_rms_deviations = []
-        member_hessian_mean = None
-        member_hessian_m2 = None
-        for member_index, member in enumerate(member_params):
-            print(
-                f"  Computing LLPR Hessian member {member_index + 1}/"
-                f"{len(member_params)}"
-            )
-            member_hessian = evaluate_frame_hessian(
-                hessian_fn, member, positions, cell, graph, len(atoms)
-            )
-            member_freqs = signed_frequencies_from_hessian(
-                member_hessian, atoms.get_masses(), enforce_asr=True
-            )
-            frame_hessian_rms_deviations.append(
-                float(np.sqrt(np.mean((member_hessian - hessian) ** 2)))
-            )
-            if member_hessian_mean is None:
-                member_hessian_mean = member_hessian.copy()
-                member_hessian_m2 = np.zeros_like(member_hessian)
-            else:
-                delta = member_hessian - member_hessian_mean
-                member_hessian_mean += delta / (member_index + 1)
-                member_hessian_m2 += delta * (member_hessian - member_hessian_mean)
-            member_cv = cv_curve(
-                member_freqs, temperatures, float(atoms.get_masses().sum())
-            )
-            frame_member_frequencies.append(member_freqs)
-            frame_member_cv.append(
-                [member_cv[temperature] for temperature in temperatures]
-            )
+        cv_at_300 = cv_curve(
+            freqs, np.asarray([300.0]), float(atoms.get_masses().sum())
+        )[300.0]
+        print(f"  C_v(300 K) = {cv_at_300:.6f} J/(g K)")
+
+        if member_params and completed_members < len(member_params):
+            if resumed:
+                hessian_fn, positions, cell, graph = prepare_frame_hessian(
+                    atoms,
+                    model,
+                    metadata,
+                    dtype=dtype,
+                    hops=hops,
+                    chunk_size=chunk_size,
+                    remat=remat,
+                )
+            for member_index, member in enumerate(
+                member_params[completed_members:], start=completed_members
+            ):
+                print(
+                    f"  Computing LLPR Hessian member {member_index + 1}/"
+                    f"{len(member_params)}"
+                )
+                member_hessian = evaluate_frame_hessian(
+                    hessian_fn, member, positions, cell, graph, len(atoms)
+                )
+                member_freqs = signed_frequencies_from_hessian(
+                    member_hessian, atoms.get_masses(), enforce_asr=True
+                )
+                frame_hessian_rms_deviations.append(
+                    float(np.sqrt(np.mean((member_hessian - hessian) ** 2)))
+                )
+                if member_index == 0:
+                    member_hessian_mean = member_hessian.copy()
+                    member_hessian_m2 = np.zeros_like(member_hessian)
+                else:
+                    delta = member_hessian - member_hessian_mean
+                    member_hessian_mean += delta / (member_index + 1)
+                    member_hessian_m2 += delta * (
+                        member_hessian - member_hessian_mean
+                    )
+                member_cv = cv_curve(
+                    member_freqs, temperatures, float(atoms.get_masses().sum())
+                )
+                frame_member_frequencies.append(member_freqs)
+                frame_member_cv.append(
+                    [member_cv[temperature] for temperature in temperatures]
+                )
+                if args.checkpoint_interval and (
+                    (member_index + 1) % args.checkpoint_interval == 0
+                    or member_index + 1 == len(member_params)
+                ):
+                    _write_frame_checkpoint(
+                        checkpoint_path,
+                        signature=np.asarray(signature),
+                        central_hessian=hessian,
+                        frequencies_cm1=freqs,
+                        cv_J_per_gK=frame_cv,
+                        llpr_frequencies_cm1=np.asarray(frame_member_frequencies),
+                        llpr_cv_J_per_gK=np.asarray(frame_member_cv),
+                        llpr_hessian_rms_deviation_eV_per_A2=np.asarray(
+                            frame_hessian_rms_deviations
+                        ),
+                        member_hessian_mean=member_hessian_mean,
+                        member_hessian_m2=member_hessian_m2,
+                    )
+                    print(
+                        f"  Saved LLPR restart checkpoint after member {member_index + 1}/"
+                        f"{len(member_params)}: {checkpoint_path}"
+                    )
         if member_params:
             llpr_frequencies.append(frame_member_frequencies)
             llpr_heat_capacities.append(frame_member_cv)
@@ -585,6 +732,7 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
                     )
                 )
             )
+            completed_checkpoint_paths.append(checkpoint_path)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
@@ -638,6 +786,8 @@ def run_heat_capacity(config: RunConfig, args: argparse.Namespace) -> Path:
             }
         ),
     )
+    for checkpoint_path in completed_checkpoint_paths:
+        checkpoint_path.unlink(missing_ok=True)
     print(f"Saved heat-capacity results: {output_path}")
     return output_path
 
