@@ -16,8 +16,11 @@ EMPTY_STRUCTURE="input/mof5.pdb"
 INCLUDE_EMPTY=1
 CV_TEMPERATURES="200:400:25"
 FMAX="0.002"
-RELAX_STEPS=10000
-OPTIMIZER="lbfgs-linesearch"
+RELAX_STEPS=20000
+# FIRE is more robust than L-BFGS line search for the large fixed-cell
+# relaxations used here. L-BFGS remains available for explicitly requested
+# convergence comparisons.
+OPTIMIZER="fire"
 CONTINUE_LOADED=0
 CONTINUE_UNFINISHED=0
 RESTART_UNFINISHED=0
@@ -60,8 +63,8 @@ Options:
   --skip-empty            Do not submit the one empty-reference Hessian per model.
   --cv-temperatures RANGE Harmonic C_V grid (default: 200:400:25 K).
   --fmax VALUE            Fixed-cell relaxation threshold in eV/A (default: 0.002).
-  --relax-steps N         Maximum optimizer steps (default: 10000).
-  --optimizer NAME        fire or lbfgs-linesearch (default: lbfgs-linesearch).
+  --relax-steps N         Maximum optimizer steps (default: 20000).
+  --optimizer NAME        fire or lbfgs-linesearch (default: fire).
   --continue-loaded       Continue from existing loaded optimized structures.
   --continue-unfinished   Submit only cases without a Hessian. Reuse saved
                           minima, or continue failed relaxations from their

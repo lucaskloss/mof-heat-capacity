@@ -23,8 +23,12 @@ DEFAULT_OUTPUT_ROOT="${PROJECT_DIR}/output"
 OUTPUT_ROOT="${MOF_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
 ANALYSIS_DIR="${OUTPUT_ROOT}/post-processing/trajectory-analysis"
-MODEL_UNCERTAINTY=0
-DISCARD_IMAGINARY_MODES=0
+# Combine member-resolved LLPR Hessian corrections with CEA-reweighted
+# member-resolved trajectory heat capacities by default.
+MODEL_UNCERTAINTY=1
+# The current workflow retains finite but unconverged minima. Discard unstable
+# modes during hybrid assembly and label the resulting output exploratory.
+DISCARD_IMAGINARY_MODES=1
 CENTRAL_HESSIANS_ONLY=0
 DRY_RUN=0
 
@@ -147,14 +151,16 @@ Options:
   --zero-threshold-cm1 X  Imaginary/near-zero cutoff (default: 1.0 cm^-1).
   --max-near-zero-modes N Maximum allowed near-zero modes (default: 3).
   --discard-imaginary-modes
-                          EXPLORATORY ONLY: discard modes at or below the
-                          cutoff and write a clearly non-canonical result.
+                          Discard modes at or below the cutoff and write a
+                          clearly non-canonical exploratory result (default).
+  --keep-imaginary-modes Require a stable Hessian spectrum; write a canonical
+                          result and fail if imaginary modes are present.
   --central-hessians-only
                           EXPLORATORY ONLY: ignore LLPR ensemble spectra to use
                           a mixed central-Hessian grid (omits harmonic MLIP uncertainty).
   --afterok JOBS          Comma-separated upstream job IDs that must all succeed.
   --model-uncertainty     Include the CEA committee spread produced by
-                          submit_analysis.sh --model-uncertainty.
+                          submit_analysis.sh --model-uncertainty (default).
   --analysis-dir PATH     Trajectory-analysis root used to find that archive
                           (default: repository output/post-processing/trajectory-analysis).
   --slurm-output-dir PATH Slurm log directory (default: repository output/slurm).
@@ -189,6 +195,7 @@ while (($#)); do
         --zero-threshold-cm1) require_value "$@"; ZERO_THRESHOLD_CM1="$2"; shift 2 ;;
         --max-near-zero-modes) require_value "$@"; MAX_NEAR_ZERO_MODES="$2"; shift 2 ;;
         --discard-imaginary-modes) DISCARD_IMAGINARY_MODES=1; shift ;;
+        --keep-imaginary-modes) DISCARD_IMAGINARY_MODES=0; shift ;;
         --central-hessians-only) CENTRAL_HESSIANS_ONLY=1; shift ;;
         --afterok) require_value "$@"; AFTEROK="$2"; shift 2 ;;
         --model-uncertainty) MODEL_UNCERTAINTY=1; shift ;;
