@@ -25,6 +25,7 @@ WALL_TIME="${MOF_ANALYSIS_TIME:-01:15:00}"
 CPUS_PER_TASK="${MOF_ANALYSIS_CPUS:-4}"
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
 NO_PLOTS=0
+NO_AGGREGATE=0
 MODEL_UNCERTAINTY=1
 UNCERTAINTY_MODEL=""
 UNCERTAINTY_STRIDE=20
@@ -172,6 +173,8 @@ Options:
   --cpus N                CPUs for each trajectory-analysis job (default: 4).
   --slurm-output-dir PATH Slurm log directory (default: repository output/slurm).
   --no-plots              Skip PNG generation.
+  --no-aggregate          Submit only per-trajectory jobs. Use this with one
+                          --runs selection to run trajectory UQ individually.
   --model-uncertainty     Enable persistent LLPR member propagation (default).
   --no-model-uncertainty  Skip LLPR propagation for a central-model-only run.
   --uncertainty-model PATH
@@ -224,6 +227,7 @@ while (($#)); do
         --cpus) require_value "$@"; CPUS_PER_TASK="$2"; shift 2 ;;
         --slurm-output-dir) require_value "$@"; SLURM_OUTPUT_DIR="$2"; shift 2 ;;
         --no-plots) NO_PLOTS=1; shift ;;
+        --no-aggregate) NO_AGGREGATE=1; shift ;;
         --model-uncertainty) MODEL_UNCERTAINTY=1; shift ;;
         --no-model-uncertainty) MODEL_UNCERTAINTY=0; shift ;;
         --uncertainty-model) require_value "$@"; UNCERTAINTY_MODEL="$2"; shift 2 ;;
@@ -504,6 +508,11 @@ for record in "${SELECTED_RUN_RECORDS[@]}"; do
         echo "Submitted ${run_name}: ${job_id}"
     fi
 done
+
+if ((NO_AGGREGATE)); then
+    echo "Skipping aggregate summary jobs."
+    exit 0
+fi
 
 for group_key in "${GROUP_KEYS[@]}"; do
     model_label=${group_key%%/*}
