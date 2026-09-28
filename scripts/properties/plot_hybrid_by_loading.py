@@ -30,6 +30,12 @@ def parse_args() -> argparse.Namespace:
         "--csv-name",
         default="heat-capacity.exploratory-discard-imaginary.csv",
     )
+    parser.add_argument(
+        "--reference-root",
+        type=Path,
+        default=Path("output/reference_heat_capacity"),
+        help="Directory containing optional <loading>ch4.csv reference curves",
+    )
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -51,11 +57,24 @@ def load_curve(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     )
 
 
+def load_reference_curve(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    if not path.is_file():
+        raise FileNotFoundError(f"reference CSV not found: {path}")
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        raise ValueError(f"reference CSV has no data rows: {path}")
+    return (
+        np.asarray([float(row["temperature_K"]) for row in rows]),
+        np.asarray([float(row["reference_heat_capacity_J_per_gK"]) for row in rows]),
+    )
+
+
 def main() -> None:
     args = parse_args()
     loadings = [int(value.strip()) for value in args.loadings.split(",") if value.strip()]
-    if not loadings or len(set(loadings)) != len(loadings) or any(value < 1 for value in loadings):
-        raise ValueError("--loadings must contain unique positive integers")
+    if not loadings or len(set(loadings)) != len(loadings) or any(value < 0 for value in loadings):
+        raise ValueError("--loadings must contain unique non-negative integers")
 
     figure, axis = plt.subplots(figsize=(10, 6))
     for loading in loadings:
@@ -66,7 +85,7 @@ def main() -> None:
             heat_capacity,
             marker="o",
             linewidth=2.5,
-            label=f"{loading} CH4",
+            label=f"{loading} CH4 — hybrid",
         )[0]
         axis.fill_between(
             temperatures,
@@ -75,6 +94,19 @@ def main() -> None:
             color=line.get_color(),
             alpha=0.18,
         )
+        reference_path = args.reference_root / f"{loading}ch4.csv"
+        if reference_path.is_file():
+            reference_temperatures, reference_heat_capacity = load_reference_curve(
+                reference_path
+            )
+            axis.plot(
+                reference_temperatures,
+                reference_heat_capacity,
+                color=line.get_color(),
+                linestyle="--",
+                linewidth=2.2,
+                label=f"{loading} CH4 — reference",
+            )
 
     model_title = MODEL_TITLES.get(args.model_label, args.model_label)
     axis.set(
@@ -83,11 +115,11 @@ def main() -> None:
         ylabel=r"Hybrid heat capacity (J g$^{-1}$ K$^{-1}$)",
     )
     axis.grid(alpha=0.25)
-    axis.legend(title="Methane loading")
+    axis.legend(title="Methane loading / curve", ncol=2)
     figure.text(
         0.5,
         0.01,
-        "Exploratory: unstable/near-zero modes discarded; uncertainty combines sampling and LLPR Hessian spread.",
+        "Exploratory: unstable/near-zero modes discarded; loaded uncertainty includes sampling and LLPR spread.",
         ha="center",
         fontsize=9,
     )

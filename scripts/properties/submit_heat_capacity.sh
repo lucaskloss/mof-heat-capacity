@@ -31,6 +31,7 @@ HESSIAN_HOPS=""
 HESSIAN_CHUNK_SIZE=""
 HESSIAN_TAG=""
 MODEL_UNCERTAINTY=1
+EMPTY_ONLY=0
 LLPR_JOBS=8
 PARTITION="${MOF_HEAT_PARTITION:-gpu}"
 QOS="${MOF_HEAT_QOS:-normal}"
@@ -61,6 +62,8 @@ Options:
   --replicas LIST         Independent loaded replicas to quench (default: 1).
   --empty-structure PATH  Equilibrated empty MOF-5 structure (default: input/mof5.pdb).
   --skip-empty            Do not submit the one empty-reference Hessian per model.
+  --empty-only            Recompute only the empty-MOF Hessian ensemble; the
+                          loading selects a compatible carrier configuration.
   --cv-temperatures RANGE Harmonic C_V grid (default: 200:400:25 K).
   --fmax VALUE            Fixed-cell relaxation threshold in eV/A (default: 0.002).
   --relax-steps N         Maximum optimizer steps (default: 20000).
@@ -140,6 +143,7 @@ while (($#)); do
         --replicas) require_value "$@"; REPLICAS="$2"; shift 2 ;;
         --empty-structure) require_value "$@"; EMPTY_STRUCTURE="$2"; shift 2 ;;
         --skip-empty) INCLUDE_EMPTY=0; shift ;;
+        --empty-only) EMPTY_ONLY=1; INCLUDE_EMPTY=1; shift ;;
         --cv-temperatures) require_value "$@"; CV_TEMPERATURES="$2"; shift 2 ;;
         --fmax) require_value "$@"; FMAX="$2"; shift 2 ;;
         --relax-steps) require_value "$@"; RELAX_STEPS="$2"; shift 2 ;;
@@ -238,6 +242,10 @@ if ((CONTINUE_LOADED && HESSIAN_ONLY)); then
     echo "error: --continue-loaded and --hessian-only are mutually exclusive" >&2
     exit 2
 fi
+if ((EMPTY_ONLY && (CONTINUE_LOADED || HESSIAN_ONLY || REUSE_RELAXED))); then
+    echo "error: --empty-only cannot be combined with loaded-minimum continuation options" >&2
+    exit 2
+fi
 if ((CONTINUE_LOADED)) && ((INCLUDE_EMPTY)); then
     echo "error: combine --continue-loaded with --skip-empty; the empty result is independent" >&2
     exit 2
@@ -323,11 +331,14 @@ for model_name in "${MODEL_NAMES[@]}"; do
             config="configs/${model_name}/${LOADING}ch4/${source_temperature}K-rep${replica_tag}.toml"
             [[ -f "${config}" ]] || config="configs/${run}.toml"
             trajectory="${OUTPUT_ROOT}/md/production/${model_name}/${LOADING}ch4/${source_temperature}K/rep${replica_tag}/md.final.data"
-            if [[ ! -f "${config}" || ! -f "${trajectory}" ]]; then
+            if [[ ! -f "${config}" ]] || { ((!EMPTY_ONLY)) && [[ ! -f "${trajectory}" ]]; }; then
                 echo "error: completed loaded run is required: ${config} and ${trajectory}" >&2
                 exit 2
             fi
             carrier_config="${carrier_config:-${config}}"
+            if ((EMPTY_ONLY)); then
+                continue
+            fi
             base="${OUTPUT_ROOT}/post-processing/harmonic-correction/${model_name}/${LOADING}ch4"
             relaxed="${base}/minima/${source_temperature}K/rep${replica_tag}/optimized.extxyz"
             if ((CONTINUE_LOADED)); then

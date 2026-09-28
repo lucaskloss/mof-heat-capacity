@@ -38,7 +38,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--temperatures",
         default="200,225,250,275,300,325,350,375,400",
-        help="Classical-MD grid (default: 200 to 400 K in 25 K steps)",
+        help="Classical enthalpy differentiation grid (default: 200 to 400 K in 25 K steps)",
+    )
+    parser.add_argument(
+        "--report-temperatures",
+        help=(
+            "Subset of --temperatures to report and evaluate harmonically. "
+            "This permits endpoint-only MD temperatures for centered classical "
+            "finite differences. Defaults to the full differentiation grid."
+        ),
     )
     parser.add_argument("--configs-dir", type=Path, default=Path("configs"))
     parser.add_argument(
@@ -650,6 +658,19 @@ def run(args: argparse.Namespace) -> Path:
         raise ValueError("--bootstrap-samples must be at least 100")
     replicas = _replicas(args.replicas)
     selected_temperatures = _temperatures(args.temperatures)
+    report_temperatures = (
+        _temperatures(args.report_temperatures)
+        if args.report_temperatures is not None
+        else selected_temperatures
+    )
+    missing_report_temperatures = sorted(
+        set(report_temperatures).difference(selected_temperatures)
+    )
+    if missing_report_temperatures:
+        raise ValueError(
+            "--report-temperatures must be a subset of --temperatures: "
+            + ", ".join(map(str, missing_report_temperatures))
+        )
     (
         temperatures,
         enthalpy,
@@ -701,6 +722,18 @@ def run(args: argparse.Namespace) -> Path:
                 "WARNING: var[beta Delta V] >= 1 for one or more committee members; "
                 "first-order CEA may be inaccurate"
             )
+    report_indices = np.asarray(
+        [selected_temperatures.index(temperature) for temperature in report_temperatures],
+        dtype=int,
+    )
+    temperatures = temperatures[report_indices]
+    classical_cp = classical_cp[report_indices]
+    classical_error = classical_error[report_indices]
+    classical_model_error = classical_model_error[report_indices]
+    volume_A3 = volume_A3[report_indices]
+    volume_error_A3 = volume_error_A3[report_indices]
+    if classical_cp_by_member is not None:
+        classical_cp_by_member = classical_cp_by_member[:, report_indices]
     classical_combined_uncertainty = np.hypot(
         classical_error, classical_model_error
     )

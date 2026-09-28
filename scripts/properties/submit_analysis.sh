@@ -26,6 +26,7 @@ CPUS_PER_TASK="${MOF_ANALYSIS_CPUS:-4}"
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
 NO_PLOTS=0
 NO_AGGREGATE=0
+AGGREGATE_ONLY=0
 MODEL_UNCERTAINTY=1
 UNCERTAINTY_MODEL=""
 UNCERTAINTY_STRIDE=20
@@ -175,6 +176,8 @@ Options:
   --no-plots              Skip PNG generation.
   --no-aggregate          Submit only per-trajectory jobs. Use this with one
                           --runs selection to run trajectory UQ individually.
+  --aggregate-only        Submit only per-model/loading aggregate jobs, using
+                          previously completed per-trajectory analyses.
   --model-uncertainty     Enable persistent LLPR member propagation (default).
   --no-model-uncertainty  Skip LLPR propagation for a central-model-only run.
   --uncertainty-model PATH
@@ -228,6 +231,7 @@ while (($#)); do
         --slurm-output-dir) require_value "$@"; SLURM_OUTPUT_DIR="$2"; shift 2 ;;
         --no-plots) NO_PLOTS=1; shift ;;
         --no-aggregate) NO_AGGREGATE=1; shift ;;
+        --aggregate-only) AGGREGATE_ONLY=1; shift ;;
         --model-uncertainty) MODEL_UNCERTAINTY=1; shift ;;
         --no-model-uncertainty) MODEL_UNCERTAINTY=0; shift ;;
         --uncertainty-model) require_value "$@"; UNCERTAINTY_MODEL="$2"; shift 2 ;;
@@ -299,6 +303,10 @@ if [[ ! "${UNCERTAINTY_STRIDE}" =~ ^[1-9][0-9]*$ \
 fi
 if [[ -n "${UNCERTAINTY_MODEL}" && ! "${MODEL_UNCERTAINTY}" -eq 1 ]]; then
     echo "error: --uncertainty-model requires --model-uncertainty" >&2
+    exit 2
+fi
+if ((NO_AGGREGATE && AGGREGATE_ONLY)); then
+    echo "error: --no-aggregate and --aggregate-only are mutually exclusive" >&2
     exit 2
 fi
 if [[ -z "${RUNS}" || -z "${ANALYSIS_DIR}" || -z "${SLURM_OUTPUT_DIR}" ]]; then
@@ -437,7 +445,11 @@ PY
 )
 mapfile -t SELECTED_RUN_RECORDS <<< "${selection_output}"
 
-echo "Analysis campaign: ${#SELECTED_RUN_RECORDS[@]} trajectory job(s)"
+if ((AGGREGATE_ONLY)); then
+    echo "Analysis aggregation: ${#SELECTED_RUN_RECORDS[@]} completed trajectory selection(s)"
+else
+    echo "Analysis campaign: ${#SELECTED_RUN_RECORDS[@]} trajectory job(s)"
+fi
 echo "Resources per job: ${PARTITION}/${QOS}, GPU=1, CPUs=${CPUS_PER_TASK}, time=${WALL_TIME}"
 echo "Slurm output: ${SLURM_OUTPUT_DIR}/slurm-%x-%j.out"
 if ((!DRY_RUN)); then
@@ -457,6 +469,9 @@ for record in "${SELECTED_RUN_RECORDS[@]}"; do
         GROUP_RUNS[${group_key}]="${run_name}"
     else
         GROUP_RUNS[${group_key}]="${GROUP_RUNS[${group_key}]},${run_name}"
+    fi
+    if ((AGGREGATE_ONLY)); then
+        continue
     fi
     run_analysis_dir="${GROUP_DIRS[${group_key}]}"
     if [[ "${run_name}" =~ -npt-([0-9]+)K-rep([0-9]+)$ ]]; then
@@ -517,7 +532,9 @@ fi
 for group_key in "${GROUP_KEYS[@]}"; do
     model_label=${group_key%%/*}
     loading_label=${group_key#*/}
-    if ((DRY_RUN)); then
+    if ((AGGREGATE_ONLY)); then
+        dependency=""
+    elif ((DRY_RUN)); then
         dependency="afterok:<${model_label}-${loading_label}-analysis-jobs>"
     else
         dependency="afterok:${GROUP_JOB_IDS[${group_key}]}"
@@ -525,7 +542,11 @@ for group_key in "${GROUP_KEYS[@]}"; do
     aggregate_command=(
         sbatch --parsable
         --job-name="mof5-analysis-${model_label}-${loading_label}-summary"
-        --dependency="${dependency}"
+    )
+    if [[ -n "${dependency}" ]]; then
+        aggregate_command+=(--dependency="${dependency}")
+    fi
+    aggregate_command+=(
         --partition="${PARTITION}" --qos="${QOS}"
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1

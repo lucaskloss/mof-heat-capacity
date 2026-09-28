@@ -11,6 +11,7 @@ MODEL="pet-mad"
 LOADING=100
 REPLICAS="1"
 TEMPERATURES="200,225,250,275,300,325,350,375,400"
+REPORT_TEMPERATURES=""
 HESSIAN_SOURCE_TEMPERATURE=""
 PARTITION="${MOF_ANALYSIS_PARTITION:-gpu}"
 QOS="${MOF_ANALYSIS_QOS:-normal}"
@@ -38,6 +39,7 @@ run_hybrid_worker() {
     local loading=""
     local replicas=""
     local temperatures=""
+    local report_temperatures=""
     local output=""
     local zero_threshold=""
     local max_near_zero=""
@@ -53,6 +55,7 @@ run_hybrid_worker() {
             --loading) loading="$2"; shift 2 ;;
             --replicas) replicas="$2"; shift 2 ;;
             --temperatures) temperatures="$2"; shift 2 ;;
+            --report-temperatures) report_temperatures="$2"; shift 2 ;;
             --hessian-source-temperature) hessian_source_temperature="$2"; shift 2 ;;
             --output) output="$2"; shift 2 ;;
             --zero-threshold-cm1) zero_threshold="$2"; shift 2 ;;
@@ -116,6 +119,9 @@ run_hybrid_worker() {
     if [[ -n "${hessian_source_temperature}" ]]; then
         command+=(--hessian-source-temperature "${hessian_source_temperature}")
     fi
+    if [[ -n "${report_temperatures}" ]]; then
+        command+=(--report-temperatures "${report_temperatures}")
+    fi
     if ((discard_imaginary_modes)); then
         command+=(--discard-imaginary-modes)
     fi
@@ -142,6 +148,9 @@ Options:
   --replicas LIST         Classical MD replicas (default: 1).
   --temperatures LIST     Classical MD temperatures
                           (default: 200 to 400 K in 25 K steps).
+  --report-temperatures LIST
+                          Subset of the MD grid to report and evaluate with
+                          the shared Hessian (default: all temperatures).
   --hessian-source-temperature N
                           Shared spectrum source (default: highest MD temperature).
   --partition NAME        Slurm partition (default: gpu).
@@ -187,6 +196,7 @@ while (($#)); do
         --loading) require_value "$@"; LOADING="$2"; shift 2 ;;
         --replicas) require_value "$@"; REPLICAS="$2"; shift 2 ;;
         --temperatures) require_value "$@"; TEMPERATURES="$2"; shift 2 ;;
+        --report-temperatures) require_value "$@"; REPORT_TEMPERATURES="$2"; shift 2 ;;
         --hessian-source-temperature) require_value "$@"; HESSIAN_SOURCE_TEMPERATURE="$2"; shift 2 ;;
         --partition) require_value "$@"; PARTITION="$2"; shift 2 ;;
         --qos) require_value "$@"; QOS="$2"; shift 2 ;;
@@ -266,13 +276,35 @@ for temperature in "${TEMPERATURE_VALUES[@]}"; do
     SEEN_TEMPERATURES[${temperature}]=1
     previous_temperature="${temperature}"
 done
+HESSIAN_EVALUATION_MAX_TEMPERATURE="${previous_temperature}"
+if [[ -n "${REPORT_TEMPERATURES}" ]]; then
+    IFS=',' read -r -a REPORT_TEMPERATURE_VALUES <<< "${REPORT_TEMPERATURES}"
+    if ((${#REPORT_TEMPERATURE_VALUES[@]} < 3)); then
+        echo "error: --report-temperatures must contain at least three values" >&2
+        exit 2
+    fi
+    previous_report_temperature=0
+    declare -A SEEN_REPORT_TEMPERATURES=()
+    for report_temperature in "${REPORT_TEMPERATURE_VALUES[@]}"; do
+        if [[ ! "${report_temperature}" =~ ^[1-9][0-9]*$ \
+            || -n "${SEEN_REPORT_TEMPERATURES[${report_temperature}]:-}" \
+            || "${report_temperature}" -le "${previous_report_temperature}" \
+            || -z "${SEEN_TEMPERATURES[${report_temperature}]:-}" ]]; then
+            echo "error: --report-temperatures must contain unique, increasing temperatures from --temperatures" >&2
+            exit 2
+        fi
+        SEEN_REPORT_TEMPERATURES[${report_temperature}]=1
+        previous_report_temperature="${report_temperature}"
+    done
+    HESSIAN_EVALUATION_MAX_TEMPERATURE="${previous_report_temperature}"
+fi
 if [[ "${SLURM_OUTPUT_DIR}" != /* ]]; then
     SLURM_OUTPUT_DIR="${PROJECT_DIR}/${SLURM_OUTPUT_DIR}"
 fi
 if [[ -n "${HESSIAN_SOURCE_TEMPERATURE}" ]]; then
     if [[ ! "${HESSIAN_SOURCE_TEMPERATURE}" =~ ^[1-9][0-9]*$ ]] \
-        || ((HESSIAN_SOURCE_TEMPERATURE < previous_temperature)); then
-        echo "error: --hessian-source-temperature must be at least the highest MD temperature" >&2
+        || ((HESSIAN_SOURCE_TEMPERATURE < HESSIAN_EVALUATION_MAX_TEMPERATURE)); then
+        echo "error: --hessian-source-temperature must be at least the highest reported temperature" >&2
         exit 2
     fi
 fi
@@ -327,6 +359,9 @@ for model_label in "${MODEL_LABELS[@]}"; do
         --zero-threshold-cm1 "${ZERO_THRESHOLD_CM1}"
         --max-near-zero-modes "${MAX_NEAR_ZERO_MODES}"
     )
+    if [[ -n "${REPORT_TEMPERATURES}" ]]; then
+        command+=(--report-temperatures "${REPORT_TEMPERATURES}")
+    fi
     if ((MODEL_UNCERTAINTY)); then
         command+=(--model-uncertainty "${model_uncertainty_path}")
     fi
