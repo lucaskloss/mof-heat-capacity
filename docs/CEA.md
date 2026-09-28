@@ -4,7 +4,7 @@ This document summarizes the definitions and conclusions needed to use
 Eqs. (22)--(25) of G. Imbalzano *et al.*, *Uncertainty estimation for
 molecular dynamics and sampling*, J. Chem. Phys. **154**, 074102 (2021),
 [doi:10.1063/5.0036522](https://doi.org/10.1063/5.0036522). The source is the
-[supplied article PDF](074102_1_online.pdf).
+[supplied article PDF](CEA.pdf).
 The Atomistic Cookbook's
 [PET-MAD uncertainty recipe](https://atomistic-cookbook.org/examples/pet-mad-uq/pet-mad-uq.html#cumulant-expansion-approximation-cea)
 provides a worked implementation of the same direct-reweighting and CEA
@@ -34,7 +34,7 @@ uncertainty rather than as uncertainty from a full independently trained
 committee. It needs its own calibration and validation against reference data.
 The detailed LLPR construction, the distinction between
 `energy_uncertainty` and `energy_ensemble`, and a code-to-output map for every
-reported error are documented in [LLPR_ENSEMBLE.md](LLPR_ENSEMBLE.md).
+reported error are documented in [LLPR.md](LLPR.md).
 
 ## Plain-language overview
 
@@ -334,7 +334,7 @@ The command sequence is:
 ```
 
 The LLPR command requires reference-labeled datasets that are not supplied by
-this repository; see [LLPR_ENSEMBLE.md](LLPR_ENSEMBLE.md). The trajectory-analysis
+this repository; see [LLPR.md](LLPR.md). The trajectory-analysis
 command writes `model_uncertainty_heat_capacity.npz` below the model/loading
 trajectory-analysis directory. The final command requires that
 archive and adds its CEA spread to the hybrid NPZ, CSV, JSON, and plot. The

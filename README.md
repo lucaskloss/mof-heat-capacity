@@ -11,11 +11,11 @@ loaded minima provide the harmonic quantum correction. The equilibrated empty
 MOF-5 structure goes directly to fixed-cell relaxation and one reference
 Hessian; no empty-MOF MD is required.
 
-See [KAPIL_2019.md](docs/KAPIL_2019.md) for the scientific rationale,
-assumptions, and limits, [SADMOF_HESSIANS.md](docs/SADMOF_HESSIANS.md) for the
+See [MOF-5.md](docs/MOF-5.md) for the scientific rationale,
+assumptions, and limits, [SADMOF.md](docs/SADMOF.md) for the
 Hessian and harmonic heat-capacity implementation,
 [PET.md](docs/PET.md) for the PET paper summary and model architecture,
-[LLPR_ENSEMBLE.md](docs/LLPR_ENSEMBLE.md) for CEA ensemble preparation, and
+[LLPR.md](docs/LLPR.md) for CEA ensemble preparation, and
 [IZAR.md](docs/IZAR.md) for the cluster procedure.
 
 ## Layout

@@ -4,9 +4,9 @@ This document turns the conclusions of Kapil et al., *Modeling the Structural
 and Thermal Properties of Loaded Metal-Organic Frameworks: An Interplay of
 Quantum and Anharmonic Fluctuations*, J. Chem. Theory Comput. **15**,
 3237–3249 (2019), into a focused workflow for this project. The sources are the
-[supplied article PDF](<Kapil et al. - 2019 - Modeling the Structural and Thermal Properties of Loaded Metal-Organic Frameworks. An Interplay of Q.pdf>),
+[supplied article PDF](MOF-5.pdf),
 the [open preprint](https://arxiv.org/abs/1901.03770), and the
-[supplied Supporting Information](ct8b01297_si_001.pdf), also available from
+[supplied Supporting Information](MOF-5_APPENDIX.pdf), also available from
 the [ACS data record](https://acs.figshare.com/articles/journal_contribution/Modeling_the_Structural_and_Thermal_Properties_of_Loaded_Metal_Organic_Frameworks_An_Interplay_of_Quantum_and_Anharmonic_Fluctuations/8061587).
 
 The objective is **not** to reproduce every simulation in the paper with an

@@ -423,7 +423,7 @@ imply an exact three-hop Hessian pattern. SADMOF's local
 `external/sadmof/src/sadmof/sparse/pattern.py` identifies seven hops as
 structurally exact for its three-layer PET-MAD-S graph construction; the
 project's three-hop setting is a truncation requiring convergence checks.
-See [the Hessian implementation notes](SADMOF_HESSIANS.md) for both details.
+See [the Hessian implementation notes](SADMOF.md) for both details.
 
 ### Consequences for the heat-capacity calculation
 

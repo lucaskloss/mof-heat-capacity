@@ -18,7 +18,7 @@ follows the
 [LLPR shallow-ensemble tutorial](https://docs.metatensor.org/metatrain/latest/generated_examples/1-advanced/08-llpr-ensemble-training.html)
 because CEA requires the signed, member-resolved `energy_ensemble` output.
 CEA follows Imbalzano *et al.* as summarized in
-[IMBALZANO_2021_UNCERTAINTY.md](IMBALZANO_2021_UNCERTAINTY.md).
+[CEA.md](CEA.md).
 
 LLPR and CEA do two different jobs. LLPR constructs a calibrated distribution
 of plausible potential-energy predictions. CEA propagates samples from that

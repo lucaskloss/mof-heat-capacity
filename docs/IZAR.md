@@ -67,7 +67,7 @@ Optional CEA model uncertainty first requires a calibrated LLPR shallow
 ensemble. Build it in its own GPU allocation with
 `scripts/setup/submit_llpr_ensemble.sh` and user-supplied, disjoint labeled
 covariance and calibration datasets; see
-[`docs/LLPR_ENSEMBLE.md`](LLPR_ENSEMBLE.md). Do not construct or validate the
+[`docs/LLPR.md`](LLPR.md). Do not construct or validate the
 CUDA model on the login node.
 
 Check equilibration, temperature and enthalpy stationarity, autocorrelation,

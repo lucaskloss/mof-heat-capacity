@@ -6,7 +6,7 @@ start or resume molecular dynamics.
 
 For the SADMOF/PET-JAX Hessian algorithm, heat-capacity equations, archive
 contents, and debugging checks, see
-[`docs/SADMOF_HESSIANS.md`](../../docs/SADMOF_HESSIANS.md).
+[`docs/SADMOF.md`](../../docs/SADMOF.md).
 
 Run commands from the repository root:
 
@@ -55,7 +55,7 @@ the uncertainty scale on the separate `--validation-set`, samples one
 persistent 32-member shallow ensemble, and validates that its arithmetic mean
 reproduces the central energy. It writes the exported model below `models/`
 and a matching provenance JSON containing model/data hashes and software
-versions. See [`docs/LLPR_ENSEMBLE.md`](../../docs/LLPR_ENSEMBLE.md) before
+versions. See [`docs/LLPR.md`](../../docs/LLPR.md) before
 preparing production uncertainty results.
 
 Trajectory analysis submits one Slurm job per selected trajectory. A dependent
