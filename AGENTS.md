@@ -21,9 +21,6 @@ PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
 - `input/` holds source MOF-5 and methane structures.
 - `scripts/setup/install_sadmof.sh` installs the SADMOF/PET-JAX stack; it expects the
   sibling checkout at `../repos/sadmof-work` unless `SADMOF_SOURCE` is set.
-- `scripts/setup/submit_llpr_ensemble.sh` builds a calibrated PET LLPR shallow
-  ensemble from user-supplied labeled covariance and validation datasets for
-  CEA model-uncertainty propagation.
 - `scripts/slurm/izar_gpu_runtime.sh` is the shared GPU runtime for MD, relaxation, and
   Hessian stages on Izar.
 - `scripts/properties/submit_analysis.sh` validates, submits, and executes CPU-based
@@ -37,8 +34,9 @@ PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
   at the highest selected source temperature per replica and computes loaded
   and empty-reference Hessians. Hybrid assembly reuses that loaded spectrum
   at every temperature (default source: highest MD-grid temperature).
-  LLPR defaults to eight independent GPU array tasks with eight members each,
-  followed by `analysis.llpr_merge`; use the final merge job as the hybrid dependency.
+  Hessian evaluation uses eight independent GPU array tasks for eight supplied
+  LLPR members each, followed by `analysis.llpr_merge`; use the final merge job
+  as the hybrid dependency.
 - `scripts/properties/submit_hybrid_analysis.sh` submits and assembles the final hybrid
   curve without a separate worker script.
 - `scripts/` contains every Bash entry point, grouped into `setup/`, `slurm/`,

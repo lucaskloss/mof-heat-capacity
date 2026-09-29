@@ -11,9 +11,6 @@ contents, and debugging checks, see
 Run commands from the repository root:
 
 ```bash
-./scripts/setup/submit_llpr_ensemble.sh --model pet-mad \
-  --training-set /path/to/covariance.extxyz \
-  --validation-set /path/to/calibration.extxyz --dry-run
 ./scripts/properties/submit_analysis.sh --model pet-mad --loading 100 \
   --replicas 1
 ./scripts/properties/submit_analysis.sh --model pet-mad --loading 100 \
@@ -26,11 +23,12 @@ Run commands from the repository root:
   --replicas 1 --hessian-source-temperature 400 --afterok MERGE_JOB_ID
 ```
 
-Submit one model/loading campaign at a time. The command above is the fresh
-PET-MAD/50 CH₄ run after removal of its old relaxation outputs: it starts from
+Submit one model/loading campaign at a time. The PET-MAD/50 CH₄ example starts
+from
 `output/md/production/pet-mad-1.5-s-40nn/50ch4/400K/rep01/md.final.data`.
-It submits a preflight, one 400 K relaxation/central-Hessian job, eight LLPR
-workers with eight members each, and a final merge. Dependencies ensure that
+It submits a preflight, one 400 K relaxation/central-Hessian job, and eight
+GPU workers that compute Hessians for eight supplied LLPR members each,
+followed by a final merge. Dependencies ensure that
 the eight workers start after the central calculation and that the merge
 starts after all workers succeed. They do not serialize separate campaigns;
 wait for this campaign to finish before submitting the next model/loading.
@@ -48,15 +46,11 @@ with unchanged settings, repeat the command with `--continue-unfinished`, after
 checking that no matching jobs are still active. Both loading-100 campaigns
 already have complete 400 K central/64-member spectra and need no Hessian rerun.
 
-The LLPR preparation command requires reference-labeled structures that are
-not distributed with this repository. It wraps the selected PET checkpoint,
-constructs the last-layer feature covariance from `--training-set`, calibrates
-the uncertainty scale on the separate `--validation-set`, samples one
-persistent 32-member shallow ensemble, and validates that its arithmetic mean
-reproduces the central energy. It writes the exported model below `models/`
-and a matching provenance JSON containing model/data hashes and software
-versions. See [`docs/LLPR.md`](../../docs/LLPR.md) before
-preparing production uncertainty results.
+CEA model uncertainty uses the supplied calibrated LLPR checkpoints. Place
+the matching checkpoint in the configured model location and confirm its model
+identity and SHA-256 before analysis. See
+[`docs/LLPR.md`](../../docs/LLPR.md) for checkpoint names, compatibility
+checks, and calibration guidance.
 
 Trajectory analysis submits one Slurm job per selected trajectory. A dependent
 summary job runs after every trajectory job succeeds and assembles the combined
@@ -104,6 +98,35 @@ large-system MLIP error bar and inspect `minimum_direct_effective_samples` and
 The same aggregate also writes `model_uncertainty_enthalpy.{csv,png}`; its CEA
 and direct enthalpy columns and plot include the corresponding member standard
 deviations in eV at every temperature.
+
+To compare the CEA finite-difference heat capacity with the Gaussian NPT
+fluctuation method from Kellner and Ceriotti, reuse those saved LLPR frames:
+
+```bash
+python scripts/properties/compare_heat_capacity_estimators.py \\
+  --model-label pet-mad-1.5-s-40nn --loading 100
+```
+
+The command writes a CSV, member-resolved NPZ, and comparison plot beside the
+aggregate uncertainty archive. It requires completed model-uncertainty
+trajectory analysis but does not run MD. The fluctuation estimate assumes the
+paper's Gaussian centered-moment approximation and is diagnostic until its
+sampling error and validity are checked; see [`docs/DPOSE.md`](../../docs/DPOSE.md).
+
+To assemble that variance-based classical result with the matching LLPR
+harmonic correction and make loading-comparison plots like the standard
+hybrid figures, run:
+
+```bash
+python scripts/properties/plot_variance_hybrid_comparisons.py
+```
+
+This writes PET-MAD and PET-SOL hybrid curves, CSVs for each loading, and an
+uncertainty-component plot under
+`output/post-processing/harmonic-correction/loading-comparisons/`. The
+combined band pairs classical and harmonic deviations by LLPR member, then
+combines their spread with the estimated variance-sampling error and the
+existing harmonic sampling error.
 While LLPR inference is running, `model_uncertainty.progress.npz` is updated
 atomically after each inference batch. If a Slurm job reaches its wall-time
 limit, resubmitting the same trajectory analysis resumes from its completed

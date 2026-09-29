@@ -15,8 +15,8 @@ See [MOF-5.md](docs/MOF-5.md) for the scientific rationale,
 assumptions, and limits, [SADMOF.md](docs/SADMOF.md) for the
 Hessian and harmonic heat-capacity implementation,
 [PET.md](docs/PET.md) for the PET paper summary and model architecture,
-[LLPR.md](docs/LLPR.md) for CEA ensemble preparation, and
-[IZAR.md](docs/IZAR.md) for the cluster procedure.
+[LLPR.md](docs/LLPR.md) for the supplied CEA ensemble checkpoints and their
+use, and [IZAR.md](docs/IZAR.md) for the cluster procedure.
 
 ## Layout
 

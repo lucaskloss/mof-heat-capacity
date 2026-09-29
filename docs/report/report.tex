@@ -93,6 +93,46 @@ estimates for the resulting hybrid curve.
 \section{Theory}
 \label{sec:theory}
 
+\subsection{Metal--organic frameworks and MOF-5}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{figures/mof-5.png}
+  \caption{Ball-and-polyhedron representation of the MOF-5 framework. The
+  zinc--oxo clusters are shown as blue polyhedra, connected by
+  benzene-1,4-dicarboxylate linkers. The legend identifies carbon (black),
+  hydrogen (pink), oxygen (red), and zinc (blue). The open spaces between
+  framework components form the pores that host adsorbed molecules.}
+  \label{fig:mof5}
+\end{figure}
+
+Metal--organic frameworks are crystalline networks assembled from metal ions
+or metal--oxo clusters joined by organic molecules called linkers. The
+connections repeat in three dimensions and leave accessible pores between
+them. Changing the nodes and linkers can alter the pore size, surface
+chemistry, and framework flexibility. This makes MOFs useful for studying gas
+storage and separation: guest molecules can enter the pores and adsorb on
+their internal surfaces without becoming part of the framework.
+
+MOF-5 provides a concrete example (Figure~\ref{fig:mof5}). Zinc--oxo clusters
+are connected by benzene-1,4-dicarboxylate linkers to form an open, periodic
+framework. Methane occupies its pores and interacts with the framework mainly
+through weak noncovalent forces. At a given temperature and loading, the methane molecules
+can move among adsorption environments, while the linkers and clusters also
+vibrate. The framework therefore supplies both the space that holds the gas
+and the flexible surroundings that influence its motion.
+
+These motions explain why heat capacity is an informative property for this
+project. Heating excites framework vibrations and methane's internal modes,
+but also changes how methane explores the pores and interacts with the host.
+The latter effects can be anharmonic and cannot be inferred from vibrations
+about a single structure \cite{kapil2019}. We therefore use classical MD of
+\emph{loaded} MOF-5 to sample the temperature-dependent host--guest motion,
+and normal modes of optimized loaded structures to correct the classical
+treatment of quantized vibrations. An empty MOF-5 Hessian provides a framework
+reference; the loaded-system Hessian supplies the correction used for the
+reported loaded-system heat capacity.
+
 \subsection{Machine-learned interatomic potentials}
 
 \subsubsection{Learning the potential-energy surface}

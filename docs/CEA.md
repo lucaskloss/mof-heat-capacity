@@ -20,19 +20,18 @@ without requiring one independent trajectory for every potential model.
 
 Imbalzano *et al.* formulate this procedure for a calibrated committee of
 potential models; the paper does not require or introduce LLPR. LLPR is a
-separate, PET-family-compatible way of generating approximate committee
+separate, PET-family-compatible way to represent approximate committee
 members by varying the final prediction layer. In this project, LLPR is
 considered only as a practical source of the member energies required by Eqs.
 (22)--(24), not as part of the published derivation. The same approach can be
 used for PET-MAD and PET-SOL, provided each has a compatible calibrated
-ensemble export. A full committee of independently trained models would follow
-the same reweighting equations and would generally capture different
-uncertainty components.
+ensemble export. Other compatible ensembles can use the same reweighting
+equations and may capture different uncertainty components.
 
 Accordingly, any result produced with LLPR must be labeled as LLPR ensemble
-uncertainty rather than as uncertainty from a full independently trained
-committee. It needs its own calibration and validation against reference data.
-The detailed LLPR construction, the distinction between
+uncertainty rather than as uncertainty from a different model ensemble. It
+needs calibration and validation against reference data. The supplied LLPR
+checkpoint format, the distinction between
 `energy_uncertainty` and `energy_ensemble`, and a code-to-output map for every
 reported error are documented in [LLPR.md](LLPR.md).
 
@@ -319,12 +318,9 @@ reference error, finite-size effects, temperature-grid bias, and the effect of
 member-specific geometry relaxation. For volumetric heat capacity, density
 uncertainty is propagated under a zero-covariance assumption.
 
-The command sequence is:
+With the supplied LLPR checkpoint in place, the analysis sequence is:
 
 ```bash
-./scripts/setup/submit_llpr_ensemble.sh --model pet-mad \
-  --training-set /path/to/covariance.extxyz \
-  --validation-set /path/to/calibration.extxyz
 ./scripts/properties/submit_analysis.sh --model pet-mad --loading 50 \
   --replicas 1 --model-uncertainty
 ./scripts/properties/submit_heat_capacity.sh --model pet-mad --loading 50 \
@@ -333,9 +329,9 @@ The command sequence is:
   --replicas 1 --model-uncertainty
 ```
 
-The LLPR command requires reference-labeled datasets that are not supplied by
-this repository; see [LLPR.md](LLPR.md). The trajectory-analysis
-command writes `model_uncertainty_heat_capacity.npz` below the model/loading
+See [LLPR.md](LLPR.md) for the supplied checkpoint locations and validation
+guidance. The trajectory-analysis command writes
+`model_uncertainty_heat_capacity.npz` below the model/loading
 trajectory-analysis directory. The final command requires that
 archive and adds its CEA spread to the hybrid NPZ, CSV, JSON, and plot. The
 analysis reads persistent energy heads directly from the matching 64-member

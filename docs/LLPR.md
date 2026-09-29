@@ -1,10 +1,9 @@
-# LLPR shallow ensembles for CEA
+# Using the supplied LLPR ensembles for CEA
 
 The CEA trajectory analysis needs signed, member-resolved potential energies.
-For PET-MAD and PET-SOL, this project obtains them from metatrain's last-layer
-prediction-rigidity (LLPR) wrapper. LLPR is less expensive than training a full
-deep committee, but it samples only the final linear readout and must be
-reported as **LLPR ensemble uncertainty**.
+For PET-MAD and PET-SOL, this project uses supplied checkpoints from
+metatrain's last-layer prediction-rigidity (LLPR) wrapper. LLPR varies only
+the final linear readout and must be reported as **LLPR ensemble uncertainty**.
 
 The LLPR definition follows Bigi *et al.*,
 [*A prediction rigidity formalism for low-cost uncertainties in trained neural
@@ -13,17 +12,16 @@ here uses the
 [metatrain LLPR wrapper](https://docs.metatensor.org/metatrain/latest/architectures/generated/llpr.html).
 Metatrain's
 [basic LLPR tutorial](https://docs.metatensor.org/metatrain/latest/generated_examples/1-advanced/01-llpr.html)
-demonstrates the analytical `energy_uncertainty` output. This project additionally
-follows the
-[LLPR shallow-ensemble tutorial](https://docs.metatensor.org/metatrain/latest/generated_examples/1-advanced/08-llpr-ensemble-training.html)
-because CEA requires the signed, member-resolved `energy_ensemble` output.
+demonstrates the analytical `energy_uncertainty` output. The supplied
+checkpoints also provide the signed, member-resolved `energy_ensemble` output
+required by CEA.
 CEA follows Imbalzano *et al.* as summarized in
 [CEA.md](CEA.md).
 
-LLPR and CEA do two different jobs. LLPR constructs a calibrated distribution
-of plausible potential-energy predictions. CEA propagates samples from that
-distribution through an equilibrium average. Neither method estimates the
-finite-duration error of the MD trajectory; that error is calculated
+LLPR and CEA do two different jobs. The supplied LLPR members represent a
+calibrated distribution of plausible potential-energy predictions. CEA
+propagates their predictions through an equilibrium average. Neither method
+estimates the finite-duration error of the MD trajectory; that error is calculated
 separately from autocorrelation-aware statistics and independent replicas.
 
 ## What LLPR calculates
@@ -31,8 +29,8 @@ separately from autocorrelation-aware statistics and independent replicas.
 Let the central PET energy readout be
 $\bar V(\mathbf x)=\mathbf w_0^{\mathrm T}\mathbf f(\mathbf x)$, where
 $\mathbf f$ contains the frozen last-layer features of structure $\mathbf x$.
-If $\mathbf F$ collects the corresponding features from the covariance set,
-the metatrain LLPR predictive variance has the form
+If $\mathbf F$ is the feature matrix associated with the checkpoint's
+covariance, the metatrain LLPR predictive variance has the form
 
 $$\sigma_{\mathrm{LLPR}}^2(\mathbf x)=\alpha^2\mathbf f(\mathbf x)^{\mathrm T}\left(\mathbf F^{\mathrm T}\mathbf F+\lambda\mathbf I\right)^{-1}\mathbf f(\mathbf x).$$
 
@@ -45,101 +43,50 @@ error of a trajectory mean.
 
 For CEA, the scalar standard deviation is insufficient because reweighting
 needs the sign and correlation of each energy perturbation from frame to
-frame. The wrapper therefore samples persistent last-layer weights from the
-same calibrated covariance and exports their predictions as
+frame. Each supplied checkpoint includes persistent last-layer weights
+associated with the calibrated covariance; their predictions are exposed as
 `energy_ensemble`:
 
 $$V^{(i)}(\mathbf x)=\mathbf w_i^{\mathrm T}\mathbf f(\mathbf x),\qquad \mathbf w_i\sim\mathcal N\!\left(\mathbf w_0,\alpha^2\left(\mathbf F^{\mathrm T}\mathbf F+\lambda\mathbf I\right)^{-1}\right).$$
 
 The finite-member standard deviation of `energy_ensemble` should approach
-`energy_uncertainty` as the number of members increases. The export validator
-records their RMS discrepancy as a convergence diagnostic. CEA uses
+`energy_uncertainty` as the member count increases; their RMS discrepancy is a
+convergence diagnostic. CEA uses
 `energy_ensemble`; the analytical `energy_uncertainty` is archived for
 validation but is not inserted directly into an enthalpy or heat-capacity
 formula.
 
-This construction varies only the last linear readout while keeping the PET
-representation fixed. It can measure uncertainty associated with directions
+This LLPR representation varies only the last linear readout while keeping the
+PET representation fixed. It can measure uncertainty associated with directions
 that are weakly constrained in that feature space, after calibration, but it
 cannot expose a bias common to the representation, missing chemistry, errors
 in the reference labels, or all uncertainty that would be seen across fully
 independently trained neural networks.
 
-## Required data
+## Supplied checkpoints and validation
 
-LLPR construction needs two labeled datasets that are not included here:
-
-- a covariance/training set representative of the structures used to fit the
-  base PET representation; and
-- a disjoint calibration/validation set with reference energies from the same
-  electronic-structure definition.
-
-The calibration set should cover the MOF-5 loadings, temperatures, adsorption
-environments, and framework distortions that will be interpreted. MD energies
-predicted by the base model are not reference labels and must not be used to
-calibrate that model's uncertainty.
-
-Both inputs may be extended XYZ files. `--energy-key` selects the reference
-energy property and defaults to `energy`; the default units are eV and
-angstrom. The explicit files used here are equivalent to metatrain's tutorial
-split: the training file constructs the feature covariance and the separate
-validation file calibrates the global uncertainty scale.
-
-## Build an ensemble
-
-Run the command from the repository root on an Izar login node:
-
-```bash
-./scripts/setup/submit_llpr_ensemble.sh --model pet-mad \
-  --training-set /path/to/pet-training-or-covariance.extxyz \
-  --validation-set /path/to/mof-calibration.extxyz \
-  --energy-key energy --members 32 --dry-run
-```
-
-Remove `--dry-run` to submit one GPU job. Build PET-MAD and PET-SOL ensembles
-separately. The calibrated 64-member checkpoints currently used here are:
+Use the supplied calibrated 64-member checkpoints for PET-MAD and PET-SOL:
 
 ```text
 models/pet-mad-1.5-s_40nn_nostress-llpr.ckpt
 models/pet_sol-s-best_nostress-llpr.ckpt
 ```
 
-The command invokes metatrain's `llpr` architecture with `num_epochs: null`, so
-it computes and calibrates analytical LLPR and samples shallow members without
-additional gradient training. A positive value would enable the optional
-gradient-based training described by metatrain's ensemble tutorial and is not
-part of this workflow. The central generated configuration is equivalent to:
+The analysis requires checkpoints that provide `energy`,
+`energy_uncertainty`, and `energy_ensemble`, with the expected member count,
+finite predictions, and a member mean consistent with the central prediction.
+These checks verify model compatibility; they do not establish scientific
+calibration. Before interpreting results, check the supplied calibration and
+coverage evidence on representative held-out reference structures. Keep the
+checkpoint hash and member ordering with the analysis outputs.
 
-```yaml
-architecture:
-  name: llpr
-  model:
-    num_ensemble_members: {energy: 32}
-  training:
-    model_checkpoint: /path/to/base-model.ckpt
-    batch_size: 4
-    num_epochs: null
-```
-
-`num_ensemble_members` is what adds `energy_ensemble`; a basic LLPR model with
-only analytical uncertainty is insufficient for CEA. The command refuses to
-overwrite an existing model. The generated provenance file records the base
-and LLPR checkpoints, datasets, hashes, options, software versions, and export
-validation results.
-
-The post-export check requires `energy`, `energy_uncertainty`, and
-`energy_ensemble`, verifies the requested member count, rejects non-finite
-predictions, and requires the member mean to reproduce the central prediction.
-This checks the export mechanics; it does not establish scientific calibration.
-
-Treat the member count, covariance data, calibration split and method,
-regularizer, and seed as convergence parameters. The default 32 members follow
-the metatrain example and are only a starting point.
+Record the member count and available covariance, calibration, regularizer,
+and seed provenance for the supplied checkpoints.
 
 ## Use the ensemble with CEA
 
-After the ensemble passes independent calibration and coverage checks, submit
-the existing 50-methane trajectories for post-processing:
+After checking calibration and coverage of the supplied ensemble, submit the
+existing trajectories for post-processing:
 
 ```bash
 ./scripts/properties/submit_analysis.sh --model pet-mad --loading 50 \
@@ -201,7 +148,7 @@ higher-order terms are negligible.
 
 | Reported quantity | Calculation | Code location | Main output |
 | --- | --- | --- | --- |
-| Framewise LLPR energy standard deviation | Calibrated last-layer feature covariance, equation above | metatrain during LLPR preparation and inference | `energy_uncertainty`; archived as `analytical_energy_uncertainty_eV` in each `model_uncertainty.npz` |
+| Framewise LLPR energy standard deviation | Calibrated last-layer feature covariance, equation above | supplied checkpoint and inference | `energy_uncertainty`; archived as `analytical_energy_uncertainty_eV` in each `model_uncertainty.npz` |
 | Direct-reweighting overlap | Kish weight count $N_{\mathrm{eff}}=1/\sum_t\widetilde w_t^2$ for each member; not autocorrelation-adjusted | [`committee_enthalpy_estimates`](../mof_heat_capacity/analysis/uncertainty.py) | `direct_effective_samples` |
 | CEA validity diagnostic | $\operatorname{var}_t(\beta\Delta V_t^{(i)})$ | [`committee_enthalpy_estimates`](../mof_heat_capacity/analysis/uncertainty.py) | `dimensionless_delta_variance` |
 | Classical LLPR model error | Sample standard deviation across member-resolved CEA $C_P$ curves | [`write_model_uncertainty_outputs`](../mof_heat_capacity/analysis/results.py) | `cea_cp_model_standard_deviation_J_per_gK` |

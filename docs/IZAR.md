@@ -63,12 +63,9 @@ Trajectory diagnostics are required before heat capacities are interpreted;
 use the property commands documented in
 [`scripts/properties/README.md`](../scripts/properties/README.md).
 
-Optional CEA model uncertainty first requires a calibrated LLPR shallow
-ensemble. Build it in its own GPU allocation with
-`scripts/setup/submit_llpr_ensemble.sh` and user-supplied, disjoint labeled
-covariance and calibration datasets; see
-[`docs/LLPR.md`](LLPR.md). Do not construct or validate the
-CUDA model on the login node.
+Optional CEA model uncertainty uses the supplied calibrated LLPR checkpoints;
+see [`docs/LLPR.md`](LLPR.md) for their locations and validation checks. Keep
+CUDA model evaluation in a GPU allocation rather than on the login node.
 
 Check equilibration, temperature and enthalpy stationarity, autocorrelation,
 effective sample counts, density/cell behavior, forces, framework stability,

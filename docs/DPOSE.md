@@ -14,10 +14,11 @@ uses CEA for equilibrium averages. Its specific heat-capacity improvement is
 the Gaussian treatment of centered moments in Eqs. (20)–(21).
 
 This note summarizes the supplied paper, checks the implementation at commit
-`5bd6361`, and inspects existing analysis outputs on 2026-09-28. The NPT
+`5bd6361`, and inspects saved analysis outputs on 2026-09-29. The NPT
 extension and numerical comparison below are project-specific deductions;
-the paper demonstrates the method for NVT liquid water. No production code,
-checkpoints, or existing results were changed.
+the paper demonstrates the method for NVT liquid water. The comparison script
+writes separate diagnostic outputs and leaves the finite-difference analysis
+intact.
 
 ## 1. Paper and main ideas
 
@@ -28,7 +29,10 @@ propagation of shallow ensembles,”** *Machine Learning: Science and Technology
 [supplied PDF](DPSOE.pdf),
 [authors' code and data](https://github.com/bananenpampe/DPOSE).
 Page numbers below refer to the printed article; the supplied PDF has an
-additional cover page.
+additional cover page. Use
+[`compare_heat_capacity_estimators.py`](../scripts/properties/compare_heat_capacity_estimators.py)
+to compare the current CEA finite-difference curves with the Gaussian NPT
+fluctuation estimate from saved LLPR trajectory data.
 
 The paper separates four choices: uncertainty architecture, training loss,
 calibration, and propagation to derived quantities. Its proposed **direct
@@ -60,13 +64,10 @@ the final property arbitrarily (Eq. (9)). The paper also demonstrates that
 extrapolative uncertainties can remain overconfident (§4.6); successful
 in-distribution calibration does not establish reliability everywhere.
 
-Our LLPR ensembles use sampled, calibrated last-layer weights around an
-existing PET model, rather than DPOSE's joint uncertainty-aware training.
-They nevertheless provide exactly the persistent energy functions needed for
-member-wise propagation. The paper's conclusion explicitly discusses
-sampling shallow weights from an approximate loss Hessian and cites the
-prediction-rigidity work underlying LLPR. **Retraining as DPOSE is unnecessary
-to test its heat-capacity prescription.** See also
+The supplied LLPR members vary the final readout of an existing PET model and
+provide the persistent energy functions needed for member-wise propagation.
+The paper's conclusion discusses shallow-weight uncertainty and cites the
+prediction-rigidity work underlying LLPR. See also
 [LLPR.md](LLPR.md).
 
 ## 2. What goes wrong with heat capacity in the paper
@@ -75,7 +76,7 @@ Section 4.5, printed pp. 14–15, considers 256 liquid-water molecules at 300 K
 in a 300 ps NVT simulation driven by the mean potential $\overline U$.
 Writing $U$ for potential energy, the classical fluctuation expression is
 
-$$C_V=\frac{\operatorname{Var}(U)}{k_{\mathrm B}T^2}+\frac{3N}{2}k_{\mathrm B}.\tag{Paper Eq. 19}$$
+$$C_V=\frac{\operatorname{Var}(U)}{k_{\mathrm B}T^2}+\frac{3N}{2}k_{\mathrm B}$$
 
 The kinetic term here assumes the degrees of freedom in the paper's setup;
 constraints or removed center-of-mass motion require the corresponding
@@ -83,7 +84,7 @@ degree-of-freedom count.
 
 For an observable $A$, the paper's CEA expression is
 
-$$\langle A\rangle_i\approx\langle A\rangle_0-\beta\operatorname{Cov}_0(A,\Delta U_i),\qquad \Delta U_i=U_i-\overline U,\quad \beta=(k_{\mathrm B}T)^{-1}.\tag{Paper Eq. 12}$$
+$$\langle A\rangle_i\approx\langle A\rangle_0-\beta\operatorname{Cov}_0(A,\Delta U_i),\qquad \Delta U_i=U_i-\overline U,\quad \beta=(k_{\mathrm B}T)^{-1}$$
 
 Subscript $0$ denotes the mean-potential trajectory; $i$ denotes the
 equilibrium distribution of member $i$. Applying this expression naively to
@@ -112,7 +113,7 @@ Exponential tilting of a jointly Gaussian distribution shifts its mean while
 leaving its covariance unchanged. Applying the general centered-moment
 formula, Eq. (20), to the energy variance gives
 
-$$\operatorname{Var}_i(U_i)\approx\operatorname{Var}_0(U_i).\tag{Paper Eq. 21}$$
+$$\operatorname{Var}_i(U_i)\approx\operatorname{Var}_0(U_i)$$
 
 Thus evaluate each member's potential along the existing trajectory,
 subtract **that member's own trajectory mean**, compute its variance, and
@@ -235,17 +236,19 @@ All heat-capacity columns below are in $J\,g^{-1}\,K^{-1}$.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | PET-MAD | 50 | 0.929 | 0.112 | 0.093 | 3.76–306.54 | 1.00–20.19 |
 | PET-MAD | 100 | 1.080 | 0.355 | 0.132 | 5.13–404.05 | 1.00–10.80 |
-| PET-MAD | 150 | 1.165 | 0.094 | 0.121 | 4.79–505.20 | 1.00–12.81 |
+| PET-MAD | 150 | 1.165 | 0.094 | 0.122 | 4.79–505.20 | 1.00–12.81 |
 | PET-SOL | 50 | 0.926 | 0.153 | 0.090 | 5.42–297.38 | 1.00–23.49 |
 | PET-SOL | 100 | 1.069 | 0.159 | 0.129 | 6.19–491.54 | 1.00–20.58 |
-| PET-SOL | 150 | 1.166 | 0.095 | 0.218 | 6.15–775.69 | 1.00–9.43 |
+| PET-SOL | 150 | 1.166 | 0.095 | 0.219 | 6.15–775.69 | 1.00–9.43 |
 
 The hybrid central values are from the existing
 `heat-capacity.exploratory-discard-imaginary.npz` archives: they use the
 exploratory mode-discarding policy named in those files. The two SD columns
 are **classical model uncertainties only**, not final hybrid or combined
-uncertainties. The Gaussian column has not been combined with the harmonic
-members or assigned a sampling confidence interval.
+uncertainties. The Gaussian column is calculated by the comparison script
+with an unbiased sample variance and kinetic term $f k_{\mathrm B}/2$, using
+$f=3N-3$ for the initial zero-momentum setup. It has not been combined with
+the harmonic members or assigned a sampling confidence interval.
 
 Sources under `output/post-processing/`:
 
@@ -279,8 +282,29 @@ archives contain 200–400 K, so these full-grid maxima are not all displayed
 hybrid points. Endpoint sensitivity is nevertheless a useful diagnostic of
 the derivative method.
 
-For reproducibility, this minimal calculation reproduces PET-MAD/100's
-Gaussian model SD from the repository root:
+Run the comparison for an existing LLPR trajectory-analysis archive from the
+repository root:
+
+```bash
+python scripts/properties/compare_heat_capacity_estimators.py \\
+  --model-label pet-mad-1.5-s-40nn --loading 100
+```
+
+The command writes `variance_heat_capacity_comparison.csv`, `.npz`, and
+`.png` beside `model_uncertainty_heat_capacity.npz`. The plot overlays the
+CEA finite-difference and Gaussian NPT committee means and member spreads; it
+also shows a Gaussian fluctuation estimate for the central model. To include
+multiple replicas, pass `--replicas 1,2,...`; matching member curves are
+averaged across replicas, after checking checkpoint, atom count, mass, and
+pressure consistency.
+
+This is a diagnostic, not a set of final error bars. The current member
+archives contain 401 selected frames per temperature, and the plotted member
+spread does not include finite-trajectory sampling error. The joint-Gaussian
+closure and its extension to NPT need validation for this system.
+
+For reproducibility, this short calculation shows how the comparator
+evaluates the Gaussian member variance:
 
 ```python
 import json
@@ -297,12 +321,13 @@ temperature_K, pressure_bar = 300.0, 1.0  # verified for this saved run
 with np.load(run / "model_uncertainty.npz") as data:
     q = (data["member_potential_eV"]
          + pressure_bar * data["volume_A3"][:, None] * BAR_A3_TO_EV)
-cp_config_by_member = (
-    np.var(q, axis=0, ddof=0)
-    / (KB_EV_PER_K * temperature_K**2) * EV_TO_J / mass_g
-)
-print(cp_config_by_member.std(ddof=1))  # 0.1316988624 J g^-1 K^-1
-# The common kinetic contribution cancels from this member standard deviation.
+atom_count = summary["metadata"]["atom_count"]
+degrees_of_freedom = 3 * atom_count - 3  # initial mom yes; no constraints
+cp_by_member = (
+    np.var(q, axis=0, ddof=1) / (KB_EV_PER_K * temperature_K**2)
+    + 0.5 * degrees_of_freedom * KB_EV_PER_K
+) * EV_TO_J / mass_g
+print(cp_by_member.std(ddof=1))  # 0.1320 J g^-1 K^-1
 ```
 
 ## 6. Why the present bands may be large
