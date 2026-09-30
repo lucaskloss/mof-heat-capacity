@@ -1,179 +1,70 @@
-# Using the supplied LLPR ensembles for CEA
+# Supplied LLPR checkpoints
 
-The CEA trajectory analysis needs signed, member-resolved potential energies.
-For PET-MAD and PET-SOL, this project uses supplied checkpoints from
-metatrain's last-layer prediction-rigidity (LLPR) wrapper. LLPR varies only
-the final linear readout and must be reported as **LLPR ensemble uncertainty**.
+This note describes the PET last-layer prediction-rigidity (LLPR) checkpoints
+used by the project. It covers what the checkpoints provide and what their
+uncertainty represents. The project-specific use of their member predictions
+in heat-capacity and CEA calculations is documented in [CEA.md](CEA.md).
 
-The LLPR definition follows Bigi *et al.*,
-[*A prediction rigidity formalism for low-cost uncertainties in trained neural
-networks*](https://doi.org/10.1088/2632-2153/ad805f), and its implementation
-here uses the
-[metatrain LLPR wrapper](https://docs.metatensor.org/metatrain/latest/architectures/generated/llpr.html).
-Metatrain's
-[basic LLPR tutorial](https://docs.metatensor.org/metatrain/latest/generated_examples/1-advanced/01-llpr.html)
-demonstrates the analytical `energy_uncertainty` output. The supplied
-checkpoints also provide the signed, member-resolved `energy_ensemble` output
-required by CEA.
-CEA follows Imbalzano *et al.* as summarized in
-[CEA.md](CEA.md).
+The method follows Bigi *et al.*, [“A prediction rigidity formalism for
+low-cost uncertainties in trained neural networks”](https://doi.org/10.1088/2632-2153/ad805f),
+and uses metatrain's [LLPR implementation](https://docs.metatensor.org/metatrain/latest/architectures/generated/llpr.html).
 
-LLPR and CEA do two different jobs. The supplied LLPR members represent a
-calibrated distribution of plausible potential-energy predictions. CEA
-propagates their predictions through an equilibrium average. Neither method
-estimates the finite-duration error of the MD trajectory; that error is calculated
-separately from autocorrelation-aware statistics and independent replicas.
+## What the checkpoints represent
 
-## What LLPR calculates
+LLPR varies the final linear energy readout while keeping the PET feature
+representation fixed. For frozen last-layer features $\mathbf f(\mathbf x)$,
+the central energy is $\bar V(\mathbf x)=\mathbf w_0^{\mathsf T}\mathbf f(\mathbf x)$.
+The predictive variance has the form
 
-Let the central PET energy readout be
-$\bar V(\mathbf x)=\mathbf w_0^{\mathrm T}\mathbf f(\mathbf x)$, where
-$\mathbf f$ contains the frozen last-layer features of structure $\mathbf x$.
-If $\mathbf F$ is the feature matrix associated with the checkpoint's
-covariance, the metatrain LLPR predictive variance has the form
+$$\sigma_{\mathrm{LLPR}}^2(\mathbf x)=\alpha^2\mathbf f(\mathbf x)^{\mathsf T}\left(\mathbf F^{\mathsf T}\mathbf F+\lambda\mathbf I\right)^{-1}\mathbf f(\mathbf x).$$
 
-$$\sigma_{\mathrm{LLPR}}^2(\mathbf x)=\alpha^2\mathbf f(\mathbf x)^{\mathrm T}\left(\mathbf F^{\mathrm T}\mathbf F+\lambda\mathbf I\right)^{-1}\mathbf f(\mathbf x).$$
+Here $\mathbf F$ is the feature matrix used to define the covariance,
+$\lambda$ is its regularizer, and $\alpha$ is the calibration scale. The
+checkpoint stores the factorization and calibration parameters needed for
+inference. The scalar `energy_uncertainty` output is a predictive standard
+deviation in eV. It is not a variance, a trajectory sampling error, or a
+standard error on a heat-capacity estimate.
 
-$\lambda$ regularizes the feature covariance and $\alpha$ is a single scale
-factor fitted to reference-energy residuals on the separate calibration set.
-The default `absolute_residuals` calibration is robust to outliers and assumes
-a Gaussian error distribution. The resulting `energy_uncertainty` is an
-analytical **standard deviation in eV**, not a variance and not a standard
-error of a trajectory mean.
+The checkpoints also contain persistent last-layer member readouts
+$\mathbf w_i$. They provide signed, member-resolved energies
 
-For CEA, the scalar standard deviation is insufficient because reweighting
-needs the sign and correlation of each energy perturbation from frame to
-frame. Each supplied checkpoint includes persistent last-layer weights
-associated with the calibrated covariance; their predictions are exposed as
-`energy_ensemble`:
+$$V^{(i)}(\mathbf x)=\mathbf w_i^{\mathsf T}\mathbf f(\mathbf x).$$
 
-$$V^{(i)}(\mathbf x)=\mathbf w_i^{\mathrm T}\mathbf f(\mathbf x),\qquad \mathbf w_i\sim\mathcal N\!\left(\mathbf w_0,\alpha^2\left(\mathbf F^{\mathrm T}\mathbf F+\lambda\mathbf I\right)^{-1}\right).$$
+These values preserve correlations in each member's predictions across
+structures. The analysis centers the supplied member readouts on the central
+PET readout, so their mean reproduces the central prediction up to numerical
+precision. A finite-member energy spread should be consistent with the
+analytical `energy_uncertainty`; disagreement is a convergence or
+compatibility diagnostic, not proof of calibration.
 
-The finite-member standard deviation of `energy_ensemble` should approach
-`energy_uncertainty` as the member count increases; their RMS discrepancy is a
-convergence diagnostic. CEA uses
-`energy_ensemble`; the analytical `energy_uncertainty` is archived for
-validation but is not inserted directly into an enthalpy or heat-capacity
-formula.
+LLPR uncertainty only probes directions in the final readout represented by
+the stored feature covariance. It cannot reveal errors shared by the frozen
+PET representation, missing chemistry, or bias in the reference labels. The
+reported spread is therefore **LLPR model uncertainty**, not the uncertainty
+across independently parameterized PET models or a complete measure of model
+error.
 
-This LLPR representation varies only the last linear readout while keeping the
-PET representation fixed. It can measure uncertainty associated with directions
-that are weakly constrained in that feature space, after calibration, but it
-cannot expose a bias common to the representation, missing chemistry, errors
-in the reference labels, or all uncertainty that would be seen across fully
-independently trained neural networks.
+## Supplied checkpoints
 
-## Supplied checkpoints and validation
-
-Use the supplied calibrated 64-member checkpoints for PET-MAD and PET-SOL:
+The project uses these calibrated 64-member PET-MAD and PET-SOL checkpoints:
 
 ```text
 models/pet-mad-1.5-s_40nn_nostress-llpr.ckpt
 models/pet_sol-s-best_nostress-llpr.ckpt
 ```
 
-The analysis requires checkpoints that provide `energy`,
-`energy_uncertainty`, and `energy_ensemble`, with the expected member count,
-finite predictions, and a member mean consistent with the central prediction.
-These checks verify model compatibility; they do not establish scientific
-calibration. Before interpreting results, check the supplied calibration and
-coverage evidence on representative held-out reference structures. Keep the
-checkpoint hash and member ordering with the analysis outputs.
+Inference provides the central `energy`, scalar `energy_uncertainty`, and
+member-resolved `energy_ensemble` outputs. The analysis records the checkpoint
+SHA-256 to identify the same supplied members in downstream outputs. Keep each
+checkpoint paired with its matching central PET model and export.
 
-Record the member count and available covariance, calibration, regularizer,
-and seed provenance for the supplied checkpoints.
+Before interpreting its spread, consult the supplied calibration and coverage
+evidence on held-out reference structures. Checkpoint compatibility and
+agreement between analytical and finite-member uncertainty do not establish
+that the calibration data cover every MOF-5 loading, temperature, adsorption
+environment, or framework distortion of interest.
 
-## Use the ensemble with CEA
-
-After checking calibration and coverage of the supplied ensemble, submit the
-existing trajectories for post-processing:
-
-```bash
-./scripts/properties/submit_analysis.sh --model pet-mad --loading 50 \
-  --replicas 1 --model-uncertainty
-```
-
-The same checkpoint is reused at every temperature so each member identity is
-persistent across the enthalpy derivative. The code evaluates the configured
-central export's last-layer features and applies the checkpoint's centered
-readouts directly; it does not require re-exporting the newer checkpoint with
-the pinned metatrain version. Inspect direct-reweighting
-effective sample counts and `var(beta Delta V)` alongside the CEA curve. CEA
-model spread does not replace autocorrelation-aware MD sampling errors or
-independent replicas.
-
-The implementation follows the direct-reweighting and CEA conventions in the
-Atomistic Cookbook's
-[PET-MAD uncertainty recipe](https://atomistic-cookbook.org/examples/pet-mad-uq/pet-mad-uq.html#cumulant-expansion-approximation-cea).
-That example reweights an RDF in NVT. Here the sampled ensemble is NPT, but the
-member-to-central probability ratio still depends only on the potential-energy
-difference because the external-pressure term is common to both potentials.
-The member observable is the enthalpy, including its own member potential and
-the saved $P_{\mathrm{ext}}\mathcal V$ term.
-
-For every selected production frame $t$ at temperature $T$, the analysis reads
-the trajectory-driving energy $\bar V_t$, kinetic energy $K_t$, and volume
-$\mathcal V_t$, and evaluates every LLPR member energy $V_t^{(i)}$. It then
-constructs
-
-$$\Delta V_t^{(i)}=V_t^{(i)}-\bar V_t,\qquad H_t^{(i)}=K_t+V_t^{(i)}+P_{\mathrm{ext}}\mathcal V_t.$$
-
-The first-order CEA enthalpy for member $i$ is calculated in
-`committee_enthalpy_estimates` as
-
-$$\left\langle H^{(i)}\right\rangle_i^{\mathrm{CEA}}=\left\langle H^{(i)}\right\rangle_{\bar V}-\beta\operatorname{cov}_{\bar V}\!\left(H^{(i)},\Delta V^{(i)}\right),\qquad \beta=(k_{\mathrm B}T)^{-1}.$$
-
-The same function also computes normalized exponential reweighting as a
-diagnostic. At each temperature, replicas are averaged member by member. Only
-after each persistent member has a complete enthalpy curve does
-`write_model_uncertainty_outputs` calculate
-
-$$C_{P,\mathrm{cl}}^{(i)}(T)=\frac{\mathrm d\langle H^{(i)}\rangle_i^{\mathrm{CEA}}}{\mathrm dT},\qquad \sigma_{\mathrm{LLPR},C_P}(T)=\sqrt{\frac{1}{M-1}\sum_{i=1}^{M}\left[C_{P,\mathrm{cl}}^{(i)}(T)-\overline C_{P,\mathrm{cl}}(T)\right]^2}.$$
-
-Thus the reported LLPR model error is the sample standard deviation of the
-**final member-resolved heat-capacity curves**. It is not the framewise energy
-spread, and it is not divided by $\sqrt M$: the members represent a predictive
-distribution, rather than $M$ repeated measurements used to estimate its
-mean.
-
-The tutorial warns that first-order CEA must be used cautiously for nonlinear
-observables such as heat capacity. This workflow applies CEA to mean enthalpy
-at each temperature and only then differentiates each member's curve; it does
-not apply CEA directly to an enthalpy-fluctuation estimator. Nevertheless,
-`var(beta Delta V) << 1` is still required at every temperature, and a value
-below the code's severe-warning threshold of 1 is not by itself evidence that
-higher-order terms are negligible.
-
-## Where every reported uncertainty is calculated
-
-| Reported quantity | Calculation | Code location | Main output |
-| --- | --- | --- | --- |
-| Framewise LLPR energy standard deviation | Calibrated last-layer feature covariance, equation above | supplied checkpoint and inference | `energy_uncertainty`; archived as `analytical_energy_uncertainty_eV` in each `model_uncertainty.npz` |
-| Direct-reweighting overlap | Kish weight count $N_{\mathrm{eff}}=1/\sum_t\widetilde w_t^2$ for each member; not autocorrelation-adjusted | [`committee_enthalpy_estimates`](../mof_heat_capacity/analysis/uncertainty.py) | `direct_effective_samples` |
-| CEA validity diagnostic | $\operatorname{var}_t(\beta\Delta V_t^{(i)})$ | [`committee_enthalpy_estimates`](../mof_heat_capacity/analysis/uncertainty.py) | `dimensionless_delta_variance` |
-| Classical LLPR model error | Sample standard deviation across member-resolved CEA $C_P$ curves | [`write_model_uncertainty_outputs`](../mof_heat_capacity/analysis/results.py) | `cea_cp_model_standard_deviation_J_per_gK` |
-| MD sampling error | Correlated standard error $s/\sqrt{N_{\mathrm{eff}}}$ within a run, then within- and between-replica contributions | [`summarize_series`](../mof_heat_capacity/analysis/statistics.py) and [`_enthalpy_records`](../mof_heat_capacity/analysis/hybrid.py) | `classical_anharmonic_cp_standard_error_J_per_gK` |
-| Harmonic sampling error | Standard error across independently quenched loaded minima | [`_harmonic_corrections`](../mof_heat_capacity/analysis/hybrid.py) | `harmonic_quantum_correction_standard_error_J_per_gK` |
-| Hessian LLPR spread | Root mean square of the elementwise sample standard deviations across member Hessians | [`run_heat_capacity`](../mof_heat_capacity/analysis/harmonic.py) | `llpr_hessian_rms_standard_deviation_eV_per_A2` |
-| Hessian LLPR model error | Standard deviation of harmonic corrections from persistent LLPR readouts differentiated at the central minimum | [`run_heat_capacity`](../mof_heat_capacity/analysis/harmonic.py) and [`_harmonic_corrections`](../mof_heat_capacity/analysis/hybrid.py) | `harmonic_quantum_correction_model_standard_deviation_J_per_gK` |
-| Combined hybrid uncertainty | Member-correlated classical-plus-harmonic LLPR spread, combined in quadrature with sampling errors | [`run`](../mof_heat_capacity/analysis/hybrid.py) | `approximate_cp_combined_standard_uncertainty_J_per_gK` |
-
-The component arrays are more informative than the combined band. Classical
-and harmonic LLPR deviations are combined member by member; the final
-quadrature assumes independence between that model spread and sampling error.
-With only one MD replica there is no between-replica estimate; with only one
-loaded minimum the stored harmonic standard error is zero, which means "not
-estimated" rather than "known exactly."
-
-The calculation differentiates every LLPR member at each fixed-cell minimum of
-the central PET model. It propagates last-layer uncertainty into the Hessian,
-frequencies, and harmonic correction, but does not include the geometry shift
-that member-specific relaxation would produce. The combined band also omits
-shared MLIP bias, reference-method uncertainty, finite-size error,
-temperature-grid bias, and other systematic convergence errors.
-
-Before interpreting the result, validate normalized reference residuals and
-coverage on a held-out test set, compare analytical LLPR uncertainty with the
-finite-member spread, converge the number of members and frame stride, and
-compare CEA with direct reweighting wherever direct weights retain useful
-effective sample size.
+For the complete analysis sequence, member persistence requirements, CEA
+validity diagnostics, heat-capacity error propagation, and output fields, see
+[CEA.md](CEA.md). For commands and file locations, see the
+[property workflow guide](../scripts/properties/README.md).
