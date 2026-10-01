@@ -91,12 +91,7 @@ def _assemble(model: str, loading: int, args: argparse.Namespace) -> dict[str, n
     md_sampling_se = np.asarray(
         variance["gaussian_npt_central_sampling_standard_error_J_per_gK"], dtype=float
     )[grid_indices]
-    harmonic_sampling_se = np.asarray(
-        hybrid["harmonic_quantum_correction_standard_error_J_per_gK"], dtype=float
-    )
-    combined = np.sqrt(
-        md_sampling_se**2 + harmonic_sampling_se**2 + correlated_model_sd**2
-    )
+    combined = np.sqrt(md_sampling_se**2 + correlated_model_sd**2)
     central_hybrid = (
         np.asarray(variance["gaussian_npt_central_cp_J_per_gK"], dtype=float)[grid_indices]
         + np.asarray(hybrid["harmonic_quantum_correction_J_per_gK"], dtype=float)
@@ -117,7 +112,6 @@ def _assemble(model: str, loading: int, args: argparse.Namespace) -> dict[str, n
         ),
         "correlated_hybrid_model_sd_J_per_gK": correlated_model_sd,
         "combined_standard_uncertainty_J_per_gK": combined,
-        "harmonic_sampling_se_J_per_gK": harmonic_sampling_se,
     }
     return result
 
@@ -126,7 +120,7 @@ def _write_csv(path: Path, result: dict[str, np.ndarray]) -> None:
     fields = ["temperature_K", *[name for _, name in COMPONENTS],
               "gaussian_npt_central_cp_J_per_gK", "classical_cp_J_per_gK",
               "central_hybrid_cp_J_per_gK", "correlated_hybrid_model_sd_J_per_gK",
-              "harmonic_sampling_se_J_per_gK"]
+              ]
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -175,7 +169,7 @@ def _plot_hybrid_curves(
         axis.legend(title="Methane loading / curve", ncol=2)
         figure.text(
             0.5, 0.01,
-            "Exploratory Hessian policy; Gaussian NPT fluctuation closure; shading combines estimated sampling and LLPR spread.",
+            "Exploratory Hessian policy; Gaussian NPT fluctuation closure; shading combines MD sampling error and LLPR spread.",
             ha="center", fontsize=9,
         )
         figure.tight_layout(rect=(0.0, 0.06, 1.0, 1.0))

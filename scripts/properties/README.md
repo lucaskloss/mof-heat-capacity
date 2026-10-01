@@ -82,7 +82,7 @@ checkpoint or a compatible exported ensemble
 without changing the central model recorded in the MD configuration. One
 override can analyze only one MLIP per submission; invoke `--model pet-mad` and
 `--model pet-sol` separately when their ensemble exports differ. The analysis
-evaluates every 20th production frame by default; change
+evaluates every saved production frame by default (`--uncertainty-stride 1`); change
 this convergence parameter with `--uncertainty-stride`, and control GPU memory
 with `--uncertainty-batch-size`. The analysis records the centered residual
 between the ensemble mean and the trajectory-driving potential but does not
@@ -125,13 +125,147 @@ This writes PET-MAD and PET-SOL hybrid curves, CSVs for each loading, and an
 uncertainty-component plot under
 `output/post-processing/harmonic-correction/loading-comparisons/`. The
 combined band pairs classical and harmonic deviations by LLPR member, then
-combines their spread with the estimated variance-sampling error and the
-existing harmonic sampling error.
+combines their spread with the estimated Gaussian NPT sampling error. Hessian
+sampling uncertainty is not included in these plots.
+
+To keep the existing CEA hybrid curve values while using the Gaussian NPT
+method only for the LLPR spread, pass `--uncertainty-method dpose` to
+`plot_hybrid_by_loading.py`. It retains each CEA central value and CEA
+sampling error, replaces the classical member spread with the Gaussian NPT
+member spread, and pairs those member deviations with the harmonic correction.
+The Gaussian method can increase the spread for some model/loading cases; it
+does not guarantee smaller error bars (see [`docs/DPOSE.md`](../../docs/DPOSE.md)).
+
+For matching CEA and DPOSE uncertainty-component plots, run:
+
+```bash
+python scripts/properties/plot_uncertainty_components.py \
+  --uncertainty-method both \
+  --output output/post-processing/harmonic-correction/loading-comparisons/hybrid-heat-capacity-uncertainty-components.png
+```
+
+This writes separate `-cea.png` and `-dpose.png` figures and matching CSVs
+covering PET-MAD and PET-SOL at 50, 100, and 150 CH4. Both figures use the
+same colors, axis limits, and legend entries except for the classical model
+method. MD sampling, Hessian sampling, and Hessian LLPR spread come from the
+same hybrid archive; the command verifies that those arrays and the central
+values match exactly. MD sampling is shown separately from the model spreads.
+Hessian sampling uncertainty is excluded. Only the classical model spread and
+its paired combination with the harmonic members change. This comparison uses
+the original enthalpy-derivative sampling error; the variance estimator's own
+sampling error remains a separate diagnostic in
+`plot_variance_hybrid_comparisons.py`.
+
+## Reevaluate LLPR on every saved frame
+
+The Python analysis and Slurm submission defaults now use stride 1. Each
+trajectory archive and aggregate records its stride, available production
+frame count, and evaluated count. A trajectory with 10,000 saved production
+frames will evaluate all 10,000. The existing 500 ps examples have **8,001
+coordinate frames from 100–500 ps**, because the first 100 ps were not dumped.
+The thermo log cannot supply missing coordinates. Keep the same production
+window when comparing sparse and dense LLPR evaluations.
+
+Run these commands from the repository root, with the installed `mof`
+environment on Izar. Use the **same analysis directory containing your existing
+LLPR archives** to insert missing frames into the current files. The example
+below updates the original trajectory-analysis directory. If you already
+started in `trajectory-analysis-all-frames`, use that directory throughout
+instead. A new empty directory will have no cached predictions to reuse.
+Use the original 175–425 K derivative grid so changing
+the frame stride does not also change the finite-difference stencil:
+
+```bash
+./scripts/properties/submit_analysis.sh --model both --loading 50,100,150 \
+  --temperatures 175,200,225,250,275,300,325,350,375,400,425 \
+  --replicas 1 --discard-ps 100 --uncertainty-stride 1 \
+  --analysis-dir output/post-processing/trajectory-analysis
+```
+
+Add `--dry-run` to validate and inspect the submissions first. LLPR inference
+requires a GPU allocation; the command submits one job per trajectory and a
+dependent aggregate per model/loading. If a job times out, submit the same
+selection and output directory again to resume its completed batches.
+Use `--time` to set a wall time based on measured inference speed.
+
+The evaluator loads both `model_uncertainty.npz` and
+`model_uncertainty.progress.npz`, matches rows by LAMMPS timestep, and evaluates
+only missing frames. It reuses sparse stride-20 rows when filling a stride-1
+selection; cached member values are preserved exactly. For an 8,001-frame
+trajectory with 401 cached rows, only 7,600 frames require new model inference.
+Each successful batch saves the combined progress. After completion, the
+current `model_uncertainty.npz` is replaced atomically with the merged rows in
+trajectory order, and CEA statistics are recomputed over the full selection.
+The existing complete archive stays intact if inference is interrupted.
+
+Reuse checks the LLPR checkpoint, central export, trajectory identity, and
+cached thermodynamic values. Older archives are supported using their saved
+checkpoint hash, source paths in `summary.json`, and unchanged source-file
+timestamps. Incompatible caches are rejected rather than mixed. Logs and
+`summary.json` report reused and newly evaluated counts. Run one analysis job
+per trajectory/output directory at a time.
+
+For a dataset that must contain exactly 10,000 evaluated frames per trajectory,
+add `--expected-uncertainty-frames 10000`. This fails before inference when the
+saved selection differs, including the current 8,001-frame examples. It does
+not truncate, duplicate, or manufacture frames.
+
+After **all dependent CEA aggregate jobs finish**, regenerate the Gaussian
+comparison from the same dense archives:
+
+```bash
+llpr_analysis_root=output/post-processing/trajectory-analysis
+for model in pet-mad-1.5-s-40nn pet-sol-s-best; do
+  for loading in 50 100 150; do
+    python scripts/properties/compare_heat_capacity_estimators.py \
+      --model-label "$model" --loading "$loading" --replicas 1 \
+      --analysis-dir "$llpr_analysis_root" --require-all-frames
+  done
+done
+```
+
+Then generate both matching uncertainty plots:
+
+```bash
+python scripts/properties/plot_uncertainty_components.py \
+  --uncertainty-method both --require-all-frames \
+  --analysis-root "$llpr_analysis_root" \
+  --input-root output/post-processing/harmonic-correction \
+  --output output/post-processing/harmonic-correction/loading-comparisons/hybrid-heat-capacity-uncertainty-components.png
+```
+
+The resulting `-cea.png` and `-dpose.png` figures and CSVs use the **refreshed
+classical members** from the dense analysis. They reuse the existing central
+hybrid values, MD sampling errors, and Hessian members from `--input-root`;
+no Hessian recomputation or hybrid assembly is needed for this comparison.
+The plots report the actual evaluated counts and reject sparse or stale
+archives with `--require-all-frames`. Rerun the Gaussian comparison whenever
+the CEA aggregate changes.
+
+For the loading curves with the dense uncertainty bands, run:
+
+```bash
+for model in pet-mad-1.5-s-40nn pet-sol-s-best; do
+  for method in cea dpose; do
+    python scripts/properties/plot_hybrid_by_loading.py \
+      --model-label "$model" --loadings 0,50,100,150 \
+      --uncertainty-method "$method" --require-all-frames \
+      --analysis-root "$llpr_analysis_root" \
+      --output "output/post-processing/harmonic-correction/loading-comparisons/${model}-${method}-hybrid-heat-capacity.png"
+  done
+done
+```
+
+The empty-MOF curve is reused unchanged because it has no MD trajectory.
+Using every frame can reduce sampling noise in the estimated model spread;
+correlated frames add less independent information, and the LLPR spread itself
+is not guaranteed to decrease.
+
 While LLPR inference is running, `model_uncertainty.progress.npz` is updated
 atomically after each inference batch. If a Slurm job reaches its wall-time
 limit, resubmitting the same trajectory analysis resumes from its completed
-LLPR frames; the progress file is removed after a successful final archive is
-written.
+LLPR frames, including cached rows from an earlier sparse calculation; the
+progress file is removed after a successful atomic final archive update.
 
 The CEA implementation follows the Atomistic Cookbook's
 [PET-MAD uncertainty example](https://atomistic-cookbook.org/examples/pet-mad-uq/pet-mad-uq.html#cumulant-expansion-approximation-cea),

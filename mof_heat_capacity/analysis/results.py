@@ -33,6 +33,7 @@ from .uncertainty import (
     committee_standard_deviation,
     default_llpr_checkpoint,
     evaluate_trajectory_committee,
+    write_committee_archive,
 )
 
 
@@ -120,8 +121,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--uncertainty-stride",
         type=int,
-        default=20,
-        help="Analyze every Nth production frame for model uncertainty (default: 20)",
+        default=1,
+        help="Analyze every Nth production frame for model uncertainty (default: 1, all frames)",
+    )
+    parser.add_argument(
+        "--expected-uncertainty-frames",
+        type=int,
+        help="Require exactly this many selected LLPR frames per trajectory before inference",
     )
     parser.add_argument(
         "--uncertainty-batch-size",
@@ -656,7 +662,21 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
     if args.model_uncertainty:
         if config.md_driver != "lammps" or thermodynamic_series is None:
             raise ValueError("model-uncertainty propagation currently requires LAMMPS data")
+        available_frames = int(np.count_nonzero(production_mask))
+        selected_frames = len(np.flatnonzero(production_mask)[::args.uncertainty_stride])
+        if args.expected_uncertainty_frames is not None and selected_frames != args.expected_uncertainty_frames:
+            raise ValueError(
+                f"{config.name}: requested {args.expected_uncertainty_frames} LLPR frames, "
+                f"but only {selected_frames} are selected from {available_frames} saved "
+                f"production coordinate frames after {start_ps:g} ps (stride {args.uncertainty_stride}). "
+                "Missing coordinates cannot be recovered from the thermo log."
+            )
+        print(
+            f"LLPR: evaluating {selected_frames}/{available_frames} production frames "
+            f"with stride {args.uncertainty_stride}", flush=True,
+        )
         committee_progress_path = run_output / "model_uncertainty.progress.npz"
+        committee_path = run_output / "model_uncertainty.npz"
         committee = evaluate_trajectory_committee(
             trajectory,
             thermodynamic_series,
@@ -670,9 +690,9 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             stride=args.uncertainty_stride,
             batch_size=args.uncertainty_batch_size,
             checkpoint_path=committee_progress_path,
+            cache_path=committee_path,
         )
-        committee_path = run_output / "model_uncertainty.npz"
-        np.savez(committee_path, **committee)
+        write_committee_archive(committee_path, committee)
         committee_progress_path.unlink(missing_ok=True)
         model_uncertainty = {
             "available": True,
@@ -682,6 +702,9 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             "model_sha256": committee["model_sha256"],
             "frame_stride": args.uncertainty_stride,
             "sampled_frames": len(committee["frame"]),
+            "production_frames": available_frames,
+            "reused_frames": int(committee["reused_frame_count"]),
+            "evaluated_frames": int(committee["evaluated_frame_count"]),
             "member_count": len(committee["cea_mean_enthalpy_eV"]),
             "cea_mean_enthalpy_eV": committee["cea_mean_enthalpy_eV"],
             "direct_mean_enthalpy_eV": committee["direct_mean_enthalpy_eV"],
@@ -998,6 +1021,16 @@ def write_model_uncertainty_outputs(
     member_counts = {
         int(item["model_uncertainty"]["member_count"]) for item in summaries
     }
+    frame_strides = {int(item["model_uncertainty"]["frame_stride"]) for item in summaries}
+    if len(frame_strides) != 1:
+        raise ValueError("model-uncertainty runs must use a common frame stride")
+    if args.model_uncertainty and frame_strides != {args.uncertainty_stride}:
+        raise ValueError("saved LLPR frame stride differs from the requested stride; rerun per-trajectory analysis")
+    if args.expected_uncertainty_frames is not None and any(
+        int(item["model_uncertainty"]["sampled_frames"]) != args.expected_uncertainty_frames
+        for item in summaries
+    ):
+        raise ValueError("saved LLPR frame count differs from --expected-uncertainty-frames; rerun per-trajectory analysis")
     masses = {float(item["metadata"]["total_mass_amu"]) for item in summaries}
     if len(hashes) != 1 or len(member_counts) != 1:
         raise ValueError(
@@ -1017,6 +1050,8 @@ def write_model_uncertainty_outputs(
     direct_effective_samples = np.empty_like(cea_enthalpy)
     dimensionless_delta_variance = np.empty_like(cea_enthalpy)
     replica_counts = np.empty(len(temperatures), dtype=int)
+    selected_frame_count = np.empty(len(temperatures), dtype=int)
+    production_frame_count = np.empty(len(temperatures), dtype=int)
     for index, temperature in enumerate(temperatures):
         selected = [
             item
@@ -1024,6 +1059,9 @@ def write_model_uncertainty_outputs(
             if math.isclose(float(item["target_temperature_K"]), temperature)
         ]
         replica_counts[index] = len(selected)
+        selected_frame_count[index] = sum(int(item["model_uncertainty"]["sampled_frames"]) for item in selected)
+        available_counts = [int(item["model_uncertainty"].get("production_frames", -1)) for item in selected]
+        production_frame_count[index] = sum(available_counts) if min(available_counts) >= 0 else -1
         cea_enthalpy[:, index] = np.mean(
             [item["model_uncertainty"]["cea_mean_enthalpy_eV"] for item in selected],
             axis=0,
@@ -1085,6 +1123,9 @@ def write_model_uncertainty_outputs(
         direct_effective_samples=direct_effective_samples,
         dimensionless_delta_variance=dimensionless_delta_variance,
         replica_counts=replica_counts,
+        selected_frame_count=selected_frame_count,
+        production_frame_count=production_frame_count,
+        frame_stride=next(iter(frame_strides)),
         model_sha256=next(iter(hashes)),
     )
     rows = []
@@ -1111,6 +1152,9 @@ def write_model_uncertainty_outputs(
                     :, index
                 ].max(),
                 "replicas": replica_counts[index],
+                "selected_frame_count": selected_frame_count[index],
+                "production_frame_count": production_frame_count[index],
+                "frame_stride": next(iter(frame_strides)),
             }
         )
     write_rows(args.analysis_dir / "model_uncertainty_heat_capacity.csv", rows)
@@ -1256,6 +1300,9 @@ def main() -> None:
         raise ValueError("--enthalpy-convergence-step-ps must be positive")
     if args.uncertainty_stride < 1 or args.uncertainty_batch_size < 1:
         raise ValueError("uncertainty stride and batch size must be positive")
+    if args.expected_uncertainty_frames is not None:
+        if args.expected_uncertainty_frames < 1 or not args.model_uncertainty:
+            raise ValueError("--expected-uncertainty-frames requires model uncertainty and a positive count")
     if args.uncertainty_model is not None and not args.model_uncertainty:
         raise ValueError("--uncertainty-model requires --model-uncertainty")
     patterns = [item.strip() for item in args.runs.split(",") if item.strip()]

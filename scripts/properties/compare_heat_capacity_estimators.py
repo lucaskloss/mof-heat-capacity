@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from mof_heat_capacity.analysis.statistics import AMU_TO_G, EV_TO_J, KB_EV_PER_K
 from mof_heat_capacity.analysis.statistics import integrated_autocorrelation_time
 from mof_heat_capacity.analysis.uncertainty import BAR_A3_TO_EV
+from mof_heat_capacity.analysis.uncertainty_comparison import archive_sha256
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
@@ -36,6 +37,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--replicas", type=_positive_int_list, default=[1])
     parser.add_argument("--analysis-dir", type=Path, default=DEFAULT_ANALYSIS_DIR)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument(
+        "--require-all-frames", action="store_true",
+        help="Reject archives without stride-1 coverage of all saved production frames",
+    )
     return parser.parse_args()
 
 
@@ -71,6 +76,11 @@ def compare(args: argparse.Namespace) -> tuple[Path, Path]:
         cea_by_member = np.asarray(ensemble["cea_cp_by_member_J_per_gK"], dtype=float)
         direct_by_member = np.asarray(ensemble["direct_cp_by_member_J_per_gK"], dtype=float)
         expected_hash = str(ensemble["model_sha256"])
+        expected_frame_counts = np.asarray(ensemble["selected_frame_count"], dtype=int) if "selected_frame_count" in ensemble else None
+        expected_stride = int(ensemble["frame_stride"].item()) if "frame_stride" in ensemble else None
+    cea_source_sha256 = archive_sha256(ensemble_path)
+    if args.require_all_frames and (expected_frame_counts is None or expected_stride != 1):
+        raise ValueError("rerun stride-1 trajectory analysis and aggregation before an all-frame comparison")
 
     member_count = cea_by_member.shape[0]
     if cea_by_member.shape != direct_by_member.shape or cea_by_member.shape[1] != len(temperatures):
@@ -80,6 +90,8 @@ def compare(args: argparse.Namespace) -> tuple[Path, Path]:
     central_variance = np.empty(len(temperatures), dtype=float)
     central_variance_sampling_se = np.empty(len(temperatures), dtype=float)
     frame_counts = np.zeros(len(temperatures), dtype=int)
+    production_counts = np.zeros(len(temperatures), dtype=int)
+    frame_strides: set[int] = set()
     atom_counts: set[int] = set()
     masses: set[float] = set()
     pressures: set[float] = set()
@@ -100,6 +112,20 @@ def compare(args: argparse.Namespace) -> tuple[Path, Path]:
                 central_potential = np.asarray(archive["central_potential_eV"], dtype=float)
                 member_potential = np.asarray(archive["member_potential_eV"], dtype=float)
                 volume = np.asarray(archive["volume_A3"], dtype=float)
+                selected_count = len(central_potential)
+                stride = int(archive["frame_stride"].item()) if "frame_stride" in archive else int(summary["model_uncertainty"]["frame_stride"])
+                available_count = int(archive["production_frame_count"].item()) if "production_frame_count" in archive else -1
+                if selected_count != int(summary["model_uncertainty"]["sampled_frames"]):
+                    raise ValueError(f"summary and LLPR archive frame counts differ: {run_dir}; rerun analysis")
+                if expected_stride is not None and stride != expected_stride:
+                    raise ValueError(f"CEA aggregate and LLPR archive strides differ: {run_dir}; rerun aggregation")
+                if args.require_all_frames and (stride != 1 or selected_count != available_count):
+                    raise ValueError(f"LLPR archive does not cover all saved production frames: {archive_path}")
+                frame_strides.add(stride)
+                if available_count < 0 or production_counts[temp_index] < 0:
+                    production_counts[temp_index] = -1
+                else:
+                    production_counts[temp_index] += available_count
                 if member_potential.shape != (len(central_potential), member_count):
                     raise ValueError(f"member energy shape mismatch in {archive_path}")
                 if len(central_potential) < 2:
@@ -160,6 +186,10 @@ def compare(args: argparse.Namespace) -> tuple[Path, Path]:
             within_replica_variance + between_replica_variance
         )
 
+    if expected_frame_counts is not None and not np.array_equal(frame_counts, expected_frame_counts):
+        raise ValueError("CEA aggregate and Gaussian comparison select different frame counts or replicas; rerun aggregation")
+    if len(frame_strides) != 1:
+        raise ValueError("selected LLPR runs do not share a frame stride")
     if len(atom_counts) != 1 or len(masses) != 1 or len(pressures) != 1:
         raise ValueError("selected replicas do not share atom count, mass, and pressure")
 
@@ -183,6 +213,9 @@ def compare(args: argparse.Namespace) -> tuple[Path, Path]:
         gaussian_npt_central_cp_J_per_gK=central_variance,
         gaussian_npt_central_sampling_standard_error_J_per_gK=central_variance_sampling_se,
         selected_frame_count=frame_counts,
+        production_frame_count=production_counts,
+        frame_stride=next(iter(frame_strides)),
+        cea_source_sha256=cea_source_sha256,
         atom_count=next(iter(atom_counts)),
         pressure_bar=next(iter(pressures)),
         replica_ids=np.asarray(args.replicas, dtype=int),
@@ -201,6 +234,8 @@ def compare(args: argparse.Namespace) -> tuple[Path, Path]:
         "gaussian_npt_central_cp_J_per_gK",
         "gaussian_npt_central_sampling_standard_error_J_per_gK",
         "selected_frames",
+        "production_frames",
+        "frame_stride",
     ]
     with csv_output.open("w", newline="") as handle:
         writer = csv.writer(handle)
@@ -218,6 +253,8 @@ def compare(args: argparse.Namespace) -> tuple[Path, Path]:
                     central_variance[index],
                     central_variance_sampling_se[index],
                     frame_counts[index],
+                    production_counts[index],
+                    next(iter(frame_strides)),
                 ]
             )
 

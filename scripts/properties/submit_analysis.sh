@@ -29,8 +29,9 @@ NO_AGGREGATE=0
 AGGREGATE_ONLY=0
 MODEL_UNCERTAINTY=1
 UNCERTAINTY_MODEL=""
-UNCERTAINTY_STRIDE=20
+UNCERTAINTY_STRIDE=1
 UNCERTAINTY_BATCH_SIZE=4
+EXPECTED_UNCERTAINTY_FRAMES=""
 DRY_RUN=0
 
 
@@ -42,8 +43,9 @@ run_analysis_worker() {
     local no_plots=0
     local model_uncertainty=0
     local uncertainty_model=""
-    local uncertainty_stride=20
+    local uncertainty_stride=1
     local uncertainty_batch_size=4
+    local expected_uncertainty_frames=""
     local run_only=0
     local aggregate_only=0
 
@@ -59,6 +61,7 @@ run_analysis_worker() {
             --uncertainty-model) uncertainty_model="$2"; shift 2 ;;
             --uncertainty-stride) uncertainty_stride="$2"; shift 2 ;;
             --uncertainty-batch-size) uncertainty_batch_size="$2"; shift 2 ;;
+            --expected-uncertainty-frames) expected_uncertainty_frames="$2"; shift 2 ;;
             --run-only) run_only=1; shift ;;
             --aggregate-only) aggregate_only=1; shift ;;
             *) echo "error: unknown analysis-worker argument: $1" >&2; exit 2 ;;
@@ -77,6 +80,11 @@ run_analysis_worker() {
         || -z "${runs}" || -z "${analysis_dir}" ]] \
         || ((run_only && aggregate_only)); then
         echo "error: invalid internal analysis-worker arguments" >&2
+        exit 2
+    fi
+
+    if [[ -n "${expected_uncertainty_frames}" && ! "${expected_uncertainty_frames}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "error: --expected-uncertainty-frames must be a positive integer" >&2
         exit 2
     fi
 
@@ -111,7 +119,7 @@ run_analysis_worker() {
     echo "Discard:         ${discard_ps} ps"
     echo "Analysis output: ${analysis_dir}"
     if ((model_uncertainty)); then
-        echo "Model UQ:        enabled (matching LLPR checkpoint)"
+        echo "Model UQ:        enabled (matching LLPR checkpoint), frame stride=${uncertainty_stride}"
     else
         echo "Model UQ:        disabled"
     fi
@@ -132,6 +140,9 @@ run_analysis_worker() {
             --uncertainty-stride "${uncertainty_stride}"
             --uncertainty-batch-size "${uncertainty_batch_size}"
         )
+        if [[ -n "${expected_uncertainty_frames}" ]]; then
+            command+=(--expected-uncertainty-frames "${expected_uncertainty_frames}")
+        fi
         if [[ -n "${uncertainty_model}" ]]; then
             command+=(--uncertainty-model "${uncertainty_model}")
         fi
@@ -183,7 +194,10 @@ Options:
   --uncertainty-model PATH
                           LLPR checkpoint or exported ensemble override; use
                           with one MLIP. Defaults to the matching model/*.ckpt.
-  --uncertainty-stride N  Use every Nth production frame for UQ (default: 20).
+  --uncertainty-stride N  Use every Nth production frame for UQ (default: 1, all frames).
+  --expected-uncertainty-frames N
+                          Require exactly N evaluated frames per trajectory;
+                          fail before inference if the saved selection differs.
   --uncertainty-batch-size N
                           Structures per model-inference batch (default: 4).
   --dry-run               Validate inputs and print the sbatch commands.
@@ -237,6 +251,7 @@ while (($#)); do
         --uncertainty-model) require_value "$@"; UNCERTAINTY_MODEL="$2"; shift 2 ;;
         --uncertainty-stride) require_value "$@"; UNCERTAINTY_STRIDE="$2"; shift 2 ;;
         --uncertainty-batch-size) require_value "$@"; UNCERTAINTY_BATCH_SIZE="$2"; shift 2 ;;
+        --expected-uncertainty-frames) require_value "$@"; EXPECTED_UNCERTAINTY_FRAMES="$2"; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -299,6 +314,14 @@ fi
 if [[ ! "${UNCERTAINTY_STRIDE}" =~ ^[1-9][0-9]*$ \
     || ! "${UNCERTAINTY_BATCH_SIZE}" =~ ^[1-9][0-9]*$ ]]; then
     echo "error: invalid uncertainty stride or batch size" >&2
+    exit 2
+fi
+if [[ -n "${EXPECTED_UNCERTAINTY_FRAMES}" && ! "${EXPECTED_UNCERTAINTY_FRAMES}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: --expected-uncertainty-frames must be a positive integer" >&2
+    exit 2
+fi
+if [[ -n "${EXPECTED_UNCERTAINTY_FRAMES}" && "${MODEL_UNCERTAINTY}" -ne 1 ]]; then
+    echo "error: --expected-uncertainty-frames requires model uncertainty" >&2
     exit 2
 fi
 if [[ -n "${UNCERTAINTY_MODEL}" && ! "${MODEL_UNCERTAINTY}" -eq 1 ]]; then
@@ -505,6 +528,9 @@ for record in "${SELECTED_RUN_RECORDS[@]}"; do
             --uncertainty-stride "${UNCERTAINTY_STRIDE}"
             --uncertainty-batch-size "${UNCERTAINTY_BATCH_SIZE}"
         )
+        if [[ -n "${EXPECTED_UNCERTAINTY_FRAMES}" ]]; then
+            command+=(--expected-uncertainty-frames "${EXPECTED_UNCERTAINTY_FRAMES}")
+        fi
         if [[ -n "${UNCERTAINTY_MODEL}" ]]; then
             command+=(--uncertainty-model "${UNCERTAINTY_MODEL}")
         fi
@@ -569,6 +595,9 @@ for group_key in "${GROUP_KEYS[@]}"; do
             --uncertainty-stride "${UNCERTAINTY_STRIDE}"
             --uncertainty-batch-size "${UNCERTAINTY_BATCH_SIZE}"
         )
+        if [[ -n "${EXPECTED_UNCERTAINTY_FRAMES}" ]]; then
+            aggregate_command+=(--expected-uncertainty-frames "${EXPECTED_UNCERTAINTY_FRAMES}")
+        fi
         if [[ -n "${UNCERTAINTY_MODEL}" ]]; then
             aggregate_command+=(--uncertainty-model "${UNCERTAINTY_MODEL}")
         fi
