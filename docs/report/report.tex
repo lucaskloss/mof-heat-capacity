@@ -1110,19 +1110,35 @@ sparsity pattern $\bm S$ at a specified reachability depth
 \texttt{hops}, then expands every connected atom pair into its Cartesian
 $3\times3$ block.
 
+The supplied paper by Langer, Hill, and Ceriotti \cite{sadMof} derives this
+reach from the readout architecture (Section 4 and Appendix C). With $L$
+message-passing layers, a node-readout energy term couples atoms within one
+$L$-hop ball, giving maximum Hessian reach $K=2L$. PET's edge readout couples
+the $L$-hop neighborhoods of two adjacent atoms, giving $K=2L+1$.
+Thus the paper's MACE-MP-0 medium, PET-XS, and PET-S models have exact
+reaches of four, five, and seven hops, respectively. If $\bm A$ is the
+undirected input-graph adjacency, the atom-pair pattern is
+\begin{equation}
+  \bm P^{(k)}=\bm I\lor\bm A\lor\bm A^2\lor\cdots\lor\bm A^k,
+  \label{eq:hop-pattern}
+\end{equation}
+with powers and unions evaluated in Boolean arithmetic. At $k=K$ this
+includes every structurally allowed coupling under the stated derivative
+convention; $k<K$ defines the paper's truncated ASD hierarchy. Additional
+nonlocal energy terms would require a separate analysis.
+
 Here ``structurally zero'' is stronger than being numerically zero at one
 geometry. Writing Cartesian indices as $p,q\in\{1,\ldots,3N\}$, the pattern
-is intended to satisfy
+is intended to satisfy, for every geometry covered by the pattern,
 \begin{equation}
   S_{pq}=0\quad\Longrightarrow\quad H_{pq}=0
-  \quad\text{for every geometry covered by the pattern}.
   \label{eq:hessian-sparsity-pattern}
 \end{equation}
 An entry allowed by $S_{pq}=1$ may nevertheless vanish at a particular
 geometry because of symmetry or cancellation. Such an overestimate merely
 stores extra entries and can require extra colors; an underestimate with
-$S_{pq}=0$ where $H_{pq}\ne0$ discards curvature and makes reconstruction
-incorrect. For a Hessian, detecting the pattern is intrinsically a
+$S_{pq}=0$ where $H_{pq}\ne0$ discards curvature and can also contaminate
+retained entries during decompression. For a Hessian, detecting the pattern is intrinsically a
 second-order problem: linear dependence can later participate in a nonlinear
 operation and create a mixed second derivative. The general automatic sparse
 differentiation pipeline therefore tracks nonlinear and cross-argument
@@ -1175,7 +1191,7 @@ and all entries with $S_{pq}=0$ are set to zero. Equation
 that every other term in the sum in Eq.~\eqref{eq:compressed-hessian} is zero
 in row $p$.
 
-SADMOF's call to \texttt{asdex.hessian\_coloring\_from\_sparsity} instead
+SADMOF's ASDEX Hessian coloring instead
 uses the Hessian symmetry $H_{pq}=H_{qp}$ through a star coloring. A star
 coloring is a proper coloring of the undirected Hessian sparsity graph in
 which every path on four vertices uses at least three colors; equivalently,
@@ -1188,6 +1204,13 @@ locations is uncontaminated. ASDEX gathers that value and writes it to both
 $H_{pq}$ and $H_{qp}$. Symmetry thus acts as a second possible route to each
 off-diagonal entry and can reduce $n_c$ relative to ordinary column coloring
 \cite{hill2025asd,sadMof}.
+
+Appendix D of the paper \cite{sadMof} also exploits the $3\times3$ block
+structure: star-color the atom-pair graph, then assign Cartesian component
+$d\in\{0,1,2\}$ of atom $i$ the color $3c_i+d$. This lifts the atom coloring
+to a valid coordinate star coloring while reducing setup cost. The present
+wrapper passes the pattern directly to ASDEX; availability of this
+optimization depends on the installed dependency implementation.
 
 The complete compression pipeline is therefore: detect $\bm S$, color the
 associated graph, evaluate the $n_c$ colored HVPs, and decompress their nonzero
@@ -1224,11 +1247,48 @@ Sparse reconstruction is not a modified physical definition of the Hessian.
 It reproduces the dense AD Hessian only when $\bm S$ contains every nonzero
 entry of the differentiated model. In particular,
 \texttt{hops} is the reach of the proposed Hessian pattern, not the number of
-PET message-passing blocks. The local SADMOF implementation identifies seven
-hops as the structurally exact pattern for its three-layer PET-MAD-S graph
-construction \cite{sadMof}. The project's current value
-\texttt{hops=3} is therefore a truncation and must be increased until the
-frequencies and heat-capacity correction converge.
+PET message-passing blocks. The paper derives seven hops for three-layer
+PET-S ($K=2L+1$), using the selected graph and omitting adaptive-cutoff
+forces \cite{sadMof}. The project's current value \texttt{hops=3} is therefore
+a truncation and must be increased until the frequencies and heat-capacity
+correction converge.
+
+Crucially, truncated ASD is not equivalent to zeroing distant blocks of an
+already computed dense Hessian. Its HVPs still differentiate the complete
+energy callable; couplings omitted from the assumed pattern may share colors
+with retained entries and contaminate their compressed values. With
+$\bm M_k$ the Cartesian mask and $\widetilde{\bm H}_k$ the reconstructed
+Hessian before acoustic-sum-rule postprocessing, write
+\begin{align}
+  \Delta\bm H_{\mathrm{disc}}&=-(\bm 1-\bm M_k)\odot\bm H,\\
+  \Delta\bm H_{\mathrm{cont}}&=\bm M_k\odot(\widetilde{\bm H}_k-\bm H),
+\end{align}
+where $\odot$ denotes entrywise multiplication. The supports are disjoint, so
+\begin{equation}
+  \|\widetilde{\bm H}_k-\bm H\|_F^2
+  =\|\Delta\bm H_{\mathrm{disc}}\|_F^2
+   +\|\Delta\bm H_{\mathrm{cont}}\|_F^2.
+\end{equation}
+Appendix H finds that contamination tracks the discarded norm until the
+floating-point floor; this is empirical evidence, not a universal error bound.
+Acoustic-sum-rule enforcement does not undo either general source of error.
+
+The paper reports rapid decay of force constants with hop distance and only
+modest speedups for exact patterns. At a $0.1\%$ heat-capacity tolerance at
+300 K, most benchmark structures converge at two hops for MACE, three for
+PET-S, and four for PET-XS, with slower-converging zeolite cases
+\cite{sadMof}. Those observations do not establish convergence for loaded
+MOF-5. Compare increasing hop counts against an exact-pattern or feasible
+dense reference at fixed geometry and derivative convention, inspecting signed
+frequencies and the final harmonic correction across the temperature grid.
+Small spectral shifts near a mode-selection threshold can change heat
+capacity, and convergence need not be monotonic (Appendix E).
+
+Exactness at a fixed cell size is also distinct from periodic-cell convergence.
+Appendix A tracks periodic image offsets through the model's full graph reach
+to choose supercells without folding distinct interactions onto one
+force-constant entry. Sparse AD alone does not establish that a chosen cell
+provides a converged vibrational heat capacity.
 
 The other numerical controls do not change the intended Hessian:
 \texttt{chunk\_size} controls how many colored directions are batched,
@@ -1716,10 +1776,11 @@ ICLR Blogposts (2025),
 {online article}.
 
 \bibitem{sadMof}
-M. F. Langer, M. Ceriotti, and collaborators,
-\emph{SADMOF: Sparse Automatic Differentiation for Heat Capacity of
-Metal--Organic Frameworks}, project software and methodology under
-development (version used by this repository, 2026).
+M. F. Langer, A. Hill, and M. Ceriotti,
+\emph{Truncated automatic sparse differentiation for machine learning
+interatomic potentials}, supplied preprint,
+\href{../SADMOF.pdf}{local paper (SADMOF.pdf)}.
+Sections 4--5 and Appendices A--E and H.
 
 \end{thebibliography}
 

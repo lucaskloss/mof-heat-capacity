@@ -1,346 +1,116 @@
-# SADMOF Hessians and harmonic heat capacity
+# SADMOF: sparse Hessians and harmonic heat capacity
 
-This guide explains how this project uses SADMOF, PET-JAX, JAX, and asdex to
-compute harmonic vibrational properties. It is intended as a map of the code
-and a debugging guide, not as an alternative command-line workflow. Submit
-the supported jobs through
-[`scripts/properties/submit_heat_capacity.sh`](../scripts/properties/submit_heat_capacity.sh),
-as documented in
-[`scripts/properties/README.md`](../scripts/properties/README.md).
+Marcel F. Langer, Adrian Hill, and Michele Ceriotti, *Truncated automatic sparse
+differentiation for machine learning interatomic potentials*,
+[supplied preprint](SADMOF.pdf). Section 4 describes the method; Appendices C,
+D, and H derive the reach, block coloring, and truncation error.
+Commands, library calls, parameters, archives, and debugging are documented
+beside the scripts in [HESSIANS.md](../scripts/properties/HESSIANS.md).
 
-## What each library does
+## Sparsity from locality
 
-| Component | Responsibility |
-| --- | --- |
-| This repository | Selects structures, relaxes them, calls SADMOF, preserves signed frequencies, validates minima, stores provenance, and assembles the hybrid heat capacity. |
-| SADMOF | Adapts PET models to JAX, describes the Hessian sparsity pattern, reconstructs a sparse Hessian, and evaluates harmonic heat capacity. |
-| PET-JAX | Loads and evaluates the JAX version of the PET potential. |
-| JAX | Differentiates the PET energy and compiles the Hessian calculation for the GPU. |
-| asdex | Colors the Hessian sparsity pattern and reconstructs the sparse matrix from compressed Hessian-vector products. |
-| ASE | Stores atomic structures, performs fixed-cell relaxation, supplies masses and units, and reads/writes structure files. |
-
-SADMOF does **not** decide which thermal structure is scientifically valid,
-relax the structure, prove that it is a minimum, or assemble the final hybrid
-$C_P$. Those responsibilities remain in this repository.
-
-## End-to-end data flow
-
-```text
-final loaded MD structure                     equilibrated empty MOF
-              |                                        |
-              +------ fixed-cell MLIP relaxation ------+
-                                     |
-                            optimized ASE structure
-                                     |
-                     PET checkpoint -> PET-JAX model
-                                     |
-                 PET neighbour graph and sparse pattern
-                                     |
-                    JAX + asdex sparse AD Hessian
-                                     |
-                mass weighting and eigendecomposition
-                                     |
-                     signed frequencies and harmonic Cv
-                                     |
-            validation + quantum-minus-classical correction
-                                     |
-          classical NPT d<Etot + Pext V>/dT + correction
-                                     |
-                         approximate hybrid Cp
-```
-
-The production Hessian is computed at a fixed-cell local minimum, not at a raw
-finite-temperature MD frame. A thermal frame generally has nonzero forces and
-can produce imaginary modes that describe the local slope rather than a
-meaningful normal-mode spectrum.
-
-## Installation and model conversion
-
-[`scripts/setup/install_sadmof.sh`](../scripts/setup/install_sadmof.sh) installs
-an editable SADMOF checkout and pinned copies of its direct dependencies. In
-particular, this project pins asdex, PET-JAX, JAX, `jaxlib`, and the CUDA 12 JAX
-plugins so that they remain compatible with Izar's V100 GPUs.
-
-The MD model and Hessian model are two representations of the same potential:
-
-- the exported metatomic/PyTorch model is used for MD and relaxation;
-- the PET-JAX checkpoint directory is used for automatic differentiation.
-
-A PET-JAX directory contains `model.msgpack` and `metadata.yaml`. If it does
-not exist, `ensure_jax_checkpoint()` in
-[`harmonic.py`](../mof_heat_capacity/analysis/harmonic.py) converts the original
-PET checkpoint. A filesystem lock prevents simultaneous Slurm jobs from
-performing the same conversion. Checkpoint, exported-model, and JAX-conversion
-paths must always refer to the same trained potential.
-
-## How the sparse Hessian is constructed
-
-For Cartesian coordinates $\mathbf R$, the force-constant matrix is
+For $N$ atoms, the Cartesian force-constant matrix is
 
 $$H_{i\alpha,j\beta} = \frac{\partial^2 E}{\partial R_{i\alpha}\,\partial R_{j\beta}}. $$
 
-The implementation in
-[`compute_frame_hessian()`](../mof_heat_capacity/analysis/harmonic.py) follows
-this sequence:
+Two atoms can couple when they influence the same energy term. With $L$
+message-passing layers, a node readout has maximum Hessian reach $K=2L$;
+PET's edge readout spans neighborhoods of adjacent atoms, giving $K=2L+1$.
+These bounds assume the stated architecture and derivative convention.
 
-1. `sadmof.models.pet.atoms_to_inputs()` converts an ASE structure into PET
-   positions, cell, species, masks, and neighbour graphs. PET has both a raw
-   cutoff graph and a tighter selected adaptive-neighbour graph.
-2. `sadmof.sparse.sparsity_pattern()` expands graph reachability to the chosen
-   number of `hops` and then expands each atom pair to a Cartesian $3\times3$
-   block.
-3. `asdex.hessian_coloring_from_sparsity()` groups independent Hessian columns
-   into colors. One compressed differentiation can recover multiple columns.
-4. `sadmof.models.pet.get_energy_fn(..., no_shadow=True)` constructs the scalar
-   PET total-energy function used by automatic differentiation.
-5. `sadmof.sparse.get_hessian_fn()` builds the colored Hessian-vector-product
-   calculation. JAX compiles it with `jax.jit` and runs it on the GPU.
-6. The returned JAX sparse matrix is densified, and padding atoms introduced
-   by PET-JAX are removed. The result has shape $(3N,3N)$ for the real atoms.
+| Model in the paper | $L$ | Exact reach $K$ |
+| --- | --- | --- |
+| MACE-MP-0 medium | 2 | 4 |
+| PET-MAD-1.5 XS | 2 | 5 |
+| PET-MAD-1.5 S | 3 | 7 |
 
-This is sparse **reconstruction**, not a different physical definition of the
-Hessian. It is exact only when the supplied sparsity pattern includes every
-nonzero coupling relevant to the model.
+For undirected input-graph adjacency $A$, Boolean arithmetic gives the
+atom-pair pattern through $k$ hops:
 
-At library level, the central calls look like this simplified sketch:
+$$P^{(k)} = I \lor A \lor A^2 \lor \cdots \lor A^k.$$
 
-```python
-import asdex
-import jax
+The identity includes on-site blocks; each allowed pair expands to a
+$3\times3$ Cartesian block. At $k=K$, entries outside the pattern are
+structurally zero. A conservative superset is safe but may require more colors.
+Additional nonlocal energy terms need their own pattern. For PET, the paper
+stops adaptive-cutoff derivatives and uses the selected neighbor graph.
 
-from sadmof.models.pet import atoms_to_inputs, get_energy_fn, load_pet
-from sadmof.sparse import get_hessian_fn, sparsity_pattern
+## Compressed differentiation
 
-model, params, metadata = load_pet(jax_checkpoint, dtype="float64")
-positions, cell, graph = atoms_to_inputs(atoms, model, metadata)
-pattern = sparsity_pattern(
-    {
-        "centers": graph["sel_centers"],
-        "others": graph["sel_others"],
-        "atomic_numbers": graph["atomic_numbers"],
-    },
-    hops=3,
-)
-coloring = asdex.hessian_coloring_from_sparsity(
-    pattern, mode="fwd_over_rev"
-)
-energy = get_energy_fn(model, metadata, no_shadow=True)
-hessian_fn = jax.jit(
-    get_hessian_fn(energy, coloring, chunk_size=1, remat=True)
-)
-sparse_hessian = jax.block_until_ready(
-    hessian_fn(params, positions, cell, graph)
-)
-```
+Forward-over-reverse AD evaluates a Hessian-vector product (HVP):
 
-The project wrapper adds precision selection, conversion locking, padding
-removal, acoustic-sum-rule enforcement, signed frequencies, output metadata,
-and validation. For production, use the Bash workflow rather than copying this
-sketch into a separate script.
+$$H v = \left.\frac{d}{d\epsilon}\nabla_{\mathbf R}E(\mathbf R+\epsilon v)\right|_{\epsilon=0}.$$
 
-### Parameters that control the calculation
+Dense reconstruction uses $3N$ basis-vector seeds. Coloring combines columns:
+for color assignment $c(q)$, set $V_{qa}=1$ when $c(q)=a$ and zero otherwise.
 
-`hops`
-: Controls how far coupling is propagated through the neighbour graph. Too
-  few hops omit Hessian blocks and change frequencies; more hops increase the
-  color count, runtime, and memory. SADMOF's source identifies seven hops as
-  the structurally exact pattern for PET-MAD-S with three message-passing
-  layers. This project's configured value of three is therefore a truncation
-  and must be treated as a convergence parameter, not as a universal exact
-  setting. Other PET architectures require their own validation.
+$$Y=HV, \qquad Y_{pa}=\sum_{q:c(q)=a}H_{pq}.$$
 
-`chunk_size`
-: Number of colors evaluated together. It changes peak GPU memory and
-  throughput, but should not change a converged numerical result. A larger
-  value can be faster and can also cause an out-of-memory failure.
+Ordinary column coloring forbids same-color nonzeros in a row, so
+$H_{pq}=Y_{p,c(q)}$. **Star coloring** uses Hessian symmetry to recover each
+entry from either orientation. It forbids two-colored paths on four vertices;
+each two-color subgraph is a collection of stars. At least one orientation of
+each off-diagonal entry then has an uncontaminated compressed value.
 
-`dtype`
-: `float32` uses less memory; `float64` promotes PET parameters and enables JAX
-  64-bit mode. Compare frequencies and the final correction before deciding
-  that single precision is adequate.
+The block structure allows atom colors $c_i$ to be lifted to Cartesian colors
+$3c_i+d$, $d\in\{0,1,2\}$ (Appendix D). With $n_c$ colors, only $n_c$
+HVP directions are needed. For an $O(N)$ energy evaluation at fixed density,
+differentiated work is $O(Nn_c)$ instead of $O(N^2)$; setup and reconstruction
+add overhead. Full-spectrum analysis still requires matrix storage and
+an eigendecomposition.
 
-`remat`
-: Enables JAX checkpointing (`jax.checkpoint`). It saves intermediate memory
-  by recomputing parts of the energy evaluation, trading time for memory.
+## Truncation error and convergence
 
-`no_shadow=True`
-: Stops derivatives through PET's adaptive cutoff. This confines coupling to
-  the selected graph and makes the sparse path possible. Shadow derivatives
-  extend beyond that graph and require a dense treatment; this repository
-  rejects `shadow=true` for the sparse workflow.
+For $k<K$, truncated ASD discards distant couplings. Those couplings remain in
+the full-energy HVPs and can also **contaminate retained entries** sharing a
+color. Thus truncated reconstruction differs from masking a dense Hessian.
 
-Changing any of these settings to make a job fit is a scientific/numerical
-change. Preserve the old output under a separate Hessian tag and compare it.
+Let $M_k$ be the Cartesian mask and $\widetilde H_k$ the reconstructed matrix
+before acoustic-sum-rule postprocessing. The discarded and contaminated errors
+have disjoint supports, with $\odot$ denoting entrywise multiplication:
 
-## From the Hessian to signed frequencies
+$$\Delta H_{\mathrm{disc}}=-(1-M_k)\odot H, \qquad \Delta H_{\mathrm{cont}}=M_k\odot(\widetilde H_k-H).$$
 
-The project symmetrizes the dense real-atom Hessian and applies a
-force-constant acoustic sum rule. The latter forces a uniform translation to
-have zero restoring force. It then constructs the mass-weighted dynamical
-matrix
+$$\|\widetilde H_k-H\|_F^2=\|\Delta H_{\mathrm{disc}}\|_F^2+\|\Delta H_{\mathrm{cont}}\|_F^2.$$
+
+The paper finds rapid decay with hop distance. Most benchmark structures reach
+0.1% heat-capacity accuracy at 300 K with two hops for MACE, three for PET-S,
+and four for PET-XS; some zeolites need more (Section 5). These empirical results
+provide no universal error bound or convergence guarantee for loaded MOF-5.
+
+Compare increasing hop counts with an exact-pattern or feasible dense reference
+at the same geometry and derivative convention. Check signed frequencies and
+the final correction across temperatures: soft modes near the selection
+threshold can change the mode count. Acoustic-sum-rule enforcement restores
+translations but does not recover missing curvature. Periodic-cell convergence
+is a separate requirement (Appendices A and E).
+
+## Frequencies and heat capacity
+
+At a fixed-cell minimum, mass weighting gives the dynamical matrix:
 
 $$D_{i\alpha,j\beta} = \frac{H_{i\alpha,j\beta}}{\sqrt{m_i m_j}}, $$
 
-diagonalizes $D$, and converts its eigenvalues $\omega^2$ to frequencies
-in cm$^{-1}$.
+Its eigenvalues are $\omega^2$. Negative values indicate imaginary modes and
+must remain visible when validating a minimum. Uniform translations should
+supply three zero modes.
 
-This repository deliberately differs from SADMOF's compatibility helper for
-unstable modes. SADMOF's default observable maps negative eigenvalues to zero;
-[`signed_frequencies_from_hessian()`](../mof_heat_capacity/analysis/harmonic.py)
-stores them as negative frequencies. Keeping the sign is essential: otherwise
-an unconverged structure or saddle point could look like a valid minimum.
-
-The normal production expectation is:
-
-- no frequency below $-1$ cm$^{-1}$;
-- no more than three modes within $\pm1$ cm$^{-1}$, corresponding to
-  translations;
-- all remaining modes positive.
-
-The final hybrid analysis enforces these conditions. Do not remove imaginary
-modes merely to obtain a smooth heat-capacity curve; return to the relaxation,
-precision, sparsity, or model consistency instead.
-
-## Harmonic heat capacity
-
-For each retained positive mode, SADMOF evaluates the quantum harmonic
-oscillator contribution
+For each retained positive-frequency mode,
 
 $$C_{V,k}^{\mathrm{qn}}(T) = k_B\frac{x_k^2 e^{-x_k}}{(1-e^{-x_k})^2}, \qquad x_k=\frac{h c\tilde\nu_k}{k_B T}. $$
 
-Summing the modes and dividing by the total cell mass gives gravimetric
-$C_V$ in $J g^{-1} K^{-1}$. High-frequency modes freeze out at low
-temperature; each active mode approaches $k_B$ in the classical high-
-temperature limit.
-
-The `cv_J_per_gK` stored in a Hessian archive is a useful direct harmonic
-diagnostic. It is not inserted unchanged into the final result. Hybrid
-assembly reloads the signed frequencies, applies its validated common mode
-mask, and recomputes both terms
+Sum over modes and divide by cell mass for gravimetric $C_V$ in
+$J g^{-1} K^{-1}$. Each mode approaches $k_B$ at high temperature and freezes
+out at low temperature. Use the same validated mode set in both terms of
 
 $$\Delta C^{\mathrm{har}}(T) = C_{V,\mathrm{qn}}^{\mathrm{har}}(T) - C_{V,\mathrm{cl}}^{\mathrm{har}}. $$
 
-There are intentionally two thresholds to recognize when comparing files.
-SADMOF's direct diagnostic curve drops modes below its default
-$10^{-3}$ cm$^{-1}$. Final hybrid assembly uses the stricter project
-threshold of 1 cm$^{-1}$, rejects negative modes below that threshold, and
-uses the same retained positive modes for both the quantum and classical
-terms. The final correction is therefore the authoritative thermodynamic
-quantity.
-
-It then combines this correction with the loaded classical NPT enthalpy
-derivative:
+The project's hybrid approximation adds the loaded-system correction to the
+classical NPT enthalpy derivative:
 
 $$C_P^{\mathrm{approx}}(T) = \frac{d\langle E_{\mathrm{tot}}+P_{\mathrm{ext}}V\rangle}{dT} + \Delta C^{\mathrm{har}}(T). $$
 
-The loaded Hessians determine the correction used in this expression. The
-empty-MOF Hessian is a separate reference and pipeline check; it is not
-subtracted from the loaded spectrum in the current hybrid formula.
-
-## Files and provenance
-
-For each replica, the property workflow relaxes only the highest selected
-loaded source temperature. `TEMPERATUREK` below labels that shared source
-(400 K for the default campaign), rather than the evaluation temperature:
-
-- `minima/TEMPERATUREK/repNN/optimized.extxyz`: the optimized Hessian input;
-- `minima/TEMPERATUREK/repNN/optimized.optimizer.traj`: optimization history;
-- `minima/TEMPERATUREK/repNN/optimized.relax.log`: the optimizer log;
-- `minima/TEMPERATUREK/repNN/optimized.relax.json`: fixed-cell flag, force target, final
-  force, energies, optimizer, and step count;
-- `hessians/TEMPERATUREK/repNN/hessian.npz`: signed frequencies and harmonic $C_V$,
-  temperature grid, model path, frame selection, and Hessian settings.
-
-The default LLPR workflow first saves `hessian.central.npz`, then uses eight
-independent GPU array tasks to compute eight members each, saving
-`hessian.llpr-0.npz` through `hessian.llpr-7.npz`. Each worker reuses the central
-Hessian and has a separate restart checkpoint. The merge restores member
-indices 0–63, validates shared provenance, and pools matrix moments to retain
-the same sample variance as the serial calculation. The final merge job ID
-is the upstream dependency for hybrid assembly. `--llpr-jobs 1` retains serial
-execution; `--no-model-uncertainty` computes only the central spectrum.
-
-The empty reference uses the same concise role filenames below `0ch4/`, without
-a redundant temperature or replica directory. The final hybrid NPZ, CSV, and JSON record the classical term, the
-harmonic correction, uncertainties, and the Hessian provenance consumed. At
-each classical-MD temperature, hybrid assembly uses the same highest-source
-central and LLPR spectra with that temperature in the harmonic sum. Classical
-NPT enthalpy and volume remain temperature-dependent. The JSON records both
-the evaluation temperature and `hessian_source_temperature_K`.
-
-Important Hessian-archive fields are:
-
-| Field | Meaning |
-| --- | --- |
-| `frequencies_cm1` | Signed spectrum, normally shape `(1, 3N)` for one optimized structure. |
-| `cv_J_per_gK` | Direct SADMOF quantum-harmonic diagnostic curve. |
-| `temperatures_K` | Temperature grid corresponding to the diagnostic curve. |
-| `trajectory` | Optimized structure used as the Hessian input. |
-| `checkpoint` | PET-JAX checkpoint directory actually loaded. |
-| `central_hessians_eV_per_A2` | Central Hessian matrices reused by LLPR workers. |
-| `trajectory_sha256` | Geometry file identity checked by workers and merge. |
-| `llpr_member_indices` | Persistent ensemble member identities, sorted 0–63 in the merged archive. |
-| `llpr_frequencies_cm1` | Signed LLPR member spectra, shape `(1, 64, 3N)` in the merged archive. |
-| `metadata` | Precision, hops, chunk size, rematerialization, frequency convention, ASR, and diagnostic threshold. |
-
-## A practical debugging order
-
-When a Hessian job or result looks wrong, check the pipeline in this order:
-
-1. **GPU preflight:** confirm the automatic preflight log sees a JAX GPU and a
-   CUDA-compatible PyTorch build. A CPU JAX device is an environment failure,
-   not a reason to increase wall time.
-2. **Model identity:** confirm the PyTorch checkpoint, exported model, and
-   PET-JAX conversion belong to the same model. A job that runs with mismatched
-   weights is still scientifically invalid.
-3. **Relaxation provenance:** inspect `.relax.json` and the optimizer log.
-   Confirm `fixed_cell=true`, finite energy/forces, and final maximum force no
-   larger than the requested `fmax`.
-4. **Structure identity:** check atom count, species, cell, total mass, and the
-   selected replica. Hybrid assembly rejects a mass mismatch but cannot infer
-   every possible structure-selection mistake.
-5. **Spectrum:** count imaginary and near-zero modes and inspect the minimum
-   frequency. Large negative modes usually indicate a saddle, poor relaxation,
-   inconsistent model, or an under-converged Hessian.
-6. **Numerical convergence:** compare precision, hops, chunk size, and remat
-   using separately tagged outputs. `chunk_size` and `remat` should affect
-   resources, while converged frequencies should be insensitive to them.
-7. **Thermodynamic convergence:** compare the quantum correction across
-   independent loaded minima. One numerically clean Hessian does not quantify
-   minimum-to-minimum variability.
-
-### Common failures
-
-| Symptom | Likely cause or next check |
-| --- | --- |
-| JAX reports only CPU devices | CUDA plugin/JAX mismatch, no GPU allocation, or environment activation failure. |
-| PET-JAX conversion is repeatedly regenerated | Incomplete `model.msgpack`/`metadata.yaml`, wrong path, or interrupted conversion. |
-| GPU out of memory during compilation/evaluation | Reduce `chunk_size` first; consider `remat`; do not silently reduce `hops` or precision. |
-| Job spends a long time before producing output | JAX compilation and sparsity coloring occur before evaluation; compare the Slurm log and a representative job before changing wall time. |
-| Relaxation succeeds but modes are imaginary | Tighten or continue the same minimum, verify model identity, and test Hessian convergence. |
-| More than three near-zero modes | Floppy/unstable structure, insufficient sparsity range, poor numerical precision, or an inappropriate minimum. |
-| Direct harmonic curve looks plausible but hybrid assembly rejects it | The archive may lack signed frequencies, relaxation provenance, matching mass, or an acceptable mode spectrum. |
-| Results change with `chunk_size` | Numerical instability, precision problems, or a library/version inconsistency; chunking should not change the mathematical Hessian. |
-
-## Source map
-
-The most useful code to read is:
-
-- [`mof_heat_capacity/analysis/harmonic.py`](../mof_heat_capacity/analysis/harmonic.py):
-  project wrapper, model conversion, sparse call path, signed frequencies, and
-  Hessian archive;
-- [`mof_heat_capacity/structures/relax.py`](../mof_heat_capacity/structures/relax.py):
-  fixed-cell minimization and provenance;
-- [`mof_heat_capacity/analysis/hybrid.py`](../mof_heat_capacity/analysis/hybrid.py):
-  spectral validation and quantum-minus-classical correction;
-- `external/sadmof/src/sadmof/models/pet/`: PET loading, inputs, and energy;
-- `external/sadmof/src/sadmof/sparse/`: graph sparsity and colored Hessian;
-- `external/sadmof/src/sadmof/observables/phonons.py`: SADMOF frequency and
-  harmonic-$C_V$ helpers;
-- `external/sadmof/deps/asdex/`: coloring and sparse reconstruction;
-- `external/sadmof/deps/pet-jax/`: PET model implementation and checkpoint
-  conversion.
-
-The `external/` tree is generated by the installer and is intentionally not
-versioned with this project. The three `mof_heat_capacity/` modules above are
-the stable project-level starting points when debugging or reviewing results.
+Classical MD supplies anharmonic motion; the fixed-cell harmonic correction
+replaces the classical statistics of those modes with quantum statistics.
+The empty-framework Hessian is a separate reference. Using a $C_V$ correction
+with an NPT $C_P$ derivative remains an approximation requiring validation.

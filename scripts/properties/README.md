@@ -4,9 +4,9 @@ This folder contains the user-facing property-calculation Bash commands and
 guide. They read existing configurations and simulation results and never
 start or resume molecular dynamics.
 
-For the SADMOF/PET-JAX Hessian algorithm, heat-capacity equations, archive
-contents, and debugging checks, see
-[`docs/SADMOF.md`](../../docs/SADMOF.md).
+For Hessian library calls, model metadata, numerical settings, archive fields,
+and debugging, see [HESSIANS.md](HESSIANS.md). Scientific theory and equations
+are in [SADMOF.md](../../docs/SADMOF.md) and [PET.md](../../docs/PET.md).
 
 Run commands from the repository root:
 
