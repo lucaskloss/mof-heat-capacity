@@ -1,7 +1,8 @@
 \documentclass[10pt,a4paper,twocolumn]{article}
 
 \usepackage[margin=1.8cm]{geometry}
-\usepackage{amsmath,amssymb,bm}
+\usepackage[cmex10]{amsmath}
+\usepackage{amssymb,bm}
 \usepackage{array}
 \usepackage{booktabs}
 \usepackage{graphicx}
@@ -22,7 +23,19 @@
 
 \begin{document}
 
-\maketitle
+\begin{titlepage}
+	\centering
+    \includegraphics[width=0.5\linewidth]{figures/epfl.png}\\[0.25cm] 	% University Logo
+    \textsc{\LARGE École Polytechnique Fédérale de Lausanne}\\ \vspace{\fill}
+    \textbf{\textsc{\fontsize{50}{50}\selectfont Advanced electronic structure calculation of semiconductors}}\\ \vspace{\fill}		
+	\textsc{\LARGE Physics project II}\\[0.4cm]
+	\rule{\linewidth}{0.2 mm} \\[0.5 cm]
+	Lucas De Almeida Kloss \\[2cm] \today
+\end{titlepage}
+
+\tableofcontents
+
+\pagebreak
 
 \begin{abstract}
 This report develops an efficient heat-capacity workflow for methane-loaded
@@ -30,7 +43,8 @@ MOF-5 using a machine-learned interatomic potential (MLIP). Classical
 flexible-cell NPT molecular dynamics (MD) samples the loaded system and retains
 anharmonic methane and host--guest motion. Automatic differentiation (AD)
 through the matching PET-JAX model provides sparse Cartesian Hessians and
-normal-mode frequencies at optimized local minima. Rather than reproduce the
+normal-mode frequencies at quenched reference structures, which must be
+validated as local minima. Rather than reproduce the
 reference simulations with an MLIP, the workflow applies the hybrid
 approximation proposed by Kapil \emph{et al.}: the loaded-system classical
 anharmonic heat capacity is corrected by the difference between quantum and
@@ -39,9 +53,14 @@ and PET potential. The already-equilibrated empty MOF-5 structure is relaxed
 directly and evaluated with one reference Hessian; no empty-framework MD
 campaign is required. The resulting low-temperature and model-dependent
 accuracy must be validated for the selected MLIP. Finite-trajectory sampling
-error, minimum-to-minimum variation of the harmonic correction, and classical
-MLIP uncertainty from a calibrated last-layer prediction-rigidity (LLPR)
-ensemble are evaluated as distinct contributions.
+error and correlated classical--harmonic model spread are evaluated with a
+last-layer prediction-rigidity (LLPR) ensemble. The available PET-MAD and
+PET-SOL calculations cover 50, 100, and 150 methane molecules and give
+exploratory room-temperature hybrid values near 0.93, 1.07--1.08, and
+\SI{1.16}{J\per g\per K}, respectively. Imaginary Hessian modes, incomplete
+relaxation, production drift, and strong sensitivity to uncertainty
+propagation prevent interpreting these values as converged predictions.
+Variation across independently quenched minima remains unestimated.
 \end{abstract}
 
 \section{Scientific motivation and scope}
@@ -58,8 +77,8 @@ degrees of freedom that may be weakly confined and strongly anharmonic.
 The material considered here is MOF-5. Its conventional cubic cell contains
 424 framework atoms with composition
 $\mathrm{C}_{192}\mathrm{H}_{96}\mathrm{O}_{104}\mathrm{Zn}_{32}$. In the
-loaded calculations, 100 methane molecules add 500 atoms, giving a 924-atom
-system with composition
+loaded calculations, 50, 100, and 150 methane molecules give 674, 924, and
+1174 atoms, respectively. The central 100-molecule example has composition
 $\mathrm{C}_{292}\mathrm{H}_{496}\mathrm{O}_{104}\mathrm{Zn}_{32}$.
 The principal objectives are:
 
@@ -93,45 +112,562 @@ estimates for the resulting hybrid curve.
 \section{Theory}
 \label{sec:theory}
 
-\subsection{Metal--organic frameworks and MOF-5}
+\subsection{Classical molecular dynamics}
+\label{sec:classical-md-theory}
 
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\columnwidth]{figures/mof-5.png}
-  \caption{Ball-and-polyhedron representation of the MOF-5 framework. The
-  zinc--oxo clusters are shown as blue polyhedra, connected by
-  benzene-1,4-dicarboxylate linkers. The legend identifies carbon (black),
-  hydrogen (pink), oxygen (red), and zinc (blue). The open spaces between
-  framework components form the pores that host adsorbed molecules.}
-  \label{fig:mof5}
-\end{figure}
+Molecular dynamics (MD) connects an interatomic potential to observable
+properties by integrating equations of motion and averaging over the resulting
+trajectory. A calculation therefore requires both a mechanical model, which
+specifies the forces, and a statistical ensemble, which specifies the
+thermodynamic conditions and probabilities of microscopic states. The
+following development introduces the foundations needed for equilibrium,
+fixed-composition simulations and for the heat-capacity calculations in this
+report. Standard treatments are given by Allen and Tildesley and by Tuckerman
+\cite{allen2017,tuckerman2023}.
 
-Metal--organic frameworks are crystalline networks assembled from metal ions
-or metal--oxo clusters joined by organic molecules called linkers. The
-connections repeat in three dimensions and leave accessible pores between
-them. Changing the nodes and linkers can alter the pore size, surface
-chemistry, and framework flexibility. This makes MOFs useful for studying gas
-storage and separation: guest molecules can enter the pores and adsorb on
-their internal surfaces without becoming part of the framework.
+\subsubsection{Microscopic model and equations of motion}
 
-MOF-5 provides a concrete example (Figure~\ref{fig:mof5}). Zinc--oxo clusters
-are connected by benzene-1,4-dicarboxylate linkers to form an open, periodic
-framework. Methane occupies its pores and interacts with the framework mainly
-through weak noncovalent forces. At a given temperature and loading, the methane molecules
-can move among adsorption environments, while the linkers and clusters also
-vibrate. The framework therefore supplies both the space that holds the gas
-and the flexible surroundings that influence its motion.
+Within the Born--Oppenheimer approximation, the electrons define a
+potential-energy surface for the nuclei. Classical MD makes the additional
+approximation that the nuclei are point particles obeying Newtonian mechanics;
+this does not follow from the Born--Oppenheimer approximation alone. Let $N$
+be the number of atoms, $\bm R=(\bm R_1,\ldots,\bm R_N)$ their positions,
+and $\bm p=(\bm p_1,\ldots,\bm p_N)$ their momenta, with
+$\bm p_i=m_i\bm v_i$. The cell matrix $\bm h$ contains the three lattice
+vectors as columns, and $V=\det\bm h>0$ is its volume. At fixed cell, the
+physical Hamiltonian is
+\begin{equation}
+  \mathcal H(\bm R,\bm p;\bm h)
+  =K(\bm p)+U(\bm R;\bm h),\qquad
+  K=\sum_{i=1}^{N}\frac{\bm p_i^2}{2m_i}.
+  \label{eq:classical-hamiltonian}
+\end{equation}
+Here $U$ denotes potential energy, $E=\mathcal H$ denotes instantaneous total
+internal energy, and $H=E+P_{\mathrm{ext}}V$ will denote physical enthalpy.
+The scalar pressure $P_{\mathrm{ext}}$ is distinct from the momenta $\bm p$.
+Chemical species are fixed and are suppressed in the arguments of $U$.
 
-These motions explain why heat capacity is an informative property for this
-project. Heating excites framework vibrations and methane's internal modes,
-but also changes how methane explores the pores and interacts with the host.
-The latter effects can be anharmonic and cannot be inferred from vibrations
-about a single structure \cite{kapil2019}. We therefore use classical MD of
-\emph{loaded} MOF-5 to sample the temperature-dependent host--guest motion,
-and normal modes of optimized loaded structures to correct the classical
-treatment of quantized vibrations. An empty MOF-5 Hessian provides a framework
-reference; the loaded-system Hessian supplies the correction used for the
-reported loaded-system heat capacity.
+Hamilton's equations are equivalent to Newton's second law:
+\begin{equation}
+  \dot{\bm R}_i=\frac{\partial\mathcal H}{\partial\bm p_i}
+  =\frac{\bm p_i}{m_i},\qquad
+  \dot{\bm p}_i=-\frac{\partial\mathcal H}{\partial\bm R_i}
+  =\bm F_i.
+  \label{eq:hamilton-equations}
+\end{equation}
+Thus $\bm F_i=-\nabla_iU$ and $m_i\ddot{\bm R}_i=\bm F_i$.
+The potential may be an analytical force field, an electronic-structure
+calculation, or an MLIP; the statistical-mechanical framework is the same.
+A conservative, time-independent potential conserves $E$ under exact
+fixed-cell dynamics. Translational invariance also conserves total momentum
+in the absence of external forces. Thermostats and barostats modify these
+physical equations to exchange energy and volume with modeled reservoirs.
+
+Classical nuclear motion omits zero-point energy, tunneling, and quantum
+occupation statistics. For a vibration of angular frequency $\omega$, the
+classical approximation is most appropriate when
+$k_{\mathrm B}T\gg\hbar\omega$. High-frequency vibrations can violate this
+condition even when slower collective motions are approximately classical.
+This distinction motivates the separate harmonic quantum correction used
+later in the report.
+
+\subsubsection{Phase space, probability, and equilibrium averages}
+
+A microstate is a point $\Gamma=(\bm R,\bm p)$ in phase space; a macrostate
+specifies quantities such as $N$, $V$, and $T$. An ensemble is a probability
+distribution over microstates compatible with those conditions. For
+unconstrained Cartesian coordinates, a conventional dimensionless measure is
+\begin{equation}
+  \mathrm d\Gamma
+  =\frac{\mathrm d^{3N}R\,\mathrm d^{3N}p}
+  {h_{\mathrm P}^{3N}\prod_s N_s!},
+\end{equation}
+where $h_{\mathrm P}$ is Planck's constant and $N_s$ counts identical particles
+of species $s$. The scalar $h_{\mathrm P}$ is unrelated to the cell matrix
+$\bm h$. These constant normalization factors cancel in fixed-composition
+averages; Planck's constant here fixes the phase-space measure and does not
+make the dynamics quantum mechanical. Constraints require the corresponding
+reduced phase-space measure. The explicit partition functions below first
+refer to the unconstrained system.
+
+For a normalized equilibrium density $\rho(\Gamma)$, an observable
+$A(\Gamma)$ has expectation
+\begin{equation}
+  \langle A\rangle=\int\mathrm d\Gamma\,\rho(\Gamma)A(\Gamma),
+  \qquad \int\mathrm d\Gamma\,\rho(\Gamma)=1.
+  \label{eq:ensemble-average}
+\end{equation}
+The phase-space density evolves according to Liouville's equation,
+\begin{equation}
+  \frac{\partial\rho}{\partial t}
+  +\sum_i\left(
+    \dot{\bm R}_i\cdot\nabla_{\bm R_i}\rho
+    +\dot{\bm p}_i\cdot\nabla_{\bm p_i}\rho\right)=0.
+\end{equation}
+Hamiltonian flow preserves phase-space volume, so the density is constant
+along a trajectory. This property explains why a density depending only on a
+conserved Hamiltonian is stationary, but does not establish that one
+trajectory explores the entire distribution.
+
+Ergodicity is the assumption that a sufficiently long trajectory samples the
+accessible equilibrium distribution, so that
+\begin{equation}
+  \langle A\rangle
+  =\lim_{\tau\to\infty}\frac{1}{\tau}
+   \int_0^\tau A\bigl(\Gamma(t)\bigr)\,\mathrm dt.
+  \label{eq:ergodic-average}
+\end{equation}
+A finite trajectory estimates this average only after equilibration and only
+if relevant states are visited. Barrier crossing, guest rearrangement, and
+slow framework deformation can be much slower than local vibrations. A
+stationary temperature alone is therefore insufficient evidence of adequate
+sampling. Independent replicas and structural diagnostics are needed to
+identify trapping and incomplete exploration.
+
+\subsubsection{Microcanonical, canonical, and isothermal--isobaric ensembles}
+
+An isolated system at fixed $N$, $V$, and total energy $E_0$ has the
+microcanonical (NVE) density
+\begin{equation}
+  \rho_{NVE}(\Gamma)
+  =\frac{\delta\bigl(E_0-\mathcal H(\Gamma)\bigr)}{\Omega(N,V,E_0)},
+  \label{eq:microcanonical-density}
+\end{equation}
+where $\Omega=\int\mathrm d\Gamma\,\delta(E_0-\mathcal H)$ is the density of
+states and $\delta$ is the Dirac delta distribution. This expresses equal
+probability on the accessible energy shell. Other exact invariants, such as a
+fixed total momentum, further restrict that shell. With a fixed reference
+energy interval $\delta E$, the entropy can be written
+$S=k_{\mathrm B}\ln(\Omega\delta E)$, and temperature follows from
+$T^{-1}=(\partial S/\partial E_0)_{N,V}$. NVE dynamics is useful both for
+physical dynamical properties and for checking numerical energy conservation.
+
+A system exchanging energy with a much larger heat bath instead has fixed
+$N$, $V$, and bath temperature $T$. Expanding the reservoir entropy to first
+order in the system energy gives the Boltzmann weight
+$\exp(-\beta\mathcal H)$, where $\beta=(k_{\mathrm B}T)^{-1}$. Consequently,
+\begin{align}
+  Z(N,V,T)&=\int\mathrm d\Gamma\,e^{-\beta\mathcal H(\Gamma)},\\
+  \rho_{NVT}(\Gamma)&=Z^{-1}e^{-\beta\mathcal H(\Gamma)}.
+  \label{eq:canonical-density}
+\end{align}
+$Z$ is the canonical partition function. Gaussian integration over momenta
+leaves a configurational density proportional to $e^{-\beta U(\bm R)}$;
+positions and momenta factorize for this separable Hamiltonian. The Helmholtz
+free energy and thermodynamic derivatives are
+\begin{align}
+  F&=-k_{\mathrm B}T\ln Z, &
+  \langle E\rangle&=-\left(\frac{\partial\ln Z}{\partial\beta}\right)_{N,V},\\
+  S&=-\left(\frac{\partial F}{\partial T}\right)_{N,V}, &
+  P&=-\left(\frac{\partial F}{\partial V}\right)_{N,T}.
+\end{align}
+The same entropy is $S=-k_{\mathrm B}\int\rho\ln\rho\,\mathrm d\Gamma$.
+These relations connect microscopic state probabilities to macroscopic
+thermodynamics. Absolute free energies generally require additional methods,
+such as thermodynamic integration, because ordinary trajectory averages do
+not directly supply the normalization $Z$.
+
+Allowing volume exchange with a pressure reservoir gives the
+isothermal--isobaric (NPT) ensemble. For a cell of fixed shape with variable
+volume, define
+\begin{equation}
+  \Delta(N,P_{\mathrm{ext}},T)
+  =\int_0^\infty\frac{\mathrm dV}{V_0}\,
+    e^{-\beta P_{\mathrm{ext}}V}Z(N,V,T),
+\end{equation}
+where $V_0$ is a fixed reference volume making $\Delta$ dimensionless.
+Relative to $\mathrm d\Gamma\,\mathrm dV/V_0$, the density is
+\begin{equation}
+  \rho_{NPT}(\Gamma,V)
+  =\Delta^{-1}e^{-\beta[\mathcal H(\Gamma;V)+P_{\mathrm{ext}}V]}.
+  \label{eq:npt-density}
+\end{equation}
+Thus $G=-k_{\mathrm B}T\ln\Delta$ is the Gibbs free energy in this convention,
+$\langle H\rangle=-(\partial\ln\Delta/\partial\beta)_{N,P_{\mathrm{ext}}}$,
+and $\langle V\rangle=(\partial G/\partial P_{\mathrm{ext}})_{N,T}$.
+The enthalpy contains the imposed pressure $P_{\mathrm{ext}}$, not a
+frame-dependent instantaneous pressure. Artificial thermostat and barostat
+energies are not part of $E$ or $H$.
+
+The measure matters when constructing an NPT algorithm. For fractional
+coordinates $\bm s_i=\bm h^{-1}\bm R_i$, the Cartesian position measure
+becomes $\mathrm d^{3N}R=V^N\mathrm d^{3N}s$. Thus the density in fractional
+positions and Cartesian momenta contains a factor $V^N$ in addition to the
+Boltzmann weight. Allowing cell shape to fluctuate requires a specified
+cell measure and the appropriate extended-system corrections; simply
+propagating the cell toward a target pressure does not guarantee NPT
+sampling \cite{mtk}. The flexible-cell calculation in this report uses a
+hydrostatic external pressure while permitting anisotropic strain.
+
+NVE, NVT, and NPT constrain different variables and have different
+fluctuations even when their macroscopic averages approach one another in
+the thermodynamic limit. All three keep the chemical composition fixed.
+Equilibration at a specified gas chemical potential would instead require
+particle exchange, for example through a grand-canonical sampling method.
+Fixed-loading MD therefore does not determine an adsorption isotherm by itself.
+
+\subsubsection{Equipartition, temperature, and initial velocities}
+
+Canonical integration by parts gives the equipartition identity
+$\langle x_a\,\partial\mathcal H/\partial x_a\rangle=k_{\mathrm B}T$
+for an independent phase-space coordinate $x_a$ with vanishing boundary
+terms. Each independent quadratic term contributes $k_{\mathrm B}T/2$.
+For $f$ active quadratic momentum degrees of freedom,
+\begin{equation}
+  \langle K\rangle=\frac{f}{2}k_{\mathrm B}T,\qquad
+  T_{\mathrm{kin}}=\frac{2K}{f k_{\mathrm B}}.
+  \label{eq:kinetic-temperature}
+\end{equation}
+For unconstrained atoms $f=3N$; subtract independent holonomic constraints
+and any deliberately removed momentum degrees of freedom. Fixing the total
+linear momentum removes three degrees of freedom. Overall rotations are not
+normally removed from a periodic bulk system. Thermostat and barostat
+auxiliary variables do not enter the physical kinetic temperature.
+
+The Maxwell--Boltzmann distribution provides initial velocity components:
+\begin{equation}
+  v_{i\alpha}\sim\mathcal N\!\left(0,\frac{k_{\mathrm B}T}{m_i}\right),
+  \qquad \alpha\in\{x,y,z\}.
+\end{equation}
+If zero total momentum is required, subtract
+$\bm v_{\mathrm{cm}}=(\sum_i m_i\bm v_i)/(\sum_i m_i)$ and use the matching
+$f$. Constrained velocities must also satisfy the velocity constraints.
+One-time rescaling may set an initial kinetic energy, but repeated exact
+rescaling to a fixed $K$ does not generate canonical kinetic-energy
+fluctuations. In the canonical ensemble,
+$\operatorname{var}(K)=f(k_{\mathrm B}T)^2/2$ and hence
+$\operatorname{var}(T_{\mathrm{kin}})=2T^2/f$. The target temperature fixes a
+distribution, not the temperature of every saved frame.
+
+\subsubsection{Periodic boundaries, interactions, and pressure}
+
+Periodic boundaries approximate bulk material by replicating the cell.
+Positions differing by $\bm h\bm n$, with $\bm n\in\mathbb Z^3$, represent
+periodic images. For short-range interactions, the minimum-image convention
+uses the nearest image of a pair. It is valid for a single-image cutoff only
+when $r_{\mathrm c}$ is smaller than half the shortest nonzero lattice-vector
+length; otherwise all images inside the cutoff must be included explicitly.
+For skew cells the nearest image requires the cell geometry, not independent
+rounding of Cartesian components. This condition must remain valid as an NPT
+cell deforms. Periodic boundaries remove surfaces but leave finite-size effects,
+so the cell size must be converged for the observables of interest.
+
+A neighbor list stores candidate interactions out to
+$r_{\mathrm{list}}=r_{\mathrm c}+r_{\mathrm{skin}}$. It must be rebuilt before
+particle motion or cell deformation can bring an omitted pair inside
+$r_{\mathrm c}$; at fixed cell, a common criterion limits each displacement
+since rebuilding to half the skin. Smooth cutoff treatment avoids force
+jumps and energy drift. Conventional long-range electrostatics requires a
+method such as Ewald summation or particle-mesh Ewald; a short cutoff alone
+is generally insufficient. Any separate long-range term must be consistent
+with the chosen potential so that interactions are not double counted.
+
+Pressure contains both a kinetic contribution and an interaction virial.
+For an unconstrained system with peculiar velocities (velocities with any
+bulk streaming motion removed), an instantaneous pressure tensor is
+\begin{equation}
+  \bm P_{\mathrm{inst}}
+  =\frac{1}{V}\left[\sum_i\frac{\bm p_i\otimes\bm p_i}{m_i}
+                         +\bm W\right],\qquad
+  P_{\mathrm{inst}}=\frac{1}{3}\operatorname{tr}\bm P_{\mathrm{inst}}.
+  \label{eq:pressure-virial}
+\end{equation}
+The outer product is denoted by $\otimes$. For pair forces,
+$\bm W=\sum_{i<j}\bm r_{ij}\otimes\bm F_{ij}$, where
+$\bm r_{ij}=\bm R_i-\bm R_j$ uses the appropriate periodic image and
+$\bm F_{ij}$ is the force on $i$ due to $j$. For a many-body potential, the
+virial is obtained consistently from the response of the energy to a
+homogeneous strain at fixed fractional coordinates,
+\begin{equation}
+  W_{\alpha\beta}
+  =-\left.\frac{\partial U}{\partial\epsilon_{\alpha\beta}}
+    \right|_{\bm\epsilon=0,\{\bm s_i\}},\qquad
+  \bm h\mapsto(\bm I+\bm\epsilon)\bm h.
+\end{equation}
+For the rotationally invariant potentials considered here the virial is
+symmetric. Constraint forces and long-range terms, when present, must also
+be included. Stress conventions vary: tensile-positive Cauchy stress has
+opposite sign to the compressive-positive pressure tensor. The potential
+virial returned by a model must also be distinguished from the full pressure,
+which includes kinetic motion \cite{lammps-pressure}.
+
+\subsubsection{Time integration and numerical accuracy}
+
+The continuous trajectory is approximated at times $t_n=n\Delta t$.
+For a separable, fixed-cell Hamiltonian, velocity Verlet consists of a half
+momentum update, a position update, force reevaluation, and a second half
+momentum update:
+\begin{align}
+  \bm p_i^{n+1/2}
+    &=\bm p_i^n+\frac{\Delta t}{2}\bm F_i(\bm R^n),\\
+  \bm R_i^{n+1}
+    &=\bm R_i^n+\Delta t\,\frac{\bm p_i^{n+1/2}}{m_i},\\
+  \bm p_i^{n+1}
+    &=\bm p_i^{n+1/2}+\frac{\Delta t}{2}\bm F_i(\bm R^{n+1}).
+  \label{eq:velocity-verlet}
+\end{align}
+After initialization, the old forces are reused and one new force evaluation
+is needed per step. The scheme is time reversible, symplectic, and globally
+second order in $\Delta t$. For smooth forces and sufficiently small steps it
+approximately conserves a nearby shadow Hamiltonian, giving bounded physical
+energy oscillations rather than exact conservation. Even the harmonic
+stability bound $\omega_{\max}\Delta t<2$ is much weaker than the condition
+needed for accurate sampling. The timestep should resolve the fastest motion
+and be reduced until the target observables converge.
+
+Bond constraints, if adopted, are enforced with algorithms such as SHAKE for
+positions and RATTLE for momenta. They can remove the fastest bond vibrations
+and permit larger steps, but they change the model's degrees of freedom and
+heat capacity. A constrained trajectory cannot be combined with an
+unconstrained harmonic correction without consistent mode bookkeeping.
+The fully flexible model in this report retains these vibrations.
+
+A short NVE trajectory tests timestep, force continuity, precision, neighbor
+lists, and constraint tolerances through energy conservation. Compare energy
+drift and fluctuation amplitude at successively smaller timesteps; chaotic
+trajectories need not agree point by point. Thermostatted dynamics can conceal
+integration errors by removing the resulting heat. NVT and NPT integrators
+include additional thermostat and barostat substeps and must also be checked
+for finite-timestep bias in equilibrium averages and fluctuations.
+
+\subsubsection{Thermostats and barostats}
+
+A thermostat should generate the canonical distribution, including its
+fluctuations. For example, Langevin dynamics adds friction and a zero-mean
+Gaussian random force:
+\begin{align}
+  \dot{\bm p}_i&=\bm F_i-\gamma\bm p_i+\bm\eta_i(t),\\
+  \langle\eta_{i\alpha}(t)\eta_{j\beta}(t')\rangle
+    &=2m_i\gamma k_{\mathrm B}T\,
+      \delta_{ij}\delta_{\alpha\beta}\delta(t-t').
+  \label{eq:langevin}
+\end{align}
+Here $\gamma$ is an inverse time, the indexed deltas are Kronecker deltas,
+and the time delta is a Dirac delta. The noise amplitude and friction obey
+fluctuation--dissipation balance, making the canonical distribution stationary
+in continuous time. Weak friction exchanges heat slowly; strong friction can
+overdamp motion. A suitable stochastic integrator is required at finite
+$\Delta t$.
+
+A deterministic alternative is the Nos\'e--Hoover thermostat. Its simplest
+physical-variable form introduces a friction variable $\xi$:
+\begin{equation}
+  \dot{\bm p}_i=\bm F_i-\xi\bm p_i,\qquad
+  \dot\xi=\frac{2K-fk_{\mathrm B}T}{Q},
+\end{equation}
+where the thermostat inertia $Q$ sets a coupling timescale, typically through
+$Q\sim f k_{\mathrm B}T\tau_T^2$. A single variable can sample poorly for
+nearly harmonic systems. Nos\'e--Hoover chains couple additional thermostat
+variables and improve sampling, although ergodicity still needs to be
+assessed \cite{nhc}. Simple weak-coupling or exact velocity-rescaling schemes
+may stabilize a starting structure but generally suppress the canonical
+fluctuations required for fluctuation-based heat capacities.
+
+A barostat additionally evolves volume or cell strain in response to the
+internal pressure relative to $P_{\mathrm{ext}}$. Isotropic coupling changes
+volume at fixed shape; flexible-cell coupling also permits shear and unequal
+changes of the cell axes. Martyna--Tobias--Klein-type algorithms include the
+extended variables and measure corrections needed for isobaric sampling
+\cite{mtk}. The pressure damping time controls how quickly the cell responds:
+overly rapid coupling can excite cell oscillations or destabilize a soft
+framework, whereas overly slow coupling reduces sampling efficiency.
+Instantaneous pressure is expected to fluctuate; the equilibrium mean should
+agree with the target within uncertainty.
+
+Thermostat and barostat settings must be converged along with the timestep.
+Correct equilibrium averages do not imply correct time-dependent dynamics:
+stochastic forces and strong coupling can alter diffusion and correlation
+functions. Transport properties require a justified dynamical protocol,
+commonly an equilibrated fixed-cell NVE trajectory or demonstrably weak
+coupling. Heat capacities instead require correct equilibrium sampling of the
+chosen ensemble.
+
+\subsubsection{Fluctuations, response functions, and heat capacity}
+\label{sec:md-response}
+
+Partition-function derivatives explain why equilibrium fluctuations measure
+thermodynamic responses. For a canonical observable $A$ with no explicit
+temperature dependence, differentiating both its Boltzmann weight and the
+normalization gives
+\begin{equation}
+  \left(\frac{\partial\langle A\rangle}{\partial T}\right)_{N,V}
+  =\frac{\operatorname{cov}(A,E)}{k_{\mathrm B}T^2},
+\end{equation}
+where $\operatorname{cov}(A,B)=\langle AB\rangle-\langle A\rangle\langle B\rangle$.
+In NPT, the corresponding identity replaces $E$ by
+$H=E+P_{\mathrm{ext}}V$ and holds at fixed external pressure. Consequently,
+\begin{align}
+  C_V&=\left(\frac{\partial\langle E\rangle}{\partial T}\right)_{N,V}
+      =\frac{\operatorname{var}_{NVT}(E)}{k_{\mathrm B}T^2},
+      \label{eq:fluctuation-cv}\\
+  C_P&=\left(\frac{\partial\langle H\rangle}{\partial T}\right)_{N,P_{\mathrm{ext}}}
+      =\frac{\operatorname{var}_{NPT}(H)}{k_{\mathrm B}T^2}.
+      \label{eq:fluctuation-cp}
+\end{align}
+These are variances of the \emph{physical} energy and enthalpy, excluding
+extended-system energies. In particular, the canonical energy-fluctuation
+formula cannot be applied to an NVE trajectory whose total energy is fixed.
+For separable Cartesian kinetic energy with a fixed number $f$ of active
+quadratic momentum degrees of freedom, kinetic and configurational variables
+are independent, so equivalent estimators are
+\begin{align}
+  C_V&=\frac{f}{2}k_{\mathrm B}
+       +\frac{\operatorname{var}_{NVT}(U)}{k_{\mathrm B}T^2},\\
+  C_P&=\frac{f}{2}k_{\mathrm B}
+       +\frac{\operatorname{var}_{NPT}(U+P_{\mathrm{ext}}V)}{k_{\mathrm B}T^2}.
+\end{align}
+Using potential-energy fluctuations alone without the kinetic term would
+therefore omit part of the heat capacity.
+
+Volume fluctuations and enthalpy--volume correlations similarly give
+\begin{align}
+  \kappa_T&=-\frac{1}{\langle V\rangle}
+    \left(\frac{\partial\langle V\rangle}{\partial P_{\mathrm{ext}}}\right)_{N,T}
+    =\frac{\operatorname{var}_{NPT}(V)}{k_{\mathrm B}T\langle V\rangle},\\
+  \alpha_V&=\frac{1}{\langle V\rangle}
+    \left(\frac{\partial\langle V\rangle}{\partial T}\right)_{N,P_{\mathrm{ext}}}
+    =\frac{\operatorname{cov}_{NPT}(V,H)}{k_{\mathrm B}T^2\langle V\rangle}.
+\end{align}
+For a stable single phase in hydrostatic equilibrium, the thermodynamic
+identity is
+\begin{equation}
+  C_P-C_V=\frac{TV\alpha_V^2}{\kappa_T},
+  \label{eq:cp-cv}
+\end{equation}
+where $V$ is the equilibrium volume and other mechanical conditions must be
+consistent between the derivatives. The difference need not be negligible in
+a flexible porous solid. These response identities assume a
+temperature-independent Hamiltonian and fixed composition; explicitly
+state-dependent effective potentials require additional derivative terms.
+
+An alternative to fluctuation estimators is to simulate several temperatures
+and differentiate their equilibrium mean energies or enthalpies. This is the
+route used here for the classical NPT term. Temperature spacing controls
+finite-difference bias, while trajectory length controls the uncertainty of
+each mean; making the spacing smaller can amplify noise in the derivative.
+Fluctuation estimates provide a useful cross-check when their longer sampling
+requirements are met. All quantities above are extensive heat capacities of
+the simulated cell. The corresponding mass-specific value is
+$c_P=C_P/M_{\mathrm{cell}}$, with $M_{\mathrm{cell}}$ the total loaded-cell mass.
+
+\subsubsection{Equilibration, correlation, and statistical uncertainty}
+
+Initial coordinates and velocities are not generally equilibrium samples.
+Equilibration is the transient during which the energy, density, structure,
+and guest distribution approach their stationary distributions. Its frames
+must be excluded from equilibrium estimates. Minimizing a structure only
+finds a nearby low-energy configuration; it neither samples finite-temperature
+entropy nor replaces equilibration. Running averages, block averages,
+structural observables, and comparisons between independently initialized
+replicas should guide the discarded interval.
+
+For $M$ production samples $A_n$ saved at interval $\delta t_{\mathrm s}$,
+define
+\begin{align}
+  \overline A&=\frac{1}{M}\sum_{n=1}^{M}A_n,\\
+  C_A(k)&=\langle(A_n-\langle A\rangle)
+                 (A_{n+k}-\langle A\rangle)\rangle,\\
+  \rho_A(k)&=C_A(k)/C_A(0).
+\end{align}
+The normalized autocorrelation $\rho_A$ describes memory between saved frames.
+For a stationary trajectory, the exact variance of its sample mean is
+\begin{equation}
+  \operatorname{var}(\overline A)
+  =\frac{C_A(0)}{M}\left[1+2\sum_{k=1}^{M-1}
+       \left(1-\frac{k}{M}\right)\rho_A(k)\right].
+\end{equation}
+For a run much longer than its correlation time, define the statistical
+inefficiency $g_A$ and integrated autocorrelation time $\tau_{\mathrm{int},A}$:
+\begin{align}
+  g_A&=1+2\sum_{k=1}^{\infty}\rho_A(k),&
+  \tau_{\mathrm{int},A}&=\frac{\delta t_{\mathrm s}}{2}g_A,\\
+  M_{\mathrm{eff},A}&\simeq\frac{M}{g_A},&
+  \operatorname{SE}(\overline A)&\simeq
+       \sqrt{\frac{C_A(0)}{M_{\mathrm{eff},A}}}.
+  \label{eq:md-standard-error}
+\end{align}
+The infinite sum must be truncated or estimated with a statistically justified
+procedure; noisy long-lag correlations cannot simply be summed indefinitely.
+The effective sample count depends on the observable. Saving frames more
+frequently does not create additional independent information over a fixed
+physical duration.
+
+Block averaging is a practical alternative: divide the stationary trajectory
+into blocks longer than the relevant correlation time and estimate the error
+from the block means. The estimated error should stabilize as block length
+increases while enough blocks remain for a meaningful estimate. Blocking
+methods for correlated data are discussed by Flyvbjerg and Petersen
+\cite{flyvbjerg1989}. Independent replicas test reproducibility and can expose
+slow modes missed within one trajectory. Neither blocking nor a small error
+bar can diagnose an important basin that every replica fails to visit.
+Uncertainty in a variance-based heat capacity also depends on correlations of
+the squared fluctuations and is not given by the standard error of the mean
+enthalpy alone.
+
+For derivatives and combined estimators, resample independent replicas or
+sufficiently long blocks and repeat the entire analysis, preserving any
+cross-temperature correlations. Resampling individual correlated frames as
+if independent underestimates uncertainty. Sampling error decreases with more
+independent data; finite-size error, timestep bias, potential-model error,
+and missing nuclear quantum effects require separate convergence or
+validation checks.
+
+\subsubsection{Complete simulation workflow}
+
+The preceding theory leads to the following sequence for an equilibrium MD
+calculation:
+\begin{enumerate}
+  \item \textbf{Define the physical question and ensemble.} Specify the
+        material, composition, loading, target observables, temperature, and
+        either volume or external pressure. Decide whether cell shape may
+        change and whether any constraints are part of the physical model.
+        Fixed-loading NPT is appropriate for the present enthalpy curve.
+  \item \textbf{Choose and validate the interaction model.} Assign species,
+        masses, units, and any required charges or topology. Check energies
+        and forces for representative configurations and validate stresses
+        if the cell will evolve. Establish cutoff, long-range treatment, and
+        the model's applicable temperature and structural range.
+  \item \textbf{Build the initial configuration.} Choose a cell or supercell,
+        apply periodic boundaries, insert guests at the desired loading,
+        reject severe overlaps, and inspect geometry and composition. Remove
+        large residual forces by minimization if needed. Generate independent
+        initial placements for replicas; random insertion is not an
+        equilibrium adsorption distribution.
+  \item \textbf{Initialize motion and numerical parameters.} Draw velocities,
+        impose the intended momentum and constraint conditions, and select
+        the integrator, timestep, neighbor-list settings, coupling times,
+        random seeds, trajectory stride, and restart frequency. Evaluate the
+        initial energy and forces before taking the first step. Validate
+        energy conservation in short NVE trials at several timesteps.
+  \item \textbf{Equilibrate at the target conditions.} Couple to the required
+        reservoirs, using gradual heating or staged volume relaxation when
+        necessary. Monitor enthalpy, temperature, pressure, volume, framework
+        integrity, and guest motion. Continue until the relevant observables
+        are stationary and replicas give compatible distributions.
+  \item \textbf{Collect production trajectories.} Keep the physical model
+        and target ensemble fixed. At each step update positions and, in NPT,
+        the cell; update periodic images and neighbor lists; evaluate energies,
+        forces, and virials; and finish the momentum and reservoir updates in
+        the order required by the integrator. Save physical observables and
+        configurations at the chosen stride, together with restart states.
+  \item \textbf{Analyze and quantify uncertainty.} Discard equilibration,
+        compute ensemble averages and correlations, estimate effective sample
+        counts or block errors, and combine independent replicas. Unwrap
+        periodic trajectories when analyzing displacements, accounting for
+        cell motion in NPT. For this report, differentiate the mean physical
+        enthalpy with respect to temperature and propagate its sampling error.
+  \item \textbf{Converge and document the result.} Check timestep, system size,
+        interaction settings, coupling times, production length, replica
+        count, and temperature spacing against the desired accuracy. Record
+        the model identity, input structures, software versions, seeds,
+        ensemble parameters, discarded interval, and analysis procedure so
+        that the reported heat capacity can be reproduced.
+\end{enumerate}
+
+The machine-learned potential introduced next supplies $U$, its forces, and
+its cell derivatives in this general framework. The later methodology section
+specifies the actual MOF-5 settings; the harmonic correction addresses the
+quantum populations that classical MD cannot sample.
 
 \subsection{Machine-learned interatomic potentials}
 
@@ -533,166 +1069,79 @@ paper also reports weaker high-temperature alloy extrapolation despite strong
 hold-out accuracy, illustrating the distinction between expressiveness and
 transferability \cite{pet}.
 
-\subsection{Classical molecular dynamics}
-\label{sec:classical-md-theory}
+\subsection{Metal--organic frameworks and MOF-5}
 
-\subsubsection{Hamiltonian dynamics and statistical averages}
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{figures/mof-5.png}
+  \caption{Ball-and-polyhedron representation of the MOF-5 framework. The
+  zinc--oxo clusters are shown as blue polyhedra, connected by
+  benzene-1,4-dicarboxylate linkers. The legend identifies carbon (black),
+  hydrogen (pink), oxygen (red), and zinc (blue). The open spaces between
+  framework components form the pores that host adsorbed molecules.}
+  \label{fig:mof5}
+\end{figure}
 
-Molecular dynamics (MD) generates a trajectory through phase space by
-propagating the nuclear positions and momenta on a chosen PES. For classical
-point nuclei with masses $m_i$, the Hamiltonian is
-\begin{equation}
-  \mathcal H(\bm R,\bm P)
-  =\sum_{i=1}^{N}\frac{\bm P_i^2}{2m_i}+U(\bm R),
-  \label{eq:classical-hamiltonian}
-\end{equation}
-and Hamilton's equations give
-\begin{equation}
-  \dot{\bm R}_i=\frac{\bm P_i}{m_i},
-  \qquad
-  \dot{\bm P}_i=-\frac{\partial U}{\partial\bm R_i}
-  =\bm F_i.
-  \label{eq:hamilton-equations}
-\end{equation}
-In exact microcanonical dynamics, $\mathcal H$ is conserved. If the dynamics
-is ergodic and the trajectory is sufficiently long, an equilibrium average
-can be estimated by a time average,
-\begin{equation}
-  \langle A\rangle
-  =\lim_{\tau\to\infty}\frac{1}{\tau}
-   \int_0^\tau A\bigl(\bm R(t),\bm P(t)\bigr)\,\mathrm dt.
-  \label{eq:ergodic-average}
-\end{equation}
-Finite trajectories contain correlated samples, so their statistical
-precision is controlled by the simulation length relative to the integrated
-autocorrelation time, not simply by the number of saved frames.
+Metal--organic frameworks are crystalline networks assembled from metal ions
+or metal--oxo clusters joined by organic molecules called linkers. The
+connections repeat in three dimensions and leave accessible pores between
+them. Changing the nodes and linkers can alter the pore size, surface
+chemistry, and framework flexibility. This makes MOFs useful for studying gas
+storage and separation: guest molecules can enter the pores and adsorb on
+their internal surfaces without becoming part of the framework.
 
-The continuous equations are replaced by a finite-timestep integrator. A
-representative symplectic scheme is velocity Verlet,
-\begin{align}
-  \bm P_i^{n+1/2}
-    &=\bm P_i^n+\frac{\Delta t}{2}\bm F_i(\bm R^n),
-  \\
-  \bm R_i^{n+1}
-    &=\bm R_i^n+\Delta t\,\frac{\bm P_i^{n+1/2}}{m_i},
-  \\
-  \bm P_i^{n+1}
-    &=\bm P_i^{n+1/2}
-      +\frac{\Delta t}{2}\bm F_i(\bm R^{n+1}).
-  \label{eq:velocity-verlet}
-\end{align}
-It is time reversible and symplectic, and has global error of order
-$\mathcal O(\Delta t^2)$. It approximately conserves a nearby ``shadow''
-Hamiltonian rather than the exact one. The timestep must resolve the fastest
-vibration; an apparently controlled temperature does not by itself rule out
-integration error.
+MOF-5 provides a concrete example (Figure~\ref{fig:mof5}). Zinc--oxo clusters
+are connected by benzene-1,4-dicarboxylate linkers to form an open, periodic
+framework. Methane occupies its pores and interacts with the framework mainly
+through weak noncovalent forces. At a given temperature and loading, the methane molecules
+can move among adsorption environments, while the linkers and clusters also
+vibrate. The framework therefore supplies both the space that holds the gas
+and the flexible surroundings that influence its motion.
 
-\subsubsection{Temperature, ensembles and thermostats}
-
-For $g$ unconstrained kinetic degrees of freedom, the instantaneous kinetic
-temperature is conventionally defined through equipartition,
-\begin{equation}
-  T_{\mathrm{kin}}=\frac{2K}{gk_{\mathrm B}},
-  \qquad
-  K=\sum_i\frac{\bm P_i^2}{2m_i}.
-  \label{eq:kinetic-temperature}
-\end{equation}
-Temperature is an ensemble property; $T_{\mathrm{kin}}$ fluctuates along a
-finite canonical trajectory. Constant-energy (NVE) dynamics samples the
-microcanonical ensemble. To sample the canonical ensemble, whose stationary
-phase-space density is
-\begin{equation}
-  \rho_{NVT}(\bm R,\bm P)\propto
-  \exp\bigl[-\beta\mathcal H(\bm R,\bm P)\bigr],
-  \qquad \beta=(k_{\mathrm B}T)^{-1},
-  \label{eq:canonical-density}
-\end{equation}
-the physical variables may be coupled to a thermostat.
-
-For example, Langevin dynamics adds friction and random forces,
-\begin{align}
-  m_i\ddot{\bm R}_i
-    &=\bm F_i-m_i\gamma\dot{\bm R}_i+\bm\eta_i(t),
-  \\
-  \left\langle\eta_{i\alpha}(t)\eta_{j\beta}(t')\right\rangle
-    &=2m_i\gamma k_{\mathrm B}T\,
-      \delta_{ij}\delta_{\alpha\beta}\delta(t-t').
-  \label{eq:langevin}
-\end{align}
-The second relation is the fluctuation--dissipation condition that makes the
-canonical distribution stationary. Weak friction perturbs the natural
-dynamics less but exchanges heat slowly; strong friction controls temperature
-rapidly but can overdamp motion. Nos\'e--Hoover-chain thermostats instead add
-a sequence of deterministic extended variables and are designed to generate
-the same canonical distribution while improving ergodicity over a single
-Nos\'e--Hoover variable \cite{nhc}. Thermostat choice affects sampling
-efficiency and dynamical correlation functions even when equilibrium averages
-are unchanged.
-
-An isothermal--isobaric simulation additionally evolves the volume or cell so
-that the target density is proportional to
-$\exp[-\beta(\mathcal H+PV)]$. Flexible-cell algorithms must include the
-appropriate cell kinetic variables, Jacobian and virial terms; the
-Martyna--Tobias--Klein scheme is one such extended-system formulation
-\cite{mtk}. Reliable NPT dynamics therefore requires a potential with
-validated cell derivatives or stresses. NVE, NVT and NPT trajectories answer
-different thermodynamic questions and should not be interchanged solely
-because their mean temperatures are similar.
-
+These motions explain why heat capacity is an informative property for this
+project. Heating excites framework vibrations and methane's internal modes,
+but also changes how methane explores the pores and interacts with the host.
+The latter effects can be anharmonic and cannot be inferred from vibrations
+about a single structure \cite{kapil2019}. We therefore use classical MD of
+\emph{loaded} MOF-5 to sample the temperature-dependent host--guest motion,
+and normal modes of optimized loaded structures to correct the classical
+treatment of quantized vibrations. An empty MOF-5 Hessian provides a framework
+reference; the loaded-system Hessian supplies the correction used for the
+reported loaded-system heat capacity.
 
 \subsection{Thermodynamic definitions}
 
-\subsubsection{Constant-volume and constant-pressure heat capacities}
+\subsubsection{Heat-capacity estimators used in this report}
 
-For a system at equilibrium, the constant-volume and constant-pressure heat
-capacities are
-\begin{align}
-  C_V &= \left(\frac{\partial \langle E\rangle}{\partial T}\right)_{V,N},
-  \\
-  C_P &= \left(\frac{\partial \langle H\rangle}{\partial T}\right)_{P,N},
-  \qquad H=E+PV,
-\end{align}
-where $E$ is the total internal energy and $H$ is the enthalpy. For a stable
-single phase,
-\begin{equation}
-  C_P-C_V = \frac{TV\alpha_V^2}{\kappa_T},
-  \label{eq:cp-cv}
-\end{equation}
-where $\alpha_V=V^{-1}(\partial V/\partial T)_P$ is the volumetric thermal
-expansion coefficient and
-$\kappa_T=-V^{-1}(\partial V/\partial P)_T$ is the isothermal compressibility.
-Equation~\eqref{eq:cp-cv} explains why \cv{} and \cpheat{} need not be
-interchangeable even when their numerical difference is small for a
-particular solid.
+Section~\ref{sec:md-response} derives the thermodynamic definitions and
+fluctuation formulas for $C_V$ and $C_P$. The present workflow obtains the
+classical constant-pressure term by differentiating replica-averaged physical
+enthalpies $\langle H\rangle=\langle E+P_{\mathrm{ext}}V\rangle$ on a temperature
+grid. The ensemble, loading, and external pressure are held fixed across that
+grid, and uncertainty is propagated through the differentiation. Equilibrated
+NPT enthalpy fluctuations provide an independent consistency check when
+sampling is sufficient.
 
-In an equilibrated classical canonical ensemble, \cv{} can also be obtained
-from total-energy fluctuations,
-\begin{equation}
-  C_V = \frac{\langle E^2\rangle-\langle E\rangle^2}
-  {k_{\mathrm B}T^2}.
-  \label{eq:fluctuation-cv}
-\end{equation}
-The analogous isothermal--isobaric expression uses enthalpy fluctuations.
-These relations require a stationary ensemble, long sampling, and uncertainty
-estimation that accounts for time correlation. Moreover, classical nuclear
-dynamics gives equipartition rather than the quantum freezing of
-high-frequency modes. The present workflow obtains its classical
-constant-pressure term by differentiating replica-averaged NPT enthalpies on a
-temperature grid. It obtains the quantum correction separately from harmonic
-normal-mode frequencies.
+The quantum correction is evaluated separately from harmonic normal-mode
+frequencies. It is formally a $C_V$ correction, whereas the trajectory term is
+$C_P$. Equation~\eqref{eq:cp-cv} explains why adding these terms requires the
+pressure--volume contribution to the quantum correction to be small; the two
+heat capacities are not interchangeable by definition. Extensive cell heat
+capacities are combined before division by the total loaded-cell mass.
 
 \subsubsection{LLPR model uncertainty and CEA propagation}
 \label{sec:llpr-cea}
 
 The uncertainty of a machine-learned potential is different from the sampling
 error of a finite MD trajectory. This project estimates the former for the
-classical NPT term with a last-layer prediction-rigidity (LLPR) ensemble
+classical NPT term and harmonic correction with a persistent last-layer
+prediction-rigidity (LLPR) ensemble
 \cite{bigi2024}, and the latter with autocorrelation-aware statistics and
 independent replicas. These quantities are kept separate throughout the
 analysis.
 
 For a fixed trained representation, write the central PET energy as
-$\bar V(\bm x)=\bm w_0^{\mathrm T}\bm f(\bm x)$, where $\bm f$ is the
+$\bar U(\bm x)=\bm w_0^{\mathrm T}\bm f(\bm x)$, where $\bm f$ is the
 last-layer feature vector. If $\bm F$ contains the corresponding features of a
 reference-labeled covariance set, the metatrain LLPR standard deviation has
 the form
@@ -725,7 +1174,7 @@ therefore samples persistent shallow readout weights,
     \alpha^2\left(\bm F^{\mathrm T}\bm F
                          +\lambda\bm I\right)^{-1}\right],
   \\
-  V^{(i)}(\bm x)&=\bm w_i^{\mathrm T}\bm f(\bm x),
+  U^{(i)}(\bm x)&=\bm w_i^{\mathrm T}\bm f(\bm x),
   \end{aligned}
   \label{eq:llpr-members}
 \end{equation}
@@ -740,16 +1189,16 @@ The ensemble is propagated using the reweighting framework of Imbalzano
 \emph{et al.}\ \cite{imbalzano2021}. On a production frame $t$ sampled by the
 central model at temperature $T$, define
 \begin{align}
-  \Delta V_t^{(i)} &= V_t^{(i)}-\bar V_t,\\
-  H_t^{(i)} &= K_t+V_t^{(i)}+P_{\mathrm{ext}}\mathcal V_t,
+  \Delta U_t^{(i)} &= U_t^{(i)}-\bar U_t,\\
+  H_t^{(i)} &= K_t+U_t^{(i)}+P_{\mathrm{ext}}V_t,
   \label{eq:llpr-frame-enthalpy}
 \end{align}
-where $K_t$ and cell volume $\mathcal V_t$ come from the central NPT
+where $K_t$ and cell volume $V_t$ come from the central NPT
 trajectory. Normalized exponential reweighting gives
 \begin{equation}
   \left\langle H^{(i)}\right\rangle_i^{\mathrm{direct}}
-  =\frac{\sum_t e^{-\beta\Delta V_t^{(i)}}H_t^{(i)}}
-  {\sum_t e^{-\beta\Delta V_t^{(i)}}},
+  =\frac{\sum_t e^{-\beta\Delta U_t^{(i)}}H_t^{(i)}}
+  {\sum_t e^{-\beta\Delta U_t^{(i)}}},
   \label{eq:llpr-direct}
 \end{equation}
 but can collapse when the energy difference is extensive. The primary
@@ -758,10 +1207,10 @@ approximation (CEA),
 \begin{equation}
   \begin{aligned}
   \left\langle H^{(i)}\right\rangle_i^{\mathrm{CEA}}
-  ={}&\left\langle H^{(i)}\right\rangle_{\bar V}
+  ={}&\left\langle H^{(i)}\right\rangle_{\bar U}
   \\
-  &-\beta\operatorname{cov}_{\bar V}
-  \left(H^{(i)},\Delta V^{(i)}\right),
+  &-\beta\operatorname{cov}_{\bar U}
+  \left(H^{(i)},\Delta U^{(i)}\right),
   \\
   &\beta=(k_{\mathrm B}T)^{-1}.
   \end{aligned}
@@ -770,7 +1219,7 @@ approximation (CEA),
 Direct reweighting is retained as a diagnostic. Its member-wise effective
 sample count $N_{\mathrm{eff}}=1/\sum_t\widetilde w_t^2$ detects weight
 collapse. The additional diagnostic
-$\operatorname{var}_{t}(\beta\Delta V_t^{(i)})$ should be much smaller than
+$\operatorname{var}_{t}(\beta\Delta U_t^{(i)})$ should be much smaller than
 one for a controlled first-order CEA. A large value warns that omitted
 higher-order terms may be important; agreement with direct reweighting is
 meaningful only where $N_{\mathrm{eff}}$ remains adequate.
@@ -796,6 +1245,37 @@ final member-resolved $C_P$ curves. It is not the instantaneous energy spread,
 and it is not divided by $\sqrt M$: ensemble members sample a predictive
 distribution rather than provide repeated measurements of one mean.
 
+\subsubsection{Gaussian NPT propagation of shallow-ensemble uncertainty}
+\label{sec:gaussian-propagation}
+
+Direct propagation of shallow ensembles (DPOSE) carries persistent model
+members through a property calculation before taking their spread
+\cite{kellner2024}. The saved comparison uses a project-specific Gaussian NPT
+approximation, rather than separate trajectories under each member. Define
+$Q_i=U_i+P_{\mathrm{ext}}V$ and $\Delta U_i=U_i-U_0$, where subscript 0
+identifies the central potential. If $(Q_i,\Delta U_i)$ is jointly Gaussian,
+exponential reweighting shifts its mean but leaves its covariance unchanged.
+Integrating out separable quadratic momenta then gives
+\begin{equation}
+ C_{P,i}^{\mathrm G}\simeq\frac{f}{2}k_{\mathrm B}
+       +\frac{\operatorname{var}_0(Q_i)}{k_{\mathrm B}T^2}.
+ \label{eq:gaussian-member-cp}
+\end{equation}
+The variance is measured on the central trajectory, not a member-equilibrated
+trajectory. The Gaussian assumption makes that substitution possible; it is
+not needed for the exact central-model fluctuation estimator in
+Section~\ref{sec:md-response}. Here $f=3N-3$, and extensive results are divided
+by the loaded-cell mass. Member indices must remain paired when adding the
+harmonic corrections so that classical--harmonic covariance is retained.
+
+Two comparisons must be distinguished. The main Gaussian/DPOSE plots retain
+the central enthalpy-derivative curve and its sampling error, replacing only
+the propagated model spread. The separate variance-based hybrid calculation
+also replaces the central classical value and estimates its sampling error
+from the squared configurational-enthalpy fluctuations. Neither construction
+guarantees a smaller band or removes the need to validate sampling and the
+Gaussian approximation.
+
 \subsubsection{Why classical and quantum predictions differ}
 
 In the classical harmonic limit, every quadratic vibrational degree of
@@ -817,6 +1297,7 @@ uses the hybrid method as a computational strategy for PET, rather than as a
 recipe for reproducing their numerical results.
 
 \subsection{Differences from the reference calculation}
+\label{sec:reference-comparison}
 
 The reference work used analytical QuickFF force fields derived from
 electronic-structure calculations, not PET-MAD \cite{quickff}. Framework
@@ -835,7 +1316,7 @@ The reference heat-capacity curves were evaluated from neighboring enthalpies,
 \begin{equation}
   \begin{aligned}
   C_P(T)&\simeq
-  \frac{\mathcal H(T+\Delta T)-\mathcal H(T-\Delta T)}
+  \frac{\langle H\rangle_{T+\Delta T}-\langle H\rangle_{T-\Delta T}}
        {2\Delta T},
   \\
   \Delta T&=\SI{25}{K},
@@ -853,6 +1334,7 @@ five different Monte Carlo configurations, each optimized into a local
 minimum before its harmonic spectrum was evaluated.
 
 \subsection{Physical conclusions relevant to this project}
+\label{sec:reference-conclusions}
 
 The main findings of the reference study are:
 
@@ -983,6 +1465,7 @@ potential, whose energy, force, stress, and curvature accuracy for MOF-5 and
 its methane guests must still be validated \cite{petmad}.
 
 \subsection{Classical NPT molecular dynamics}
+\label{sec:md-method}
 
 The statistical and dynamical foundations of classical MD are summarized in
 Section~\ref{sec:classical-md-theory}. Only methane-loaded MOF-5 is propagated.
@@ -993,19 +1476,24 @@ thermostat damping time \SI{100}{fs}, and barostat damping time
 \SI{1000}{fs}. The production template specifies $10^6$ steps of
 \SI{0.5}{fs}, hence \SI{500}{ps}, saves data every 100 steps
 (\SI{0.05}{ps}), and discards the first \SI{100}{ps}. The initial campaign
-uses one replica at 100, 200, 300, 400, and \SI{500}{K}. This coarse
-\SI{100}{K} spacing reduces cost but limits resolution of curvature in the
-enthalpy curve and of the heat-capacity minimum; denser temperatures and
-independent replicas remain convergence extensions.
+was subsequently extended to 175--\SI{425}{K} in \SI{25}{K} increments for
+both PET-MAD and PET-SOL at 50, 100, and 150 methane molecules. The results
+reported here use that denser grid, with one replica at each state point.
+The 200--\SI{400}{K} hybrid reporting interval uses centered derivatives with
+neighboring points separated by \SI{50}{K}. Independent replicas, longer
+production intervals, and temperature-spacing convergence remain to be
+established. The discarded interval is a configured choice, whose adequacy
+is assessed in Section~\ref{sec:results-md}.
 
 The exported model must expose stress and must be validated for the intended
 MOF/loading states before NPT use. Mean loaded-system enthalpies are computed
-from the stationary portions of the trajectories,
+from the designated production portions of the trajectories,
 \begin{equation}
   \langle H\rangle_T
   =\left\langle E+P_{\mathrm{ext}}V\right\rangle_T,
 \end{equation}
-then averaged across replicas and differentiated with respect to temperature.
+then averaged across replicas when available and differentiated with respect
+to temperature.
 This classical contribution retains guest diffusion, localization changes,
 and other anharmonic effects sampled by the MLIP.
 
@@ -1306,6 +1794,7 @@ less aggressively truncated reference where feasible, especially for the
 low-frequency modes.
 
 \subsection{Normal modes and quantum harmonic heat capacity}
+\label{sec:normal-modes}
 
 The Hessian is symmetrized and mass weighted to obtain
 \begin{equation}
@@ -1323,27 +1812,33 @@ observable maps negative eigenvalues to zero frequency for compatibility with
 its reference heat-capacity convention. The present workflow instead
 diagonalizes the mass-weighted Hessian locally and retains unstable eigenvalues
 as signed negative frequencies. Hybrid assembly rejects unexpected imaginary
-modes and permits at most the three translational near-zero modes, so a
-thermally displaced frame or saddle point cannot silently enter the correction.
+modes and permits at most the three translational near-zero modes in its
+strict mode. The available results instead use an explicitly exploratory
+option that discards modes at or below the frequency threshold; their
+stability failures are documented in Section~\ref{sec:results-hessians}.
 
 For each retained mode, define
 \begin{equation}
   x_k=\frac{\hbar\omega_k}{k_{\mathrm B}T}
-      =\frac{hc\tilde\nu_k}{k_{\mathrm B}T},
+      =\frac{h_{\mathrm P}c\tilde\nu_k}{k_{\mathrm B}T},
 \end{equation}
 where $\tilde\nu_k$ is the wavenumber. The quantum harmonic contribution is
 \begin{equation}
   C_{V,k}=k_{\mathrm B}
   \left[\frac{x_k/2}{\sinh(x_k/2)}\right]^2,
+  \label{eq:quantum-harmonic-cv}
 \end{equation}
 and the gravimetric result is
 \begin{equation}
-  c_V(T)=\frac{N_{\mathrm A}}{M_{\mathrm{cell}}}
+  c_V(T)=\frac{1}{M_{\mathrm{cell}}}
   \sum_{k\in\mathcal V} C_{V,k},
   \label{eq:harmonic-cv}
 \end{equation}
-in \si{J\per g\per K}. The mass $M_{\mathrm{cell}}$ includes methane for a
-loaded system, so both the spectrum and the normalization change with loading.
+in \si{J\per g\per K} when $M_{\mathrm{cell}}$ is the mass of one cell in
+grams and $C_{V,k}$ is in \si{J\per K}. Equivalently, one uses
+$N_{\mathrm A}/M_{\mathrm{molar}}$ for the molar mass of that cell composition.
+The mass includes methane for a loaded system, so both the spectrum and the
+normalization change with loading.
 
 One Hessian produces the entire configured 100--\SI{500}{K} curve in
 \SI{10}{K} increments. The temperature appearing in
@@ -1352,14 +1847,18 @@ a separate MD trajectory at every analysis temperature when the force
 constants are assumed temperature independent.
 
 \subsection{Optimized minima and the hybrid correction}
+\label{sec:hybrid-method}
 
 The empty-framework calculation starts from the equilibrated MOF-5 structure
 already available to the project. Its coordinates are relaxed at fixed cell
 with the selected MLIP and one AD Hessian is evaluated. No empty-MOF MD is
 needed merely to obtain a Hessian reference.
 
-For the loaded system, final structures from several independent classical MD
-replicas are quenched at fixed cell with the same MLIP. A Hessian is accepted
+The target protocol quenches final loaded structures from several independent
+classical MD replicas at fixed cell with the same MLIP. The current outputs
+use one reference structure per model and loading, taken at \SI{400}{K};
+Section~\ref{sec:results-hessians} distinguishes their exploratory mode
+handling from the acceptance criteria below. In the strict protocol, a Hessian is accepted
 only after the relaxation reaches the chosen force tolerance and its signed
 spectrum is checked for unexpected imaginary modes. Raw finite-temperature
 frames are not treated as normal-mode reference structures. If $N_m$
@@ -1400,7 +1899,7 @@ The final estimator is
     +\overline{\Delta c^{\mathrm{har}}}(T),
   \\
   c_{P,\mathrm{cl}}^{\mathrm{anh}}(T)
-  &=\frac{\mathrm d\langle H\rangle_{\mathrm{cl}}}{\mathrm dT}.
+  &=\frac{1}{M_{\mathrm{cell}}}\frac{\mathrm d\langle H\rangle_{\mathrm{cl}}}{\mathrm dT}.
   \end{aligned}
   \label{eq:hybrid-cp}
 \end{equation}
@@ -1412,49 +1911,521 @@ classical \cpheat{} term, following the small solid-state $C_P-C_V$ assumption
 used in the reference approximation. This mixing and the approximation's
 limited validation below roughly \SI{200}{K} must be stated with the result.
 
-The final standard-uncertainty components are summarized as
-\begin{equation}
-  \begin{aligned}
-  \sigma_{\mathrm{hyb}}(T)=\bigl[{}
-    &\sigma_{\mathrm{MD}}^2(T)
-    +\sigma_{\mathrm{har}}^2(T)
-  \\
-    &+\sigma_{\mathrm{LLPR},C_P}^2(T)\bigr]^{1/2},
-  \end{aligned}
-  \label{eq:combined-uncertainty}
-\end{equation}
-where $\sigma_{\mathrm{MD}}$ is the propagated standard error of the central
-NPT enthalpy curve and $\sigma_{\mathrm{har}}$ is the standard error across
-independently quenched loaded minima. Equation~\eqref{eq:combined-uncertainty}
-is a quadrature summary that assumes independence. The three components must
-also be reported separately. In particular, one trajectory supplies no
-between-replica uncertainty, and a zero harmonic standard error from one
-minimum means that contribution was not estimated rather than that it is
-exactly zero.
+Persistent LLPR members contribute both a classical term and a harmonic
+correction. Their model uncertainty must therefore be combined before taking
+a standard deviation:
+\begin{align}
+ \sigma_{\mathrm{model}}^2
+  &=\sigma_{\mathrm{cl,model}}^2+\sigma_{\mathrm{har,model}}^2
+    +2\operatorname{cov}_i(c_{P,\mathrm{cl}}^{(i)},\Delta c_{\mathrm{har}}^{(i)}),
+    \label{eq:paired-model-uncertainty}\\
+ u_{\mathrm{hyb}}^2
+  &=\sigma_{\mathrm{MD}}^2+\sigma_{\mathrm{har,samp}}^2
+    +\sigma_{\mathrm{model}}^2.
+    \label{eq:combined-uncertainty}
+\end{align}
+All terms use mass-specific units. The covariance is across the same model
+members, not across trajectory frames. Here $\sigma_{\mathrm{MD}}$ is the
+sampling standard error of the central enthalpy derivative and
+$\sigma_{\mathrm{har,samp}}$ is the error across independently quenched
+reference structures. The latter is distinct from the harmonic LLPR spread.
+Equation~\eqref{eq:combined-uncertainty} assumes that the sampling and model
+contributions being added in quadrature are independent.
+
+For the available single-replica calculations, enthalpy means are perturbed
+with Gaussian draws using their autocorrelation-based standard errors and
+the complete temperature derivative is recomputed. This propagates estimated
+within-trajectory uncertainty, but is not a block bootstrap of the raw
+trajectories and supplies no between-replica variance. The plotted bands use
+$u_{\mathrm{hyb}}=(\sigma_{\mathrm{MD}}^2+\sigma_{\mathrm{model}}^2)^{1/2}$:
+there is only one quenched geometry per model and loading, so harmonic
+sampling uncertainty is unestimated and is excluded rather than established
+to be zero. The member spread is evaluated at central-model geometries and
+does not include member-specific geometry relaxation.
 
 \section{Results and discussion}
 \label{sec:results}
 
-The earlier trajectory and raw-frame Hessian calculations were exploratory and
-are not results of the focused workflow defined here. Their numerical tables
-and generated overview figure have therefore been removed from this report.
-Production results should be added only after the new loaded replicas,
-optimized-minimum Hessians, and hybrid analysis have completed and passed the
-checks below.
+\subsection{Available calculations and status of the estimates}
+\label{sec:results-scope}
 
-The primary reported result will be a temperature-resolved table or curve
-containing the replica-averaged classical enthalpy derivative, its MD sampling
-standard error, its LLPR--CEA model standard deviation, the mean loaded
-harmonic quantum correction and its minimum-to-minimum standard error, and the
-combined $c_P^{\mathrm{approx}}$. These error components will be shown
-separately in addition to any quadrature band. The empty quantum-harmonic curve
-will be shown as a separately normalized reference. Density, cell response,
-framework stability, methane mobility, imaginary-mode counts, and relaxation
-residual forces will support interpretation rather than replace the
-heat-capacity result.
-Comparisons with the curves of Kapil \emph{et al.}\ will be reported as
-context, not as a target: differences can arise from the potential-energy
-surface, loading ensemble, and the hybrid approximation itself.
+The available post-processing covers two checkpoints, PET-MAD
+(\texttt{pet-mad-1.5-s-40nn}) and PET-SOL (\texttt{pet-sol-s-best}), at
+50, 100, and 150 methane molecules per conventional MOF-5 cell. These
+compositions contain 674, 924, and 1174 atoms, respectively. Each of the six
+model--loading combinations has one replica at eleven temperatures from
+\SI{175}{K} to \SI{425}{K}, spaced by \SI{25}{K}: 66 trajectories in total.
+Each trajectory spans \SI{500}{ps}; the analysis discards \SI{100}{ps} and
+uses 8001 saved frames over the remaining \SI{400}{ps}. This gives
+\SI{33}{ns} of simulated time and \SI{26.4}{ns} of analyzed production time
+across the campaign, rather than independent replicas at any one state point.
+
+The hybrid curves cover nine temperatures from 200 to \SI{400}{K}. The
+additional MD points at 175 and \SI{425}{K} provide the neighboring enthalpies
+needed for centered derivatives at the ends of this reporting interval.
+The central classical term is the derivative of the trajectory-driving
+potential's physical mean enthalpy, as in Eq.~\eqref{eq:hybrid-cp}; it is not
+the mean of the reweighted LLPR committee. Each loaded composition uses one
+fixed-cell quenched structure taken from its \SI{400}{K} trajectory. The same
+spectrum is evaluated at every reported temperature. There are therefore six
+loaded reference geometries, not nine independent geometries per curve.
+
+The results below are \emph{exploratory hybrid estimates}. The archived
+calculations deliberately discard imaginary and near-zero modes, and four
+of the six loaded relaxations did not satisfy their requested convergence
+criterion. Even the two force-converged structures have substantial imaginary
+spectra. These outputs therefore do not meet the stable-minimum acceptance
+conditions of Section~\ref{sec:hybrid-method}. They nevertheless reveal the
+size of the classical and quantum terms, loading trends, and the limitations
+of the present uncertainty propagation. The plotted bands quantify selected
+sampling and model contributions, not the error caused by unstable reference
+structures or incomplete exploration of configuration space.
+
+Numerical trajectory diagnostics are taken from the per-run
+\texttt{summary.json} files in the trajectory-analysis directory. Central
+hybrid values and relaxation diagnostics come from the assembled
+\texttt{heat-capacity.exploratory-discard-imaginary} CSV and JSON files.
+The uncertainty tables accompanying the loading-comparison figures are used
+for the reported CEA and Gaussian bands: they incorporate the refreshed
+stride-1 evaluation of all 8001 frames with 64 persistent LLPR members.
+Earlier uncertainty columns in the per-loading hybrid CSVs are not substituted
+for these refreshed values. Figure snapshots and their source paths are
+recorded in the report's \texttt{results-provenance.json}.
+
+\subsection{Thermodynamic sampling and equilibration}
+\label{sec:results-md}
+
+The thermostat maintains the mean temperature close to its target throughout
+the campaign: the largest absolute deviation is \SI{0.315}{K}. For example,
+PET-MAD with 100 methane molecules at \SI{300}{K} gives
+$\langle T_{\mathrm{kin}}\rangle=\SI{299.854}{K}$ and a temperature standard
+deviation of \SI{8.031}{K}. Equipartition with $f=3N-3=2769$ predicts
+$T\sqrt{2/f}=\SI{8.058}{K}$, in close agreement with the observed width.
+This is a useful check of the kinetic distribution discussed in
+Section~\ref{sec:classical-md-theory}, although it tests neither configurational
+ergodicity nor force-field accuracy.
+
+Instantaneous pressure has a standard deviation of approximately
+$0.80$--$1.51\times10^3$ bar across the runs, whereas standard errors of the
+mean are approximately 9--18 bar. Such fluctuations are consistent with the
+large kinetic and virial contributions in a small periodic cell
+[Eq.~\eqref{eq:pressure-virial}]. For the same PET-MAD 100-methane example,
+$\langle P_{\mathrm{inst}}\rangle=4.65\pm13.11$ bar, compatible with the
+\SI{1}{bar} target. Pressure noise must not be inserted into the enthalpy:
+the heat-capacity calculation uses $H=E+P_{\mathrm{ext}}V$ with fixed
+$P_{\mathrm{ext}}$. Thermostat/barostat control is consequently supported by
+these diagnostics, but is not by itself an equilibration criterion.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/results-md-overview.pdf}
+  \caption{Thermodynamic diagnostics from all 66 trajectory summaries.
+  Left: mass-specific enthalpy increase relative to the same model and loading
+  at \SI{175}{K}; the baseline is a display offset, and the small bars show the
+  pointwise enthalpy standard errors without propagating the shared baseline
+  error. Middle: fractional change of mean cell volume relative to
+  \SI{175}{K}. Right: the archived difference between production-half mean
+  enthalpies divided by their combined standard error, $z_H$; dashed lines
+  mark $\pm2$. These are diagnostics of the individual runs, not replica
+  averages.}
+  \label{fig:results-md-overview}
+\end{figure*}
+
+The enthalpy curves increase smoothly with temperature
+(Figure~\ref{fig:results-md-overview}), giving positive classical heat
+capacities. The archived enthalpy autocorrelation times are
+0.095--\SI{0.101}{ps}, corresponding to approximately 1980--2115 effective
+samples per trajectory instead of 8001 independent observations. Their mean
+enthalpy standard errors are 0.015--\SI{0.046}{eV}. The distinction between
+saved and independent samples is exactly the one in
+Eq.~\eqref{eq:md-standard-error}. However, the short estimated correlation
+time describes the fluctuations resolved by this estimator; it does not
+exclude slower drift or unvisited states.
+
+Indeed, 33 of the 66 runs have an absolute enthalpy split statistic greater
+than two. Here the stored diagnostic is
+\begin{equation}
+ z_H=\frac{\overline H_{\mathrm{second}}-\overline H_{\mathrm{first}}}
+ {\sqrt{\operatorname{SE}_{\mathrm{first}}^2+
+              \operatorname{SE}_{\mathrm{second}}^2}}.
+\end{equation}
+For PET-MAD with 150 methane molecules at \SI{175}{K}, $z_H=7.47$; for
+PET-SOL with 150 molecules at \SI{300}{K}, it is 4.57. A threshold crossing
+is a diagnostic rather than a formal independent hypothesis test, but the
+frequency and size of these discrepancies preclude a blanket claim that
+\SI{100}{ps} of equilibration was sufficient. Some RMS-force time series have
+correlation times as long as \SI{26.1}{ps}, with fewer than eight estimated
+effective samples, illustrating that convergence is observable dependent.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{figures/results-convergence-mad-150-175.png}
+  \caption{Archived enthalpy convergence diagnostic for PET-MAD with 150
+  methane molecules at \SI{175}{K}. The upper panel separates MD sampling
+  error from the LLPR spread of the \emph{enthalpy}, in eV. The lower panel
+  shows the accumulated mean relative to the full-production mean. Its
+  endpoint is zero by construction and is not evidence of equilibration.}
+  \label{fig:results-convergence}
+\end{figure}
+
+Figure~\ref{fig:results-convergence} makes the issue concrete: in the
+\SI{175}{K} PET-MAD example the accumulated mean still changes appreciably as
+production is extended. Its offset is about $-0.30$ eV after \SI{100}{ps} and
+about $-0.15$ eV after \SI{200}{ps}, relative to the final mean. The much larger
+LLPR enthalpy spread in the upper panel does not make this drift harmless:
+heat capacity differentiates enthalpy, and a persistent energy offset across
+temperatures can cancel whereas a temperature-dependent sampling bias does
+not. Longer runs, analysis with alternative discarded intervals, and
+independently initialized replicas are needed before interpreting the small
+reported MD errors as complete sampling uncertainties.
+
+\subsection{Cell response, framework motion, and methane mobility}
+\label{sec:results-structure}
+
+The volume response changes with methane loading. Between 175 and
+\SI{425}{K}, PET-MAD predicts a decrease from 17146.8 to
+\SI{17019.9}{\angstrom\cubed} at 50 molecules, a smaller decrease from
+17170.2 to \SI{17108.4}{\angstrom\cubed} at 100 molecules, and an increase
+from 17210.4 to \SI{17274.4}{\angstrom\cubed} at 150 molecules. PET-SOL
+shows the same qualitative pattern. The corresponding endpoint volume
+changes are about $-0.75\%$, $-0.37\%$, and $+0.3$--$0.4\%$ across the two
+models. This suggests that guest loading modifies the framework's thermal
+response, with contraction at lower loading and expansion at the highest
+loading. The mean densities at \SI{300}{K} are approximately 0.677, 0.752,
+and \SI{0.825}{g\per\centi\meter\cubed} for 50, 100, and 150 molecules,
+respectively; most of this loading trend reflects the added methane mass.
+
+This observation connects directly to Eq.~\eqref{eq:cp-cv}: thermal expansion
+enters $C_P-C_V$ through $\alpha_V^2$, so negative thermal expansion does not
+imply a negative $C_P-C_V$. The volume trend alone neither establishes a phase
+transition nor quantifies the neglected quantum pressure--volume correction;
+compressibility and consistently converged derivatives would also be needed.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/results-structure-sol-150-300.png}
+  \caption{Structural diagnostics for PET-SOL with 150 methane molecules at
+  \SI{300}{K}: framework RMSD, nearest host-atom--methane center-of-mass
+  distance, radial distributions, and methane center-of-mass mean-squared
+  displacement (MSD). The first analyzed frame at \SI{100}{ps} defines the
+  framework reference, hence the initial zero RMSD. Long-lag MSD values use
+  fewer time origins than short-lag values.}
+  \label{fig:results-structure}
+\end{figure*}
+
+At \SI{300}{K}, the six mean framework RMSDs lie between 0.659 and
+\SI{0.725}{\angstrom}, while the RMS changes of the tracked reference-bond
+lengths are only 0.055--\SI{0.059}{\angstrom}. In the PET-SOL 150-molecule
+example (Figure~\ref{fig:results-structure}), the framework fluctuates around
+a bounded RMSD instead of displaying continued displacement growth. This
+combination is consistent with collective framework motion without a gross
+collapse of the tracked structure over the analyzed interval. It is not a
+complete test of chemical integrity: the diagnostics track a reference
+neighbor set and do not establish the absence of every possible bond change.
+
+Methane remains mobile. At \SI{300}{K}, the \SI{400}{ps} MSD is approximately
+$8.9$--$9.2\times10^3\,\text{\AA}^2$ at 50 molecules,
+$5.1$--$5.6\times10^3\,\text{\AA}^2$ at 100 molecules, and
+$3.1$--$3.4\times10^3\,\text{\AA}^2$ at 150 molecules.
+The lower displacement at higher loading is consistent with hindered guest
+motion as the pores become more crowded. The methane center-of-mass radial
+distributions have their first prominent peak near \SI{4}{\angstrom},
+showing local guest organization alongside translational mobility.
+These diagnostics support the need for the anharmonic MD term in
+Eq.~\eqref{eq:hybrid-cp}: diffusion and changing adsorption environments
+cannot be generated by a harmonic expansion about one geometry. No diffusion
+coefficient is inferred here from the endpoint MSD; a defensible fit would
+require a verified diffusive regime, control of cell-motion effects,
+adequate time-origin statistics, and replica uncertainty.
+
+\subsection{Classical, harmonic, and hybrid heat capacities}
+\label{sec:results-cp}
+
+Figures~\ref{fig:results-cp-mad} and \ref{fig:results-cp-sol} show the supplied
+loading-comparison curves with the refreshed CEA uncertainty bands.
+Table~\ref{tab:results-cp} resolves the contributions at \SI{300}{K}.
+For PET-MAD, increasing loading from 50 to 150 molecules raises the classical
+term from 2.281 to \SI{3.122}{J\per g\per K}; for PET-SOL the corresponding
+range is 2.289--\SI{3.134}{J\per g\per K}. The quantum-minus-classical
+harmonic correction is negative, ranging from approximately $-1.35$ to
+$-1.97\,\mathrm{J\,g^{-1}\,K^{-1}}$ across the six systems. It removes
+roughly 59--63\% of the classical heat capacity at this temperature.
+
+The large reduction is the expected signature of classical equipartition
+populating high-frequency framework and methane vibrations too strongly.
+It follows from the quantum oscillator contribution in
+Eq.~\eqref{eq:quantum-harmonic-cv}: a thermally inaccessible mode contributes
+less than the classical $k_{\mathrm B}$. The increasingly negative correction
+with loading also demonstrates why the empty-framework spectrum cannot
+replace the loaded-system Hessian. Both the additional methane internal
+modes and mixed host--guest modes enter the correction.
+
+\begin{table*}[t]
+  \centering
+  \small
+  \caption{Heat capacities and uncertainty estimates at \SI{300}{K}, all in
+  \si{J\per g\per K} and normalized by the total mass of each loaded cell.
+  $c_{\mathrm{cl}}$ is the central enthalpy derivative, $\Delta c_{\mathrm{har}}$
+  the retained-mode harmonic correction, and $c_{\mathrm{hyb}}$ their sum.
+  $u_{\mathrm{CEA}}$ and $u_{\mathrm G}$ use different paired model spreads
+  around the \emph{same} central value and MD standard error
+  $\sigma_{\mathrm{MD}}$. The final column is the separate variance-based
+  central hybrid estimate. None of these uncertainties includes the bias
+  from discarded imaginary modes or an estimated spread across minima.}
+  \label{tab:results-cp}
+  \begin{tabular}{@{}lrrrrrrrr@{}}
+    \toprule
+    Model & $N_{\chfour}$ & $c_{\mathrm{cl}}$ & $\Delta c_{\mathrm{har}}$
+    & $c_{\mathrm{hyb}}$ & $\sigma_{\mathrm{MD}}$ & $u_{\mathrm{CEA}}$
+    & $u_{\mathrm G}$ & $c_{\mathrm{hyb}}^{\mathrm{var}}$ \\
+    \midrule
+PET-MAD & 50 & 2.281 & -1.351 & 0.929 & 0.010 & 0.068 & 0.127 & 0.926 \\
+PET-MAD & 100 & 2.762 & -1.682 & 1.080 & 0.010 & 0.123 & 0.169 & 1.044 \\
+PET-MAD & 150 & 3.122 & -1.957 & 1.165 & 0.010 & 0.113 & 0.214 & 1.202 \\
+PET-SOL & 50 & 2.289 & -1.363 & 0.926 & 0.010 & 0.087 & 0.150 & 0.940 \\
+PET-SOL & 100 & 2.762 & -1.693 & 1.069 & 0.010 & 0.153 & 0.225 & 1.024 \\
+PET-SOL & 150 & 3.134 & -1.969 & 1.166 & 0.010 & 0.103 & 0.306 & 1.230 \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.90\textwidth]{figures/results-pet-mad-cea.png}
+  \caption{Supplied PET-MAD loading comparison. Loaded solid curves are
+  central classical enthalpy derivatives plus retained-mode harmonic quantum
+  corrections. Their shading is $\pm u_{\mathrm{CEA}}$, combining MD sampling
+  error with correlated classical--harmonic LLPR spread. Despite the common
+  ``hybrid'' legend, the zero-loading curve is a quantum-harmonic $c_V$
+  calculation only, with a harmonic LLPR band; no empty-system MD term was
+  computed. Dashed curves are the supplied reference CSVs, whose provenance
+  is discussed in the text.}
+  \label{fig:results-cp-mad}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.90\textwidth]{figures/results-pet-sol-cea.png}
+  \caption{Supplied PET-SOL loading comparison, with the same definitions
+  and exploratory mode treatment as Figure~\ref{fig:results-cp-mad}.
+  The slight decrease of the 100-molecule central curve at the upper end of
+  the grid is smaller than its uncertainty band and is not evidence of a
+  resolved thermodynamic anomaly. Shading denotes standard uncertainty,
+  not a calibrated confidence interval.}
+  \label{fig:results-cp-sol}
+\end{figure*}
+
+The net room-temperature hybrid values are approximately 0.93, 1.07--1.08,
+and \SI{1.16}{J\per g\per K} for 50, 100, and 150 methane molecules.
+The PET-MAD and PET-SOL central values differ by only 0.003, 0.011, and
+\SI{0.001}{J\per g\per K}, respectively. These differences are much smaller
+than the propagated model bands, so the calculations do not distinguish the
+two potentials' predictive accuracy. Agreement can also reflect shared
+modeling assumptions and cannot be used as independent validation of the
+harmonic approximation.
+
+Across 200--\SI{400}{K}, the PET-MAD loaded curves rise from
+0.796, 0.932, and 1.014 to 1.106, 1.278, and
+\SI{1.362}{J\per g\per K}. PET-SOL gives corresponding endpoints
+0.787, 0.921, and 0.987, and 1.102, 1.189, and
+\SI{1.422}{J\per g\per K}. Increasing thermal occupation makes the harmonic
+correction less negative, contributing to the upward temperature trend even
+where the classical term changes little. For example, the PET-MAD
+50-molecule classical term changes from 2.347 to
+\SI{2.269}{J\per g\per K}, while its correction changes from $-1.551$ to
+$-1.164\,\mathrm{J\,g^{-1}\,K^{-1}}$. The positive slope of the final curve
+therefore should not be attributed solely to increasing classical
+anharmonicity.
+
+The broad ordering with loading is common to both models, but adjacent
+loading bands overlap substantially. Quantitative significance of a
+loading difference would require propagating the \emph{difference} with
+persistent member identities, not merely inspecting overlap of marginal
+bands. The reported range starts at \SI{200}{K}; it does not bracket a
+low-temperature minimum and cannot verify the minimum discussed in
+Section~\ref{sec:reference-conclusions}. Small local bends, such as the
+PET-SOL 100-molecule turnover near \SI{400}{K}, remain sensitive to finite
+sampling and temperature differentiation.
+
+The empty-system values at \SI{300}{K} are
+$0.786\pm0.021$ for PET-MAD and
+$0.766\pm0.027\,\mathrm{J\,g^{-1}\,K^{-1}}$ for PET-SOL. These are
+quantum-harmonic $c_V$ values with LLPR model standard deviations, separately
+normalized by the framework mass. They are not a full hybrid $c_P$ and do
+not measure the incremental heat capacity of adsorbing one methane molecule.
+The dashed reference curves were digitized from Kapil \emph{et al.}\
+\cite{kapil2019}, as confirmed for the supplied reference CSVs. At
+\SI{300}{K} those files give approximately 0.788, 0.944, 1.037, and
+\SI{1.151}{J\per g\per K} for 0, 50, 100, and 150 methane molecules.
+The broad loading and temperature trends agree with the present curves, and
+the loaded room-temperature differences are at most about
+\SI{0.043}{J\per g\per K}. This is a contextual comparison, not validation:
+the digitized points contain no uncertainty estimates, the underlying force
+fields and preparation protocols differ (Section~\ref{sec:reference-comparison}),
+and the present spectra and sampling have unresolved limitations. The
+approximate empty-framework scale quoted earlier is less precise than these
+digitized values and should not be treated as a separate numerical target.
+
+\subsection{Hessian stability and interpretation of the quantum correction}
+\label{sec:results-hessians}
+
+\begin{table*}[t]
+  \centering
+  \small
+  \caption{Archived central loaded-Hessian diagnostics. All calculations use
+  PET-JAX, float64, three graph hops, and the force-constant row-sum acoustic
+  treatment. ``Converged'' reproduces the relaxation archive's flag for its
+  requested tolerance. Imaginary modes have signed frequencies below
+  $-1\,\mathrm{cm^{-1}}$; near-zero modes satisfy
+  $|\widetilde\nu|\leq1\,\mathrm{cm^{-1}}$. Retained modes have positive
+  frequencies above the threshold. Signed negative values represent
+  unstable curvature, not physical negative-frequency oscillators.}
+  \label{tab:results-hessians}
+  \begin{tabular}{@{}lrr rrrr r@{}}
+    \toprule
+    Model & $N_{\chfour}$ & Converged & $F_{\max}$ & Imaginary & Near zero
+      & Retained & $\widetilde\nu_{\min}$ \\
+    & & & (eV/\AA) & & & & ($\mathrm{cm^{-1}}$) \\
+    \midrule
+PET-MAD & 50 & no & 0.0170 & 17 & 5 & 2000 & -53.5 \\
+PET-MAD & 100 & yes & 0.0097 & 114 & 3 & 2655 & -92.4 \\
+PET-MAD & 150 & no & 0.0095 & 28 & 3 & 3491 & -66.8 \\
+PET-SOL & 50 & no & 0.0054 & 32 & 3 & 1987 & -107.7 \\
+PET-SOL & 100 & yes & 0.0100 & 95 & 3 & 2674 & -138.4 \\
+PET-SOL & 150 & no & 0.0049 & 35 & 3 & 3484 & -86.5 \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+Table~\ref{tab:results-hessians} prevents interpreting a small residual force
+as proof of a valid harmonic minimum. The two 100-molecule structures meet
+their archived force criteria, yet have 114 and 95 imaginary modes for
+PET-MAD and PET-SOL. The most negative signed frequencies are
+$-92.4$ and $-138.4\,\mathrm{cm^{-1}}$, far beyond the
+$1\,\mathrm{cm^{-1}}$ exclusion threshold. The other loadings retain
+17--35 imaginary modes and are flagged unconverged. The force tolerances
+are run dependent: a smaller final force in one run does not override that
+run's failed convergence flag. PET-MAD at 50 molecules also has five
+near-zero modes, exceeding the three translational modes expected for a
+stable periodic structure.
+
+Section~\ref{sec:normal-modes} relates squared frequencies to eigenvalues of
+the mass-weighted Hessian. Negative eigenvalues signal directions in which
+the quadratic energy decreases. Discarding them makes the oscillator sum
+numerically evaluable, but does not make the reference geometry a stable
+minimum. The cause cannot be assigned from these archives alone: insufficient
+relaxation, unstable stationary structures, sparse-Hessian truncation, or
+other curvature errors must be distinguished by convergence checks. The empty
+spectra also contain four and five imaginary modes, with minima of
+$-5.5$ and $-6.6\,\mathrm{cm^{-1}}$, so their stability is not established
+either, although their negative curvatures are much smaller.
+
+Using the same retained-mode mask in the quantum and classical terms avoids
+subtracting a different number of modes, as required by
+Section~\ref{sec:hybrid-method}. It does not quantify the missing anharmonic
+physics of an unstable direction. Nor does reusing one \SI{400}{K} spectrum
+establish that its curvature represents every temperature. With one quenched
+geometry per model and loading, the stored zero harmonic sampling error means
+that minimum-to-minimum variation was not estimated. The LLPR Hessian spread
+varies the energy readout at the fixed central geometry; it does not replace
+that missing structural sampling or include member-specific relaxation.
+
+\subsection{What determines the uncertainty bands?}
+\label{sec:results-uncertainty}
+
+Figures~\ref{fig:results-error-cea} and \ref{fig:results-error-gaussian}
+separate the uncertainty contributions. The blue MD sampling error of the
+enthalpy derivative is small, approximately
+\SI{0.010}{J\per g\per K} at \SI{300}{K}. The green harmonic LLPR spread is
+larger and generally increases with loading. The orange classical spread
+is obtained either by differentiating the CEA member enthalpies
+[Eq.~\eqref{eq:llpr-cp-spread}] or by the Gaussian NPT approximation of
+Section~\ref{sec:gaussian-propagation}. The red total uses the standard
+deviation of the \emph{paired sum} of classical and harmonic member
+contributions, then combines this with MD sampling error. Thus it need not
+exceed every individual model contribution.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/results-uncertainty-cea.png}
+  \caption{Supplied uncertainty decomposition using refreshed CEA member
+  curves. Every panel uses all 8001 saved production frames at each
+  temperature and 64 LLPR members. The harmonic curve is model spread at
+  one fixed geometry, not an uncertainty across minima. The total preserves
+  classical--harmonic covariance and excludes an unestimated harmonic
+  sampling term. All plotted quantities are standard errors or model standard
+  deviations in \si{J\per g\per K}, not variance fractions.}
+  \label{fig:results-error-cea}
+\end{figure*}
+
+For example, PET-SOL at 150 molecules and \SI{300}{K} has classical and
+harmonic CEA-based model standard deviations of 0.108 and
+\SI{0.155}{J\per g\per K}. Their paired hybrid spread is only
+\SI{0.103}{J\per g\per K}, corresponding to an inferred member correlation
+of approximately $-0.75$. Conversely, PET-SOL at 100 molecules has positive
+correlation (approximately $+0.37$), increasing the paired spread to
+\SI{0.153}{J\per g\per K}. Summing the separate model variances as if
+independent would miss both effects. Model spread is not divided by
+$\sqrt{64}$, because it describes variations of predicted properties across
+the ensemble rather than the uncertainty of repeated measurements of one
+fixed mean.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/results-uncertainty-gaussian.png}
+  \caption{Supplied Gaussian NPT/DPOSE uncertainty decomposition. Central
+  hybrid curves, MD sampling errors, harmonic member corrections, and frame
+  coverage are identical to the CEA comparison; only the classical member
+  spread and its covariance with the harmonic correction change. The smoother
+  orange curves result from a different estimator and do not establish more
+  accurate uncertainty calibration.}
+  \label{fig:results-error-gaussian}
+\end{figure*}
+
+In the refreshed \SI{300}{K} comparison, Gaussian propagation gives larger
+combined bands in every model--loading case: for PET-MAD they are
+0.127, 0.169, and \SI{0.214}{J\per g\per K}, compared with CEA values
+0.068, 0.123, and \SI{0.113}{J\per g\per K}. For PET-SOL the corresponding
+Gaussian values are 0.150, 0.225, and \SI{0.306}{J\per g\per K}, compared
+with 0.087, 0.153, and \SI{0.103}{J\per g\per K} for CEA. Gaussian
+classical--harmonic correlations at this temperature are positive in all six
+cases, approximately 0.43--0.63. The method dependence of both the classical
+spread and its covariance is therefore material to the reported uncertainty.
+
+These differences should not be interpreted as proof that the narrower or
+smoother band is correct. Across all runs and members, the recorded
+$\operatorname{var}(\beta\Delta U_i)$ ranges from approximately 2.4 to
+$1.42\times10^3$, rather than being much smaller than one as required for
+a controlled first-order CEA. Direct-reweighting effective sample counts
+approach one for some members. Consequently, exact reweighting is not a
+reliable independent validation of CEA for those members, and Gaussian
+tail behavior also needs checking. The bands are conditional diagnostics
+of these propagation approximations; their statistical coverage against
+reference electronic-structure data has not been demonstrated here.
+
+The separate \texttt{variance-hybrid} results change the \emph{central}
+classical estimator as well as its sampling error. Their \SI{300}{K} hybrid
+values are listed in the final column of Table~\ref{tab:results-cp}; they
+differ from the derivative-based values by approximately $-0.045$ to
+$+0.064\,\mathrm{J\,g^{-1}\,K^{-1}}$. Their MD sampling errors are
+0.022--\SI{0.030}{J\per g\per K}, larger than those of the enthalpy
+derivative, and are estimated from the autocorrelation of squared
+configurational-enthalpy fluctuations. For the central potential this is a
+fluctuation estimator of the same classical NPT response
+(Section~\ref{sec:md-response}); Gaussian closure is needed to infer the
+member-ensemble variances from the central trajectory. Agreement in overall
+scale is a useful check, but the two estimates share trajectories and
+harmonic corrections and therefore are not independent measurements.
+
+Taken together, the outputs support a positive loading dependence, a large
+quantum reduction of the classical heat capacity, and substantial guest
+mobility. They also identify the immediate requirements for a quantitative
+prediction: resolve the unstable Hessian spectra, establish stationarity
+with longer independent trajectories, sample more quenched structures, and
+validate propagation under representative LLPR members. Reducing the already
+small reported MD standard error alone will not resolve these limitations.
+
+\clearpage
 
 \section{Recommended production and analysis protocol}
 
@@ -1644,7 +2615,7 @@ A reproducible result should record:
 
 \section{Limitations and interpretation}
 
-The principal limitations of the planned result are:
+The results in Section~\ref{sec:results} demonstrate the following limitations:
 
 \begin{itemize}
   \item PET-MAD and QuickFF describe different potential-energy surfaces.
@@ -1669,9 +2640,17 @@ The principal limitations of the planned result are:
   \item Finite-size, sparse-Hessian depth, precision, temperature-derivative,
         model-validity, and independent-replica errors must all be quantified.
   \item LLPR varies only the final PET readout and cannot measure bias shared by
-        the frozen representation. CEA is first order, and the present LLPR
-        propagation covers only the classical NPT term, not the harmonic
-        correction.
+        the frozen representation. The present propagation includes paired
+        classical and harmonic readout variations at central-model geometries;
+        it omits member-specific relaxation. Large reweighting diagnostics
+        challenge first-order CEA, and the Gaussian NPT alternative changes
+        the uncertainty substantially.
+  \item Half-trajectory enthalpy diagnostics flag 33 of 66 runs, and one
+        replica per state point cannot establish between-replica uncertainty.
+  \item Every loaded reference spectrum contains imaginary modes; four
+        relaxations are flagged unconverged. Discarding unstable modes does
+        not establish harmonic validity, and one geometry per curve leaves
+        minimum-to-minimum uncertainty unestimated.
 \end{itemize}
 
 These qualifications define the boundary between an efficient, physically
@@ -1680,22 +2659,52 @@ They should be carried into every plot, table, and comparison with experiment.
 
 \section{Conclusions}
 
-The focused workflow avoids unnecessary empty-framework MD. Classical NPT
-trajectories are reserved for loaded MOF-5, where they are needed to describe
-anharmonic guest and host--guest motion. Sparse AD Hessians are evaluated only
-at converged fixed-cell minima and provide the loaded-system
-quantum-minus-classical harmonic correction. The equilibrated empty structure
-contributes one direct reference Hessian.
+The available PET-MAD and PET-SOL calculations apply the hybrid approximation
+to three methane loadings. Both give increasing room-temperature heat capacity
+with loading, from about 0.93 to \SI{1.16}{J\per g\per K}, after a harmonic
+quantum correction removes roughly 59--63\% of the classical contribution.
+The trajectory diagnostics show substantial methane mobility and a
+loading-dependent cell response, supporting the inclusion of anharmonic MD.
+The calculated trends are broadly consistent with the digitized reference
+curves, without establishing equivalent accuracy for the different potentials.
 
-The final quantity is the classical loaded-system enthalpy derivative plus the
-mean loaded harmonic correction. Its credibility depends on stress validation,
-stationary and replicated MD, stable optimized minima, numerical Hessian
-convergence, consistent mode and mass bookkeeping, and explicit uncertainty
-propagation. This strategy applies the cost-saving hybrid approximation
-motivated by Kapil \emph{et al.}\ to the PET potential; it does not seek to
-reproduce the reference force field, sampling protocol, or numerical curves.
+The current heat-capacity curves remain exploratory. Temperature control is
+good, but production-half discrepancies, a single replica per state point,
+imaginary Hessian modes, and incomplete relaxations prevent a claim of
+converged thermodynamics. Classical and harmonic LLPR uncertainties must be
+combined with their covariance; changing from CEA to Gaussian NPT propagation
+substantially changes the resulting bands. Stable and converged reference
+spectra, independent trajectory and minimum sampling, and validation of
+member propagation are required before these numerical values can be treated
+as quantitative predictions. The separately calculated empty-framework
+harmonic curve remains a reference and does not replace the loaded correction.
 
-\begin{thebibliography}{10}
+\begin{thebibliography}{99}
+
+\bibitem{allen2017}
+M. P. Allen and D. J. Tildesley,
+\emph{Computer Simulation of Liquids}, 2nd ed.,
+Oxford University Press (2017),
+\href{https://doi.org/10.1093/oso/9780198803195.001.0001}{publisher edition}.
+
+\bibitem{tuckerman2023}
+M. E. Tuckerman,
+\emph{Statistical Mechanics: Theory and Molecular Simulation}, 2nd ed.,
+Oxford University Press (2023),
+\href{https://doi.org/10.1093/oso/9780198825562.001.0001}{publisher edition}.
+
+\bibitem{lammps-pressure}
+LAMMPS documentation,
+\emph{compute pressure command},
+\href{https://docs.lammps.org/compute_pressure.html}{online documentation}
+(accessed 2 October 2026).
+
+\bibitem{flyvbjerg1989}
+H. Flyvbjerg and H. G. Petersen,
+\emph{Error Estimates on Averages of Correlated Data},
+Journal of Chemical Physics \textbf{91}, 461--466 (1989),
+\href{https://doi.org/10.1063/1.457480}{doi:10.1063/1.457480}.
+
 
 \bibitem{bronstein2021}
 M. M. Bronstein, J. Bruna, T. Cohen, and P. Veli\v{c}kovi\'c,
@@ -1755,6 +2764,12 @@ F. Bigi, S. Chong, M. Ceriotti, and F. Grasselli,
 neural networks}, Machine Learning: Science and Technology \textbf{5}, 045018
 (2024),
 \href{https://doi.org/10.1088/2632-2153/ad805f}{doi:10.1088/2632-2153/ad805f}.
+
+\bibitem{kellner2024}
+M. Kellner and M. Ceriotti,
+\emph{Uncertainty Quantification by Direct Propagation of Shallow Ensembles},
+Machine Learning: Science and Technology \textbf{5}, 035006 (2024),
+\href{https://doi.org/10.1088/2632-2153/ad594a}{doi:10.1088/2632-2153/ad594a}.
 
 \bibitem{imbalzano2021}
 G. Imbalzano \emph{et al.},

@@ -1,0 +1,36 @@
+{
+  "results-pet-mad-cea.png": {
+    "source": "output/post-processing/harmonic-correction/loading-comparisons/pet-mad-1.5-s-40nn-cea-hybrid-heat-capacity.png",
+    "sha256": "afab3a65080ceae42981c80dfa4c616fe98e8990995d2bb3ca831e26851c1edb"
+  },
+  "results-pet-sol-cea.png": {
+    "source": "output/post-processing/harmonic-correction/loading-comparisons/pet-sol-s-best-cea-hybrid-heat-capacity.png",
+    "sha256": "e79cdf13cf1124a902becca2e606d11936a0d6682cbf45086ec0c1af6752b0e7"
+  },
+  "results-uncertainty-cea.png": {
+    "source": "output/post-processing/harmonic-correction/loading-comparisons/hybrid-heat-capacity-uncertainty-components-cea.png",
+    "sha256": "46b644f33dc1a11c126d02fff386026912bf8ccfda89bbf0a3b7c0049cf2784f"
+  },
+  "results-uncertainty-gaussian.png": {
+    "source": "output/post-processing/harmonic-correction/loading-comparisons/hybrid-heat-capacity-uncertainty-components-dpose.png",
+    "sha256": "c32e53ce1fb37d777db1882bdb7db89fe8db1b1a7998fea141596656cbedd509"
+  },
+  "results-structure-sol-150-300.png": {
+    "source": "output/post-processing/trajectory-analysis/pet-sol-s-best/150ch4/300K/rep01/structure.png",
+    "sha256": "657486af5cb68fd5e2534bc6bee1e06e341ce62ec97e9d82cdfdb5dce631806d"
+  },
+  "results-convergence-mad-150-175.png": {
+    "source": "output/post-processing/trajectory-analysis/pet-mad-1.5-s-40nn/150ch4/175K/rep01/enthalpy_convergence.png",
+    "sha256": "82496851adf398f73ee581de26faca99e993e637a4076e27190b3797be47d514"
+  },
+  "results-md-overview.pdf": {
+    "source": "output/post-processing/trajectory-analysis/*/*ch4/*K/rep01/summary.json",
+    "description": "Enthalpy rise, relative volume, and archived split_stationarity_z for all 66 runs. Enthalpy bars are archived pointwise SE, without adding the common 175 K baseline uncertainty."
+  },
+  "reference_curves": {
+    "source": "output/reference_heat_capacity/{0,50,100,150}ch4.csv",
+    "attribution": "Digitized from Kapil et al. (2019), confirmed by the user in this session.",
+    "doi": "10.1021/acs.jctc.8b01297",
+    "uncertainties": "Not supplied in the digitized CSVs."
+  }
+}
