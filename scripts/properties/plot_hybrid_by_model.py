@@ -5,10 +5,15 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from mof_heat_capacity.campaign import GUEST_SYMBOLS, system_directory, validate_selection
 
 
 MODEL_TITLES = {
@@ -17,8 +22,12 @@ MODEL_TITLES = {
 }
 
 
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mof", default="mof5")
+    parser.add_argument("--guest", type=str.lower, choices=tuple(GUEST_SYMBOLS), default="ch4")
     parser.add_argument("--loading", type=int, required=True)
     parser.add_argument(
         "--models", default="pet-mad-1.5-s-40nn,pet-sol-s-best"
@@ -53,13 +62,14 @@ def read_curve(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 def main() -> None:
     args = parse_args()
+    validate_selection(args.mof, args.guest)
     models = [value.strip() for value in args.models.split(",") if value.strip()]
     if not models or len(set(models)) != len(models):
         raise ValueError("--models must contain unique model labels")
 
     figure, axis = plt.subplots(figsize=(10, 6))
     for model in models:
-        path = args.input_root / model / f"{args.loading}ch4" / args.csv_name
+        path = args.input_root / system_directory(model, args.loading, args.mof, args.guest) / args.csv_name
         if not path.is_file():
             raise FileNotFoundError(f"hybrid CSV not found: {path}")
         temperatures, heat_capacity, standard_error = read_curve(path)
@@ -79,7 +89,7 @@ def main() -> None:
         )
 
     axis.set(
-        title=f"MOF-5 + {args.loading} methane: central-only hybrid heat capacity",
+        title=f"{args.mof} + {args.loading} {args.guest.upper()}: central-only hybrid heat capacity",
         xlabel="Temperature (K)",
         ylabel=r"Hybrid heat capacity (J g$^{-1}$ K$^{-1}$)",
     )

@@ -1,8 +1,11 @@
-# Running the hybrid MOF-5 workflow on Izar
+# Running the hybrid loaded-MOF workflow on Izar
 
-This runbook covers only the current workflow: classical NPT for methane-loaded
-MOF-5, fixed-cell relaxation and AD Hessians, and assembly of the harmonic
-quantum correction. Empty MOF-5 does not receive an MD job.
+This runbook covers classical NPT for loaded MOFs, fixed-cell relaxation and AD
+Hessians, and assembly of the harmonic quantum correction. Methane/MOF-5
+remains the default; select CO₂ or H₂O with `--guest`, and supplied hosts with
+`--mof` and `--host`. Empty MOFs do not receive an MD job. See the
+[MD selection and folder guide](../scripts/md/README.md#select-the-mof-and-guest)
+and pass the same selectors to the property commands.
 
 Run commands from the repository root on an Izar login node. CUDA validation
 belongs inside a Slurm allocation, not on the login node.
@@ -40,6 +43,14 @@ Production output is organized as:
 ```text
 ${MOF_OUTPUT_ROOT}/md/production/<model>/<loading>ch4/<temperature>K/repNN/
 ```
+
+This is the compatible default CH₄/MOF-5 path. Other combinations use
+`md/production/<mof>/<model>/<loading><guest>/<temperature>K/repNN/`;
+configurations and property/log directories follow the same system hierarchy.
+
+The default MD/analysis grid includes 175–425 K in 25 K steps. Hybrid outputs
+cover 200–400 K and use 175/425 K for centered endpoint derivatives; the shared
+Hessian source remains 400 K.
 
 The corresponding generated configuration is:
 
@@ -89,7 +100,7 @@ output/post-processing/trajectory-analysis/<model>/<loading>ch4/<temperature>K/r
 
 ## 3. Relax minima and compute Hessians
 
-Choose the highest loaded-MD source temperature (400 K for the default
+Choose the highest reported temperature (400 K for the default
 campaign). The command relaxes that run's final structure at fixed cell and
 computes its central PET-JAX Hessian and eigenfrequencies once per replica.
 Eight independent GPU array tasks then compute eight LLPR member Hessians and

@@ -5,10 +5,15 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from mof_heat_capacity.campaign import GUEST_SYMBOLS, structure_directory, system_directory, validate_selection
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
@@ -27,6 +32,8 @@ COMPONENTS = (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mof", default="mof5")
+    parser.add_argument("--guest", type=str.lower, choices=tuple(GUEST_SYMBOLS), default="ch4")
     parser.add_argument("--models", default="pet-mad-1.5-s-40nn,pet-sol-s-best")
     parser.add_argument("--loadings", default="50,100,150")
     parser.add_argument(
@@ -54,10 +61,10 @@ def _load_arrays(path: Path) -> dict[str, np.ndarray]:
 
 def _assemble(model: str, loading: int, args: argparse.Namespace) -> dict[str, np.ndarray]:
     variance_path = (
-        args.analysis_root / model / f"{loading}ch4" / "variance_heat_capacity_comparison.npz"
+        args.analysis_root / system_directory(model, loading, args.mof, args.guest) / "variance_heat_capacity_comparison.npz"
     )
     hybrid_path = (
-        args.hybrid_root / model / f"{loading}ch4"
+        args.hybrid_root / system_directory(model, loading, args.mof, args.guest)
         / "heat-capacity.exploratory-discard-imaginary.npz"
     )
     variance = _load_arrays(variance_path)
@@ -148,7 +155,7 @@ def _plot_hybrid_curves(
             result = results[(model, loading)]
             line = axis.plot(
                 result["temperature_K"], result["central_hybrid_cp_J_per_gK"],
-                marker="o", linewidth=2.5, label=f"{loading} CH4 — variance hybrid",
+                marker="o", linewidth=2.5, label=f"{loading} {args.guest.upper()} — variance hybrid",
             )[0]
             uncertainty = result["combined_standard_uncertainty_J_per_gK"]
             axis.fill_between(
@@ -157,34 +164,34 @@ def _plot_hybrid_curves(
                 result["central_hybrid_cp_J_per_gK"] + uncertainty,
                 color=line.get_color(), alpha=0.18,
             )
-            reference = _read_reference(args.reference_root / f"{loading}ch4.csv")
+            reference = _read_reference(args.reference_root / structure_directory(loading, args.mof, args.guest).with_suffix(".csv"))
             if reference is not None:
                 axis.plot(*reference, color=line.get_color(), linestyle="--", linewidth=2,
-                          label=f"{loading} CH4 — reference")
+                          label=f"{loading} {args.guest.upper()} — reference")
         axis.set(
-            title=f"MOF-5 + methane: {MODEL_TITLES.get(model, model)} Gaussian-variance hybrid heat capacity",
+            title=f"{args.mof} + {args.guest.upper()}: {MODEL_TITLES.get(model, model)} Gaussian-variance hybrid heat capacity",
             xlabel="Temperature (K)", ylabel=r"Hybrid heat capacity (J g$^{-1}$ K$^{-1}$)",
         )
         axis.grid(alpha=0.25)
-        axis.legend(title="Methane loading / curve", ncol=2)
+        axis.legend(title="Guest loading / curve", ncol=2)
         figure.text(
             0.5, 0.01,
             "Exploratory Hessian policy; Gaussian NPT fluctuation closure; shading combines MD sampling error and LLPR spread.",
             ha="center", fontsize=9,
         )
         figure.tight_layout(rect=(0.0, 0.06, 1.0, 1.0))
-        path = args.output_dir / f"{model}-50-vs-100-vs-150ch4-variance-hybrid-heat-capacity.png"
+        path = args.output_dir / f"{model}-{'-vs-'.join(map(str, loadings))}{args.guest}-variance-hybrid-heat-capacity.png"
         figure.savefig(path, dpi=180)
         plt.close(figure)
         print(f"Saved variance hybrid loading comparison: {path}")
 
 
 def _plot_components(
-    models: list[str], loadings: list[int], results: dict[tuple[str, int], dict[str, np.ndarray]], output: Path
+    models: list[str], loadings: list[int], results: dict[tuple[str, int], dict[str, np.ndarray]], output: Path, guest: str = "ch4"
 ) -> None:
     figure, axes = plt.subplots(
         len(models), len(loadings), figsize=(4.7 * len(loadings), 6.5),
-        sharex=True, sharey=True,
+        sharex=True, sharey=True, squeeze=False,
     )
     axes = np.atleast_2d(axes)
     for row, model in enumerate(models):
@@ -193,7 +200,7 @@ def _plot_components(
             result = results[(model, loading)]
             for label, field in COMPONENTS:
                 axis.plot(result["temperature_K"], result[field], marker="o", linewidth=2, label=label)
-            axis.set_title(f"{MODEL_TITLES.get(model, model)}, {loading} CH4")
+            axis.set_title(f"{MODEL_TITLES.get(model, model)}, {loading} {guest.upper()}")
             axis.grid(alpha=0.25)
             if row == len(models) - 1:
                 axis.set_xlabel("Temperature (K)")
@@ -213,6 +220,9 @@ def _plot_components(
 
 def main() -> None:
     args = parse_args()
+    validate_selection(args.mof, args.guest)
+    if (args.mof, args.guest) != ("mof5", "ch4"):
+        args.output_dir = args.output_dir / args.mof / args.guest
     models = [value.strip() for value in args.models.split(",") if value.strip()]
     loadings = [int(value.strip()) for value in args.loadings.split(",") if value.strip()]
     if not models or not loadings or any(value <= 0 for value in loadings):
@@ -224,11 +234,12 @@ def main() -> None:
         for loading in loadings:
             result = _assemble(model, loading, args)
             results[(model, loading)] = result
-            _write_csv(args.output_dir / f"{model}-{loading}ch4-variance-hybrid-heat-capacity.csv", result)
+            _write_csv(args.output_dir / f"{model}-{loading}{args.guest}-variance-hybrid-heat-capacity.csv", result)
     _plot_hybrid_curves(models, loadings, results, args)
     _plot_components(
         models, loadings, results,
         args.output_dir / "hybrid-heat-capacity-variance-uncertainty-components.png",
+        args.guest,
     )
 
 

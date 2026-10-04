@@ -13,6 +13,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from mof_heat_capacity.campaign import GUEST_SYMBOLS, structure_directory, system_directory, validate_selection
+
 from mof_heat_capacity.analysis.statistics import AMU_TO_G, EV_TO_J, KB_EV_PER_K
 from mof_heat_capacity.analysis.statistics import integrated_autocorrelation_time
 from mof_heat_capacity.analysis.uncertainty import BAR_A3_TO_EV
@@ -32,6 +34,8 @@ def _positive_int_list(value: str) -> list[int]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mof", default="mof5")
+    parser.add_argument("--guest", type=str.lower, choices=tuple(GUEST_SYMBOLS), default="ch4")
     parser.add_argument("--model-label", default="pet-mad-1.5-s-40nn")
     parser.add_argument("--loading", type=int, required=True)
     parser.add_argument("--replicas", type=_positive_int_list, default=[1])
@@ -52,20 +56,23 @@ def _load_configuration(summary_path: Path) -> tuple[dict, float]:
 
 
 def _run_directory(
-    analysis_dir: Path, model_label: str, loading: int, temperature: float, replica: int
+    analysis_dir: Path, model_label: str, loading: int, temperature: float, replica: int,
+    mof: str = "mof5", guest: str = "ch4"
 ) -> Path:
     return (
         analysis_dir
-        / model_label
-        / f"{loading}ch4"
+        / system_directory(model_label, loading, mof, guest)
         / f"{temperature:g}K"
         / f"rep{replica:02d}"
     )
 
 
 def compare(args: argparse.Namespace) -> tuple[Path, Path]:
+    mof = getattr(args, "mof", "mof5")
+    guest = getattr(args, "guest", "ch4")
+    validate_selection(mof, guest)
     analysis_dir = args.analysis_dir.expanduser().resolve()
-    ensemble_path = analysis_dir / args.model_label / f"{args.loading}ch4" / "model_uncertainty_heat_capacity.npz"
+    ensemble_path = analysis_dir / system_directory(args.model_label, args.loading, mof, guest) / "model_uncertainty_heat_capacity.npz"
     if not ensemble_path.is_file():
         raise FileNotFoundError(
             f"CEA heat-capacity archive not found: {ensemble_path}; run trajectory analysis with --model-uncertainty"
@@ -101,7 +108,7 @@ def compare(args: argparse.Namespace) -> tuple[Path, Path]:
         replica_central_standard_errors = []
         for replica in args.replicas:
             run_dir = _run_directory(
-                analysis_dir, args.model_label, args.loading, temperature, replica
+                analysis_dir, args.model_label, args.loading, temperature, replica, mof, guest
             )
             summary, pressure_bar = _load_configuration(run_dir / "summary.json")
             archive_path = run_dir / "model_uncertainty.npz"
@@ -301,6 +308,7 @@ def _plot_comparison(
 
 def main() -> None:
     args = parse_args()
+    validate_selection(args.mof, args.guest)
     if args.loading <= 0:
         raise SystemExit("--loading must be positive")
     csv_path, archive_path = compare(args)

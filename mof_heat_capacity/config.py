@@ -8,11 +8,13 @@ from pathlib import Path
 import re
 import tomllib
 
+from .campaign import system_directory, validate_selection
+
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_ROOT = PROJECT_DIR / "output"
 LOADED_RUN_PATTERN = re.compile(
-    r"^mof5-(?P<loading>[1-9][0-9]*)ch4-(?P<model>.+)-npt-"
+    r"^(?P<mof>[a-z][a-z0-9_-]*)-(?P<loading>[1-9][0-9]*)(?P<guest>ch4|co2|h2o)-(?P<model>.+)-npt-"
     r"(?P<temperature>[1-9][0-9]*)K-rep(?P<replica>[0-9]+)$"
 )
 
@@ -67,6 +69,12 @@ class RunConfig:
     heat_remat: bool
     heat_shadow: bool
     output_dir: Path
+    mof: str = "mof5"
+    guest: str = "ch4"
+    loading: int | None = None
+    host_atoms: int = 424
+    source_host: Path | None = None
+    source_molecule: Path | None = None
 
 
 def load_run_config(path: Path) -> RunConfig:
@@ -98,10 +106,18 @@ def load_run_config(path: Path) -> RunConfig:
         )
     )
 
+    campaign = _table(data, "campaign")
+    match = LOADED_RUN_PATTERN.fullmatch(str(run.get("name", config_path.stem)))
     required = structure.get("required_elements")
     required_elements = frozenset(str(item) for item in required) if required else None
     config = RunConfig(
         name=str(run.get("name", config_path.stem)),
+        mof=str(campaign.get("mof", match.group("mof") if match else "mof5")),
+        guest=str(campaign.get("guest", match.group("guest") if match else "ch4")),
+        loading=int(campaign["loading"]) if "loading" in campaign else (int(match.group("loading")) if match else None),
+        host_atoms=int(campaign.get("host_atoms", 424)),
+        source_host=_optional_resolve(base, campaign.get("host")),
+        source_molecule=_optional_resolve(base, campaign.get("molecule")),
         structure=_resolve(base, structure["path"]),
         required_elements=required_elements,
         md_backend=str(model.get("md_backend", "metatomic")),
@@ -150,26 +166,25 @@ def classical_output_directories(config: RunConfig) -> tuple[Path, ...]:
     candidates = [config.output_dir]
     match = LOADED_RUN_PATTERN.fullmatch(config.name)
     if match:
+        system = system_directory(match.group("model"), int(match.group("loading")), match.group("mof"), match.group("guest"))
         root = output_root() / "md" / "production"
         historical_root = output_root() / "classical" / "production"
         candidates.extend(
             (
                 root
-                / match.group("model")
-                / f"{match.group('loading')}ch4"
+                / system
                 / f"{match.group('temperature')}K"
                 / f"rep{int(match.group('replica')):02d}",
                 root
-                / match.group("model")
-                / f"{match.group('loading')}ch4"
+                / system
                 / config.name,
                 historical_root
-                / match.group("model")
-                / f"{match.group('loading')}ch4"
+                / system
                 / config.name,
-                historical_root / f"{match.group('loading')}ch4" / config.name,
             )
         )
+        if (config.mof, config.guest) == ("mof5", "ch4"):
+            candidates.append(historical_root / f"{match.group('loading')}ch4" / config.name)
     return tuple(dict.fromkeys(path.resolve() for path in candidates))
 
 
@@ -200,12 +215,13 @@ def loaded_config_path(
     loading: int,
     temperature: int,
     replica: int,
+    mof: str = "mof5",
+    guest: str = "ch4",
 ) -> Path:
     """Return the concise path for one generated loaded-run configuration."""
     return (
         configs_dir
-        / model
-        / f"{loading}ch4"
+        / system_directory(model, loading, mof, guest)
         / f"{temperature}K-rep{replica:02d}.toml"
     )
 
@@ -216,12 +232,14 @@ def find_loaded_config(
     loading: int,
     temperature: int,
     replica: int,
+    mof: str = "mof5",
+    guest: str = "ch4",
 ) -> Path:
     """Find a concise generated config, falling back to its historical flat path."""
-    concise = loaded_config_path(configs_dir, model, loading, temperature, replica)
+    concise = loaded_config_path(configs_dir, model, loading, temperature, replica, mof, guest)
     if concise.is_file():
         return concise
-    name = f"mof5-{loading}ch4-{model}-npt-{temperature}K-rep{replica:02d}.toml"
+    name = f"{mof}-{loading}{guest}-{model}-npt-{temperature}K-rep{replica:02d}.toml"
     return configs_dir / name
 
 
@@ -241,6 +259,15 @@ def _optional_resolve(base: Path, value: str | None) -> Path | None:
 
 
 def _validate(config: RunConfig) -> None:
+    validate_selection(config.mof, config.guest)
+    match = LOADED_RUN_PATTERN.fullmatch(config.name)
+    if match is not None and (
+        config.mof != match.group("mof") or config.guest != match.group("guest")
+        or config.loading != int(match.group("loading"))
+    ):
+        raise ValueError("campaign metadata must match the run name")
+    if config.host_atoms < 1 or (config.loading is not None and config.loading < 1):
+        raise ValueError("campaign host_atoms and loading must be positive")
     if config.md_backend != "metatomic":
         raise ValueError(f"unsupported MD backend {config.md_backend!r}; choose 'metatomic'")
     if config.ad_backend == "pet-jax" and (

@@ -9,6 +9,7 @@ import subprocess
 from ..config import RunConfig
 from ..io import (
     load_structure,
+    lammps_species,
     write_classical_npt_lammps_input,
     write_lammps_data,
 )
@@ -122,6 +123,7 @@ def run_classical_npt(
         restart_stride=config.restart_stride,
         seed=config.random_seed,
         restart_path=restart_path,
+        species=lammps_species(atoms),
     )
     print(
         f"Run {config.name}: LAMMPS flexible NPT, {config.temperature_K:g} K, "

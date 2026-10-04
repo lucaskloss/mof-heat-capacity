@@ -7,12 +7,13 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
+source "${PROJECT_DIR}/scripts/slurm/campaign_selection.sh"
 GPU_RUNTIME="${PROJECT_DIR}/scripts/slurm/izar_gpu_runtime.sh"
 ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof}"
 VALIDATE_PYTHON="${MOF_CAMPAIGN_PYTHON:-${ENV_PREFIX}/bin/python}"
 MODEL="both"
 LOADING=100
-TEMPERATURES=(200 225 250 275 300 325 350 375 400)
+IFS=',' read -r -a TEMPERATURES <<< "${DEFAULT_MD_TEMPERATURES}"
 REPLICAS=1
 PARTITION="${MOF_MD_PARTITION:-gpu}"
 QOS="${MOF_MD_QOS:-normal}"
@@ -49,10 +50,15 @@ usage() {
 Usage: scripts/md/submit_loaded_md.sh [options]
 
 Options:
+  --mof NAME              MOF label (default: mof5).
+  --guest NAME            ch4, co2, or h2o (default: ch4; case-insensitive).
+  --molecule PATH         Single guest molecule override (default: input/<guest>.gro).
+  --host PATH             Host input override (MD and empty-reference preparation).
   --model NAME         pet-mad, pet-sol, or both (default: both).
-  --loading N          Positive methane count (default: 100).
+  --loading N          Positive guest count (default: 100).
   --temperatures LIST  Comma-separated temperatures
-                       (default: 200 to 400 K in 25 K steps).
+                       (default: 175 to 425 K in 25 K steps;
+                       175/425 K support centered derivatives at 200/400 K).
   --replicas N         Replica count (default: 1).
   --partition NAME     Slurm partition (default: gpu).
   --qos NAME           Production Slurm QOS (default: normal).
@@ -84,6 +90,10 @@ require_value() {
 
 while (($#)); do
     case "$1" in
+        --mof) require_value "$@"; MOF="$2"; shift 2 ;;
+        --guest) require_value "$@"; GUEST="$2"; shift 2 ;;
+        --molecule|--methane) require_value "$@"; MOLECULE="$2"; shift 2 ;;
+        --host) require_value "$@"; HOST="$2"; shift 2 ;;
         --model) require_value "$@"; MODEL="$2"; shift 2 ;;
         --loading) require_value "$@"; LOADING="$2"; shift 2 ;;
         --temperatures) require_value "$@"; IFS=',' read -r -a TEMPERATURES <<< "$2"; shift 2 ;;
@@ -105,6 +115,8 @@ while (($#)); do
         *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
 done
+
+validate_campaign_selection
 
 
 case "${MODEL}" in
@@ -165,6 +177,9 @@ fi
 
 prepare_campaign() {
     local model
+    local -a selection_args=(--mof "${MOF}" --guest "${GUEST}")
+    [[ -z "${HOST}" ]] || selection_args+=(--host "${HOST}")
+    [[ -z "${MOLECULE}" ]] || selection_args+=(--molecule "${MOLECULE}")
     local temperature_list
 
     local IFS=,
@@ -172,6 +187,7 @@ prepare_campaign() {
     for model in "${MODELS[@]}"; do
         echo "Preparing ${model} campaign inputs"
         "${VALIDATE_PYTHON}" -m mof_heat_capacity.protocols.loaded \
+            "${selection_args[@]}" \
             --model "${model}" \
             --loading "${LOADING}" \
             --temperatures "${temperature_list}" \
@@ -181,6 +197,8 @@ prepare_campaign() {
     done
 }
 
+
+cd "${PROJECT_DIR}"
 
 CONFIGS=()
 RUN_MODELS=()
@@ -195,8 +213,8 @@ for model_index in "${!MODELS[@]}"; do
         fi
         for ((replica=1; replica<=REPLICAS; replica++)); do
             printf -v replica_tag '%02d' "${replica}"
-            stem="mof5-${LOADING}ch4-${MODEL_LABELS[model_index]}-npt-${temperature}K-rep${replica_tag}"
-            config="configs/${MODEL_LABELS[model_index]}/${LOADING}ch4/${temperature}K-rep${replica_tag}.toml"
+            stem="${MOF}-${LOADING}${GUEST}-${MODEL_LABELS[model_index]}-npt-${temperature}K-rep${replica_tag}"
+            config="configs/${MOF_PATH}${MODEL_LABELS[model_index]}/${LOADING}${GUEST}/${temperature}K-rep${replica_tag}.toml"
             if [[ ! -f "${config}" && -f "configs/${stem}.toml" ]]; then
                 config="configs/${stem}.toml"
             fi
@@ -211,7 +229,7 @@ done
 
 
 cd "${PROJECT_DIR}"
-echo "Loaded MD campaign: model=${MODEL}; loading=${LOADING}; replicas=${REPLICAS}"
+echo "Loaded MD campaign: mof=${MOF}; guest=${GUEST}; model=${MODEL}; loading=${LOADING}; replicas=${REPLICAS}"
 printf 'Temperatures:'
 printf ' %s' "${TEMPERATURES[@]}"
 printf ' K\n'
@@ -221,6 +239,7 @@ from pathlib import Path
 import sys
 
 from mof_heat_capacity.config import load_run_config
+from mof_heat_capacity.io import load_structure
 
 models = {}
 for path_text in sys.argv[1:]:
@@ -240,7 +259,12 @@ for path_text in sys.argv[1:]:
         models[config.exported_model] = metatomic_torch.load_atomistic_model(
             str(config.exported_model)
         )
-    outputs = set(models[config.exported_model].capabilities().outputs)
+    capabilities = models[config.exported_model].capabilities()
+    atoms = load_structure(config.structure, required_elements=config.required_elements)
+    unsupported = set(atoms.numbers).difference(capabilities.atomic_types)
+    if unsupported:
+        raise SystemExit(f"error: model does not support atomic numbers {sorted(unsupported)}: {config.exported_model}")
+    outputs = set(capabilities.outputs)
     if not outputs.intersection({"stress", "non_conservative_stress"}):
         raise SystemExit(f"error: model has no stress output: {config.exported_model}")
 PY
@@ -319,17 +343,17 @@ submit_automatic_pipeline() {
     for model_index in "${!MODELS[@]}"; do
         model=${MODELS[model_index]}
         model_label=${MODEL_LABELS[model_index]}
-        stem="mof5-${LOADING}ch4-${MODEL_LABELS[model_index]}-npt-${TEMPERATURES[0]}K-rep01"
-        config="configs/${MODEL_LABELS[model_index]}/${LOADING}ch4/${TEMPERATURES[0]}K-rep01.toml"
+        stem="${MOF}-${LOADING}${GUEST}-${MODEL_LABELS[model_index]}-npt-${TEMPERATURES[0]}K-rep01"
+        config="configs/${MOF_PATH}${MODEL_LABELS[model_index]}/${LOADING}${GUEST}/${TEMPERATURES[0]}K-rep01.toml"
         if [[ ! -f "${config}" && -f "configs/${stem}.toml" ]]; then
             config="configs/${stem}.toml"
         fi
-        calibration_dir="${OUTPUT_ROOT}/md/calibration/${model_label}/${LOADING}ch4/${TEMPERATURES[0]}K/rep01"
+        calibration_dir="${OUTPUT_ROOT}/md/calibration/${MOF_PATH}${model_label}/${LOADING}${GUEST}/${TEMPERATURES[0]}K/rep01"
         timing_file="${calibration_dir}/elapsed-seconds.txt"
-        calibration_log_dir="${SLURM_OUTPUT_DIR}/simulation/${model_label}/${LOADING}ch4/calibration"
-        planner_log_dir="${SLURM_OUTPUT_DIR}/simulation/${model_label}/${LOADING}ch4/planner"
+        calibration_log_dir="${SLURM_OUTPUT_DIR}/simulation/${MOF_PATH}${model_label}/${LOADING}${GUEST}/calibration"
+        planner_log_dir="${SLURM_OUTPUT_DIR}/simulation/${MOF_PATH}${model_label}/${LOADING}${GUEST}/planner"
         calibration_command=(
-            sbatch --parsable --job-name="mof5-${LOADING}ch4-${model}-calibration"
+            sbatch --parsable --job-name="${MOF}-${LOADING}${GUEST}-${model}-calibration"
             --partition="${PARTITION}" --qos=debug
             --nodes=1 --ntasks=1 --cpus-per-task=4 --gres=gpu:1 --time=01:00:00
             --output="${calibration_log_dir}/%j.out"
@@ -338,11 +362,14 @@ submit_automatic_pipeline() {
         )
         continuation_command=(
             "${PROJECT_DIR}/scripts/md/submit_loaded_md.sh"
+            --mof "${MOF}" --guest "${GUEST}"
             --model "${model}" --loading "${LOADING}"
             --temperatures "$(IFS=,; echo "${TEMPERATURES[*]}")" --replicas "${REPLICAS}"
             --partition "${PARTITION}" --qos "${QOS}" --cpus "${CPUS_PER_TASK}"
             --production-after-calibration "${timing_file}"
         )
+        [[ -z "${HOST}" ]] || continuation_command+=(--host "${HOST}")
+        [[ -z "${MOLECULE}" ]] || continuation_command+=(--molecule "${MOLECULE}")
         if [[ -n "${STEPS}" ]]; then
             continuation_command+=(--steps "${STEPS}")
         fi
@@ -363,7 +390,7 @@ submit_automatic_pipeline() {
         fi
         mkdir -p "${calibration_log_dir}" "${planner_log_dir}"
         calibration_submission=$("${calibration_command[@]}")
-        planner_submission=$(sbatch --parsable --job-name="mof5-${LOADING}ch4-${model}-production-plan" \
+        planner_submission=$(sbatch --parsable --job-name="${MOF}-${LOADING}${GUEST}-${model}-production-plan" \
             --dependency="afterok:${calibration_submission%%;*}" \
             --partition="${PARTITION}" --qos=debug --nodes=1 --ntasks=1 \
             --cpus-per-task=1 --gres=gpu:1 --time=00:20:00 \
@@ -430,7 +457,7 @@ for index in "${!CONFIGS[@]}"; do
     model_label="${RUN_MODEL_LABELS[index]}"
     temperature="${RUN_TEMPERATURES[index]}"
     replica_tag="${RUN_REPLICAS[index]}"
-    stem="mof5-${LOADING}ch4-${model_label}-npt-${temperature}K-rep${replica_tag}"
+    stem="${MOF}-${LOADING}${GUEST}-${model_label}-npt-${temperature}K-rep${replica_tag}"
     stage=production
     prefix_suffix=""
     rerun=0
@@ -441,22 +468,22 @@ for index in "${!CONFIGS[@]}"; do
     elif ((RERUN)); then
         rerun=1
     fi
-    output_dir="${OUTPUT_ROOT}/md/${stage}/${model_label}/${LOADING}ch4/${temperature}K/rep${replica_tag}"
+    output_dir="${OUTPUT_ROOT}/md/${stage}/${MOF_PATH}${model_label}/${LOADING}${GUEST}/${temperature}K/rep${replica_tag}"
     output_prefix="md${prefix_suffix}"
     final_restart="${output_dir}/${output_prefix}.restart.final"
     if ((RESUME)) && [[ -f "${final_restart}" ]]; then
         echo "Skipping completed production run: ${stem}"
         continue
     fi
-    slurm_run_dir="${SLURM_OUTPUT_DIR}/simulation/${model_label}/${LOADING}ch4/${temperature}K/rep${replica_tag}"
+    slurm_run_dir="${SLURM_OUTPUT_DIR}/simulation/${MOF_PATH}${model_label}/${LOADING}${GUEST}/${temperature}K/rep${replica_tag}"
     command=(
         sbatch --parsable
-        --job-name="mof5-${LOADING}ch4-${run_model}-npt-${temperature}K-r${replica_tag}"
+        --job-name="${MOF}-${LOADING}${GUEST}-${run_model}-npt-${temperature}K-r${replica_tag}"
         --partition="${PARTITION}" --qos="${QOS}"
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1 --time="${WALL_TIME}"
         --output="${slurm_run_dir}/%j.out"
-        --export="ALL,MOF_STAGE=md,MOF_CONFIG=${config},MOF_STEPS=${STEPS},MOF_OUTPUT_DIR=${output_dir},MOF_PREFIX=${output_prefix},MOF_RESUME=${RESUME},MOF_RERUN=${rerun},MOF_AUTO_RESUME=${AUTO_RESUME},MOF_MD_SEGMENT_SECONDS=${segment_seconds},MOF_SUBMIT_JOB_NAME=mof5-${LOADING}ch4-${run_model}-npt-${temperature}K-r${replica_tag},MOF_SUBMIT_PARTITION=${PARTITION},MOF_SUBMIT_QOS=${QOS},MOF_SUBMIT_TIME=${WALL_TIME},MOF_SUBMIT_CPUS=${CPUS_PER_TASK},MOF_SUBMIT_OUTPUT=${slurm_run_dir}/%j.out,MOF_RUNTIME_PATH=${GPU_RUNTIME}"
+        --export="ALL,MOF_STAGE=md,MOF_CONFIG=${config},MOF_STEPS=${STEPS},MOF_OUTPUT_DIR=${output_dir},MOF_PREFIX=${output_prefix},MOF_RESUME=${RESUME},MOF_RERUN=${rerun},MOF_AUTO_RESUME=${AUTO_RESUME},MOF_MD_SEGMENT_SECONDS=${segment_seconds},MOF_SUBMIT_JOB_NAME=${MOF}-${LOADING}${GUEST}-${run_model}-npt-${temperature}K-r${replica_tag},MOF_SUBMIT_PARTITION=${PARTITION},MOF_SUBMIT_QOS=${QOS},MOF_SUBMIT_TIME=${WALL_TIME},MOF_SUBMIT_CPUS=${CPUS_PER_TASK},MOF_SUBMIT_OUTPUT=${slurm_run_dir}/%j.out,MOF_RUNTIME_PATH=${GPU_RUNTIME}"
         "${GPU_RUNTIME}"
     )
     if ((DRY_RUN)); then

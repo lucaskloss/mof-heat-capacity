@@ -1,4 +1,4 @@
-"""Insert methane molecules into a periodic MOF structure with ASE."""
+"""Insert CH4, CO2, or H2O molecules into a periodic MOF structure with ASE."""
 
 from __future__ import annotations
 
@@ -9,30 +9,29 @@ import numpy as np
 from ase import Atoms, io
 from ase.geometry import get_distances
 
+from ..campaign import GUEST_SYMBOLS, host_path, structure_directory, validate_guest, validate_selection
 from ..config import output_root
 from ..io import write_lammps_data, write_structure_pdb
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_HOST = PROJECT_DIR / "input" / "mof5.pdb"
-DEFAULT_METHANE = PROJECT_DIR / "input" / "ch4.gro"
-DEFAULT_OUTPUT = output_root() / "mof5-pet-mad" / "mof5-md.pdb"
-DEFAULT_DATA_OUTPUT = output_root() / "mof5-pet-mad" / "mof5-md.data"
 
 
 def parse_args() -> argparse.Namespace:
     """Parse structure and insertion options."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", type=Path, default=DEFAULT_HOST,
+    parser.add_argument("--mof", default="mof5")
+    parser.add_argument("--guest", type=str.lower, choices=tuple(GUEST_SYMBOLS), default="ch4")
+    parser.add_argument("--host", type=Path,
                         help="Periodic host structure (PDB, CIF, or GRO).")
-    parser.add_argument("--molecule", type=Path, default=DEFAULT_METHANE,
-                        help="One-molecule methane structure (GRO or PDB).")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT,
-                        help="Combined PDB output structure (default: matching MD output path).")
-    parser.add_argument("--data-output", type=Path, default=DEFAULT_DATA_OUTPUT,
-                        help="LAMMPS data output (default: matching MD output path).")
+    parser.add_argument("--molecule", type=Path,
+                        help="Single guest molecule structure (GRO or PDB).")
+    parser.add_argument("--output", type=Path,
+                        help="Combined PDB output structure (default: md/structures/[<mof>/]<N><guest>/manual/seed<seed>).")
+    parser.add_argument("--data-output", type=Path,
+                        help="LAMMPS data output (default: md/structures/[<mof>/]<N><guest>/manual/seed<seed>).")
     parser.add_argument("--nmol", type=int, default=1,
-                        help="Number of methane molecules to insert (default: 1).")
+                        help="Number of guest molecules to insert (default: 1).")
     parser.add_argument("--try", dest="tries", type=int, default=1000,
                         help="Placement attempts per molecule (default: 1000).")
     parser.add_argument("--min-distance", type=float, default=1.5,
@@ -89,7 +88,7 @@ def insert_molecules(host: Atoms, molecule: Atoms, count: int, tries: int,
                 break
         else:
             raise RuntimeError(
-                f"could not place methane molecule {molecule_number + 1} after {tries} attempts; "
+                f"could not place guest molecule {molecule_number + 1} after {tries} attempts; "
                 "reduce --nmol or --min-distance"
             )
 
@@ -97,8 +96,14 @@ def insert_molecules(host: Atoms, molecule: Atoms, count: int, tries: int,
 
 
 def main() -> None:
-    """Read structures, insert methane, and write the combined structure."""
+    """Read structures, insert guest molecules, and write the combined structure."""
     args = parse_args()
+    validate_selection(args.mof, args.guest)
+    args.host = host_path(args.mof, args.host)
+    args.molecule = args.molecule or PROJECT_DIR / "input" / f"{args.guest}.gro"
+    directory = output_root() / "md" / "structures" / structure_directory(args.nmol, args.mof, args.guest) / "manual" / f"seed{args.seed}"
+    args.output = args.output or directory / "structure.pdb"
+    args.data_output = args.data_output or directory / "structure.data"
     if not args.host.is_file() or not args.molecule.is_file():
         raise FileNotFoundError("host and molecule structure files must exist")
     if args.nmol < 1 or args.tries < 1 or args.min_distance <= 0.0:
@@ -111,19 +116,18 @@ def main() -> None:
     molecule = io.read(args.molecule)
     if host.cell.volume <= 0.0 or not all(host.pbc):
         raise ValueError("host structure must have a non-zero periodic cell")
-    if len(molecule) == 0:
-        raise ValueError("molecule structure contains no atoms")
+    validate_guest(molecule, args.guest)
 
     combined = insert_molecules(host, molecule, args.nmol, args.tries,
                                 args.min_distance, args.seed)
-    print(f"Prepared {len(combined)} atoms ({args.nmol} methane molecules) in "
+    print(f"Prepared {len(combined)} atoms ({args.nmol} {args.guest.upper()} molecules) in "
           f"{combined.cell.volume:.3f} A^3")
     if not args.dry_run:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         write_structure_pdb(args.output, combined)
         write_lammps_data(args.data_output, combined)
-        print(f"Wrote host-plus-CH4 PDB structure: {args.output}")
-        print(f"Wrote host-plus-CH4 LAMMPS data: {args.data_output}")
+        print(f"Wrote host-plus-{args.guest.upper()} PDB structure: {args.output}")
+        print(f"Wrote host-plus-{args.guest.upper()} LAMMPS data: {args.data_output}")
 
 
 if __name__ == "__main__":

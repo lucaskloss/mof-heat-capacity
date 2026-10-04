@@ -1,8 +1,9 @@
-"""Load structures and generate LAMMPS inputs for the MOF-5 workflow."""
+"""Load structures and generate LAMMPS inputs for loaded-MOF workflows."""
 
 from pathlib import Path
 
 from ase import Atoms, io
+from ase.data import atomic_numbers
 
 MOF5_SPECIES = ("C", "H", "O", "Zn")
 
@@ -65,11 +66,19 @@ def write_structure_pdb(output_path: Path, structure: Atoms) -> None:
     output_path.write_text("\n".join(lines) + "\n")
 
 
+def lammps_species(structure: Atoms) -> tuple[str, ...]:
+    """Keep the legacy element order, followed by additional host elements."""
+    elements = set(structure.get_chemical_symbols())
+    legacy = tuple(symbol for symbol in MOF5_SPECIES if symbol in elements)
+    additional = tuple(sorted(elements.difference(MOF5_SPECIES), key=atomic_numbers.__getitem__))
+    return legacy + additional
+
+
 def write_lammps_data(output_path: Path, structure: Atoms) -> None:
-    """Write topology-free LAMMPS atomic data with a fixed C/H/O/Zn type order."""
+    """Write atomic data with a stable element order shared with the MD input."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     io.write(output_path, structure, format="lammps-data", atom_style="atomic", masses=True,
-             specorder=MOF5_SPECIES)
+             specorder=lammps_species(structure))
 
 
 def write_classical_npt_lammps_input(
@@ -94,8 +103,10 @@ def write_classical_npt_lammps_input(
     restart_stride: int,
     seed: int,
     restart_path: Path | None = None,
+    species: tuple[str, ...] = MOF5_SPECIES,
 ) -> None:
     """Write fully flexible LAMMPS NPT with explicit MTTK/NHC controls."""
+    species_numbers = " ".join(str(atomic_numbers[symbol]) for symbol in species)
     timestep_ps = timestep_fs / 1000.0
     thermostat_tau_ps = thermostat_tau_fs / 1000.0
     barostat_tau_ps = barostat_tau_fs / 1000.0
@@ -128,7 +139,7 @@ def write_classical_npt_lammps_input(
         f"{read_command}\n"
         "change_box all triclinic\n"
         f"pair_style metatomic {model_path} device {device}\n"
-        "pair_coeff * * 6 1 8 30\n"
+        f"pair_coeff * * {species_numbers}\n"
         "neighbor 2.0 bin\n"
         "neigh_modify delay 0 every 1 check yes one 10000 page 1000000\n"
         f"timestep {timestep_ps:.12g}\n"
@@ -145,7 +156,7 @@ def write_classical_npt_lammps_input(
         f"{equilibration_command}"
         f"dump production all custom {output_stride} {trajectory_path} "
         "id element xu yu zu vx vy vz fx fy fz\n"
-        "dump_modify production element C H O Zn sort id first yes "
+        f"dump_modify production element {' '.join(species)} sort id first yes "
         f"append {append}\n"
         f"restart {restart_stride} {restart_prefix}.*\n"
         f"run {steps} upto\n"

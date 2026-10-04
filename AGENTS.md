@@ -1,7 +1,7 @@
-# MOF-5 heat-capacity project
+# Loaded-MOF heat-capacity project
 
-This repository computes an approximate heat capacity for methane-loaded
-periodic MOF-5. Classical NPT captures loaded-system anharmonicity, while
+This repository computes an approximate heat capacity for periodic MOFs loaded
+with CH4, CO2, or H2O. Methane/MOF-5 remains the default. Classical NPT captures loaded-system anharmonicity, while
 PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
 
 ## Repository layout
@@ -18,7 +18,14 @@ PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
   consumes completed outputs without starting MD.
 - `configs/` holds reusable TOML run specifications. Paths in a TOML file are
   resolved relative to that file.
-- `input/` holds source MOF-5 and methane structures.
+- `input/` holds source MOF structures and CH4/CO2/H2O insertion templates.
+- `mof_heat_capacity/campaign.py` and `scripts/slurm/campaign_selection.sh`
+  define shared host/guest selection and folder conventions. All submission
+  commands accept `--mof`, `--guest`, and `--loading`. Preserve the existing
+  MOF-5/CH4 directories; all other systems use `<mof>/<model>/<N><guest>`.
+  Generated campaign metadata records the host atom count and source identity.
+  MD and analysis default to 175–425 K in 25 K steps; 175/425 K provide
+  centered derivatives at 200/400 K. Hybrid reports default to 200–400 K.
 - `scripts/setup/install_sadmof.sh` installs the SADMOF/PET-JAX stack; it expects the
   sibling checkout at `../repos/sadmof-work` unless `SADMOF_SOURCE` is set.
 - `scripts/slurm/izar_gpu_runtime.sh` is the shared GPU runtime for MD, relaxation, and
@@ -33,7 +40,7 @@ PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
 - `scripts/properties/submit_heat_capacity.sh` quenches representative loaded structures
   at the highest selected source temperature per replica and computes loaded
   and empty-reference Hessians. Hybrid assembly reuses that loaded spectrum
-  at every temperature (default source: highest MD-grid temperature).
+  at every temperature (default source: highest reported temperature, 400 K).
   Hessian evaluation uses eight independent GPU array tasks for eight supplied
   LLPR members each, followed by `analysis.llpr_merge`; use the final merge job
   as the hybrid dependency.

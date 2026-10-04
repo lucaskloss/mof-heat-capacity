@@ -1,4 +1,4 @@
-"""Assemble Hessian-corrected classical heat capacity for loaded MOF-5."""
+"""Assemble Hessian-corrected classical heat capacity for loaded MOFs."""
 
 from __future__ import annotations
 
@@ -11,6 +11,10 @@ from pathlib import Path
 import numpy as np
 from ase.io import read
 
+from ..campaign import (
+    DEFAULT_MD_TEMPERATURES, GUEST_SYMBOLS, default_report_temperatures,
+    system_directory, validate_selection,
+)
 from ..config import (
     find_classical_output_file,
     find_loaded_config,
@@ -33,19 +37,22 @@ def parse_args() -> argparse.Namespace:
         default="pet-mad-1.5-s-40nn",
         help="Model label embedded in generated run names",
     )
+    parser.add_argument("--mof", default="mof5")
+    parser.add_argument("--guest", type=str.lower, choices=tuple(GUEST_SYMBOLS), default="ch4")
     parser.add_argument("--loading", type=int, default=100)
     parser.add_argument("--replicas", default="1")
     parser.add_argument(
         "--temperatures",
-        default="200,225,250,275,300,325,350,375,400",
-        help="Classical enthalpy differentiation grid (default: 200 to 400 K in 25 K steps)",
+        default=",".join(map(str, DEFAULT_MD_TEMPERATURES)),
+        help="Classical enthalpy differentiation grid (default: 175 to 425 K in 25 K steps)",
     )
     parser.add_argument(
         "--report-temperatures",
         help=(
             "Subset of --temperatures to report and evaluate harmonically. "
             "This permits endpoint-only MD temperatures for centered classical "
-            "finite differences. Defaults to the full differentiation grid."
+            "finite differences. Defaults to 200–400 K for the default padded "
+            "grid, or the full grid when --temperatures is overridden."
         ),
     )
     parser.add_argument("--configs-dir", type=Path, default=Path("configs"))
@@ -60,7 +67,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help=(
             "Reuse this source-temperature spectrum at all MD temperatures "
-            "(default: highest MD temperature)"
+            "(default: highest reported temperature, 400 K for the default grid)"
         ),
     )
     parser.add_argument("--zero-threshold-cm1", type=float, default=1.0)
@@ -126,6 +133,8 @@ def _enthalpy_records(
     loading: int,
     replicas: list[int],
     temperatures: list[int],
+    mof: str = "mof5",
+    guest: str = "ch4",
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -146,6 +155,8 @@ def _enthalpy_records(
                 loading,
                 requested_temperature,
                 replica,
+                mof,
+                guest,
             )
             if not path.is_file():
                 raise FileNotFoundError(f"configuration not found: {path}")
@@ -327,6 +338,8 @@ def plot_hybrid_heat_capacity(
     approximate_vol: np.ndarray,
     approximate_error_vol: np.ndarray,
     model_uncertainty_included: bool,
+    mof: str = "mof5",
+    guest: str = "ch4",
 ) -> None:
     """Plot classical, harmonic-correction, and final hybrid curves."""
     import matplotlib
@@ -415,7 +428,7 @@ def plot_hybrid_heat_capacity(
         axis.set(xlabel="Temperature (K)", ylabel=ylabel)
         axis.grid(alpha=0.2)
         axis.legend(fontsize=8)
-    figure.suptitle(f"{model_label}, {loading} CH4")
+    figure.suptitle(f"{mof}, {model_label}, {loading} {guest.upper()}")
     figure.tight_layout()
     figure.savefig(path, dpi=180)
     plt.close(figure)
@@ -440,7 +453,7 @@ def _harmonic_corrections(
     )
     if source_temperature < max(temperatures):
         raise ValueError(
-            "Hessian source temperature must be at least the highest MD temperature"
+            "Hessian source temperature must be at least the highest reported temperature"
         )
     paths = {
         (int(temperature), replica): directory
@@ -661,7 +674,7 @@ def run(args: argparse.Namespace) -> Path:
     report_temperatures = (
         _temperatures(args.report_temperatures)
         if args.report_temperatures is not None
-        else selected_temperatures
+        else default_report_temperatures(selected_temperatures)
     )
     missing_report_temperatures = sorted(
         set(report_temperatures).difference(selected_temperatures)
@@ -685,6 +698,8 @@ def run(args: argparse.Namespace) -> Path:
         loading=args.loading,
         replicas=replicas,
         temperatures=selected_temperatures,
+        mof=args.mof,
+        guest=args.guest,
     )
     rng = np.random.default_rng(2025)
     sampled_enthalpy = rng.normal(
@@ -738,7 +753,7 @@ def run(args: argparse.Namespace) -> Path:
         classical_error, classical_model_error
     )
 
-    loaded_dir = args.hybrid_dir / args.model_label / f"{args.loading}ch4"
+    loaded_dir = args.hybrid_dir / system_directory(args.model_label, args.loading, args.mof, args.guest)
     (
         correction,
         correction_error,
@@ -855,6 +870,10 @@ def run(args: argparse.Namespace) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
     np.savez(
         output,
+        mof=args.mof,
+        guest=args.guest,
+        loading=args.loading,
+        classical_differentiation_temperatures_K=selected_temperatures,
         temperatures_K=temperatures,
         classical_anharmonic_cp_J_per_gK=classical_cp,
         classical_anharmonic_cp_standard_error_J_per_gK=classical_error,
@@ -976,10 +995,13 @@ def run(args: argparse.Namespace) -> Path:
     output.with_suffix(".json").write_text(
         json.dumps(
             {
+                "mof": args.mof,
+                "guest": args.guest,
                 "model_label": args.model_label,
                 "loading": args.loading,
                 "replicas": replicas,
                 "temperatures_K": temperatures.tolist(),
+                "classical_differentiation_temperatures_K": selected_temperatures,
                 "hessian_source_temperature_K": (
                     args.hessian_source_temperature
                     if args.hessian_source_temperature is not None
@@ -996,7 +1018,7 @@ def run(args: argparse.Namespace) -> Path:
                     "Classical term is d<Etot + Pext*V>/dT from loaded NPT MD.",
                     "Harmonic correction is C_qn_har - C_cl_har for identical retained modes.",
                     "Each replica reuses its highest-source-temperature spectrum at every evaluation temperature, including LLPR member spectra.",
-                    "Endpoint derivatives are second-order one-sided estimates.",
+                    "Interior differentiation-grid points use centered finite differences; only the outermost differentiation-grid points use second-order one-sided estimates. The default 175/425 K padding gives centered derivatives at 200/400 K.",
                     "Temperature spacing is a heat-capacity convergence parameter.",
                     "Volumetric values use the production NPT mean volume at each temperature.",
                     "Volumetric uncertainty propagation neglects covariance between heat capacity and volume.",
@@ -1042,6 +1064,8 @@ def run(args: argparse.Namespace) -> Path:
         plot_path,
         model_label=args.model_label,
         loading=args.loading,
+        mof=args.mof,
+        guest=args.guest,
         temperatures=temperatures,
         classical=classical_cp,
         classical_error=classical_combined_uncertainty,

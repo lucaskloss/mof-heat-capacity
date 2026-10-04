@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from copy import copy
 import fnmatch
 import json
 import math
@@ -13,7 +14,8 @@ import sys
 import numpy as np
 
 
-from ..config import find_classical_output_file, load_run_config, output_root, run_output_parts
+from ..config import LOADED_RUN_PATTERN, find_classical_output_file, load_run_config, output_root, run_output_parts
+from ..campaign import system_directory
 from .lammps import read_lammps_thermo
 from .statistics import (
     AMU_TO_G,
@@ -24,7 +26,7 @@ from .statistics import (
     summarize_series,
 )
 from .trajectory import (
-    methane_mean_squared_displacement,
+    guest_mean_squared_displacement,
     read_trajectory_observables,
 )
 from .uncertainty import (
@@ -83,7 +85,7 @@ def parse_args() -> argparse.Namespace:
     equilibration.add_argument(
         "--discard-ps", type=float, help="Discard this fixed initial time in ps"
     )
-    parser.add_argument("--host-atoms", type=int, default=424)
+    parser.add_argument("--host-atoms", type=int, help="Override host atom count; defaults to campaign metadata (424 for legacy configs)")
     parser.add_argument("--structural-stride", type=int, default=20)
     parser.add_argument("--rdf-stride", type=int, default=100)
     parser.add_argument("--rdf-bins", type=int, default=80)
@@ -211,7 +213,10 @@ def aggregate_from_summary(summary: dict) -> dict:
     return {
         "run": summary["run"],
         "model": Path(model_path).stem,
-        "methane_loading": summary["metadata"]["methane_molecules"],
+        "mof": summary.get("mof", "mof5"),
+        "guest": summary["metadata"].get("guest", "ch4"),
+        "loading": summary["metadata"].get("guest_molecules", summary["metadata"].get("methane_molecules", 0)),
+        "methane_loading": summary["metadata"].get("methane_molecules", 0),
         "temperature_K": summary["target_temperature_K"],
         "production_mean_temperature_K": statistics["temperature_K"]["mean"],
         "temperature_tau_ps": statistics["temperature_K"][
@@ -260,6 +265,8 @@ def discover_runs(config_dir: Path, patterns: list[str]):
                 {
                     "config": str(path),
                     "run": config.name,
+                    "mof": config.mof,
+                    "guest": config.guest,
                     "reason": "production trajectory absent",
                 }
             )
@@ -534,27 +541,27 @@ def plot_run(
     structural_time = structural["time_ps"]
     axes[0, 0].plot(structural_time, structural["framework_rmsd_A"])
     axes[0, 0].set(xlabel="Time (ps)", ylabel=r"Framework RMSD ($\AA$)")
-    has_methane = structural["methane_com_unwrapped_A"].shape[1] > 0
-    if has_methane:
+    has_guest = structural["guest_com_unwrapped_A"].shape[1] > 0
+    if has_guest:
         axes[0, 1].plot(
-            structural_time, structural["minimum_host_methane_com_distance_A"]
+            structural_time, structural["minimum_host_guest_com_distance_A"]
         )
         axes[0, 1].set(
             xlabel="Time (ps)",
-            ylabel=r"Minimum host--CH$_4$ COM distance ($\AA$)",
+            ylabel=r"Minimum host--guest COM distance ($\AA$)",
         )
         axes[1, 0].plot(
-            structural["rdf_distance_A"], structural["host_methane_com_rdf"],
-            label=r"host atom--CH$_4$ COM",
+            structural["rdf_distance_A"], structural["host_guest_com_rdf"],
+            label=r"host atom--guest COM",
         )
         axes[1, 0].plot(
-            structural["rdf_distance_A"], structural["methane_com_rdf"],
-            label=r"CH$_4$ COM--COM",
+            structural["rdf_distance_A"], structural["guest_com_rdf"],
+            label=r"guest COM--COM",
         )
         axes[1, 0].set(xlabel=r"Distance ($\AA$)", ylabel="g(r)")
         axes[1, 0].legend(fontsize=8)
         axes[1, 1].plot(msd_time_ps, msd_A2)
-        axes[1, 1].set(xlabel="Lag (ps)", ylabel=r"Methane COM MSD ($\AA^2$)")
+        axes[1, 1].set(xlabel="Lag (ps)", ylabel=r"Guest COM MSD ($\AA^2$)")
     else:
         for axis in (axes[0, 1], axes[1, 0], axes[1, 1]):
             axis.set_axis_off()
@@ -592,7 +599,8 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
         trajectory,
         frame_spacing_fs=config.timestep_fs * config.output_stride,
         production_start_ps=start_ps,
-        host_atoms=args.host_atoms,
+        host_atoms=args.host_atoms if args.host_atoms is not None else config.host_atoms,
+        guest=config.guest,
         structural_stride=args.structural_stride,
         rdf_stride=args.rdf_stride,
         rdf_bins=args.rdf_bins,
@@ -627,8 +635,8 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
         "framework_bond_rms_change_A",
         "framework_bond_max_change_A",
         "minimum_host_guest_atom_distance_A",
-        "minimum_host_methane_com_distance_A",
-        "minimum_methane_com_distance_A",
+        "minimum_host_guest_com_distance_A",
+        "minimum_guest_com_distance_A",
     ):
         values = structural[name][structural_mask]
         finite = np.isfinite(values)
@@ -737,8 +745,8 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
                 "provides energy_ensemble."
             ),
         }
-    msd_time, msd = methane_mean_squared_displacement(
-        structural["methane_com_unwrapped_A"],
+    msd_time, msd = guest_mean_squared_displacement(
+        structural["guest_com_unwrapped_A"],
         structural["time_ps"],
         production_start_ps=start_ps,
     )
@@ -797,6 +805,8 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             warnings.append(f"{name} has fewer than 20 effective production samples.")
     summary = {
         "run": config.name,
+        "mof": config.mof,
+        "guest": config.guest,
         "config": str(path),
         "trajectory": str(trajectory),
         "target_temperature_K": config.temperature_K,
@@ -863,7 +873,7 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
     structural_rows = []
     plain_structural_names = [
         name for name, values in structural.items() if np.asarray(values).ndim == 1
-        and name not in {"rdf_distance_A", "host_methane_com_rdf", "methane_com_rdf"}
+        and name not in {"rdf_distance_A", "host_guest_com_rdf", "guest_com_rdf"}
     ]
     for index in range(len(structural["frame"])):
         row = {name: structural[name][index] for name in plain_structural_names}
@@ -878,10 +888,15 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
     np.savez(
         run_output / "structural_distributions.npz",
         rdf_distance_A=structural["rdf_distance_A"],
-        host_methane_com_rdf=structural["host_methane_com_rdf"],
-        methane_com_rdf=structural["methane_com_rdf"],
+        host_guest_com_rdf=structural["host_guest_com_rdf"],
+        guest_com_rdf=structural["guest_com_rdf"],
         msd_lag_time_ps=msd_time,
-        methane_com_msd_A2=msd,
+        guest_com_msd_A2=msd,
+        **({
+            "host_methane_com_rdf": structural["host_guest_com_rdf"],
+            "methane_com_rdf": structural["guest_com_rdf"],
+            "methane_com_msd_A2": msd,
+        } if config.guest == "ch4" else {}),
     )
     if not args.no_plots:
         plot_run(
@@ -919,7 +934,7 @@ def workflow_requirements(summaries: list[dict]) -> dict:
             "running and block statistics, drift, split-half stationarity",
             "autocorrelation times and effective sample counts",
             "framework RMSD and reference-bond distortion",
-            "host--methane and methane--methane distances/RDFs, methane COM MSD",
+            "host--guest and guest--guest distances/RDFs, guest COM MSD",
             "classical NVT energy-fluctuation C_V diagnostic",
             (
                 "member-resolved direct and CEA model uncertainty for classical C_P"
@@ -967,16 +982,14 @@ def plot_sweep(path: Path, rows: list[dict]) -> None:
     import matplotlib.pyplot as plt
 
     figure, axes = plt.subplots(1, 2, figsize=(11, 4.2))
-    systems = sorted({
-        (str(row["model"]), int(row["methane_loading"])) for row in rows
-    })
-    for model, methane_loading in systems:
+    def identity(row):
+        return (row.get("mof", "mof5"), str(row["model"]), row.get("guest", "ch4"),
+                int(row.get("loading", row.get("methane_loading", 0))))
+
+    systems = sorted({identity(row) for row in rows})
+    for mof, model, guest, loading in systems:
         selected = sorted(
-            (
-                row for row in rows
-                if row["model"] == model
-                and int(row["methane_loading"]) == methane_loading
-            ),
+            (row for row in rows if identity(row) == (mof, model, guest, loading)),
             key=lambda item: item["temperature_K"],
         )
         temperature = [row["temperature_K"] for row in selected]
@@ -984,13 +997,13 @@ def plot_sweep(path: Path, rows: list[dict]) -> None:
             temperature,
             [row["density_g_cm3"] for row in selected],
             marker="o",
-            label=f"{model}, {methane_loading} CH4",
+            label=f"{mof}, {model}, {loading} {guest.upper()}",
         )
         axes[1].plot(
             temperature,
             [row["potential_energy_eV"] for row in selected],
             marker="o",
-            label=f"{model}, {methane_loading} CH4",
+            label=f"{mof}, {model}, {loading} {guest.upper()}",
         )
     axes[0].set(xlabel="MD temperature (K)", ylabel=r"Density (g cm$^{-3}$)")
     axes[1].set(xlabel="MD temperature (K)", ylabel="Potential energy (eV)")
@@ -1290,7 +1303,7 @@ def main() -> None:
     args.analysis_dir = args.analysis_dir.expanduser().resolve()
     if args.uncertainty_model is not None:
         args.uncertainty_model = args.uncertainty_model.expanduser().resolve()
-    if args.host_atoms < 1 or args.structural_stride < 1 or args.rdf_stride < 1:
+    if (args.host_atoms is not None and args.host_atoms < 1) or args.structural_stride < 1 or args.rdf_stride < 1:
         raise ValueError("host atom count and strides must be positive")
     if args.rdf_stride % args.structural_stride:
         raise ValueError("--rdf-stride must be an integer multiple of --structural-stride")
@@ -1314,6 +1327,24 @@ def main() -> None:
     if args.run_only and len(runs) != 1:
         raise ValueError("--run-only requires exactly one completed trajectory")
 
+    groups = {}
+    for run in runs:
+        config = run[1]
+        match = LOADED_RUN_PATTERN.fullmatch(config.name)
+        directory = (
+            system_directory(match.group("model"), config.loading, config.mof, config.guest)
+            if match else Path(config.name)
+        )
+        groups.setdefault(directory, []).append(run)
+    for directory, selected in groups.items():
+        group_args = copy(args)
+        # The Slurm worker already receives a complete system directory.
+        if args.analysis_dir.parts[-len(directory.parts):] != directory.parts:
+            group_args.analysis_dir = args.analysis_dir / directory
+        process_runs(group_args, selected, skipped)
+
+
+def process_runs(args, runs, skipped) -> None:
     args.analysis_dir.mkdir(parents=True, exist_ok=True)
     if args.aggregate_only:
         aggregate_existing_runs(args, runs, skipped)

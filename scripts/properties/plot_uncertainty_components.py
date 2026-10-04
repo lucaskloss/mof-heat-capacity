@@ -16,6 +16,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from mof_heat_capacity.campaign import GUEST_SYMBOLS, structure_directory, system_directory, validate_selection
+
 from mof_heat_capacity.analysis.uncertainty_comparison import hybrid_uncertainty_components
 
 
@@ -46,6 +48,8 @@ def components(method: str) -> tuple[tuple[str, str, str, str], ...]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mof", default="mof5")
+    parser.add_argument("--guest", type=str.lower, choices=tuple(GUEST_SYMBOLS), default="ch4")
     parser.add_argument("--loadings", default="50,100,150")
     parser.add_argument(
         "--input-root", type=Path,
@@ -70,15 +74,16 @@ def parse_args() -> argparse.Namespace:
 def write_csv(
     path: Path, method: str,
     results: dict[tuple[str, int], dict[str, np.ndarray]],
+    mof: str = "mof5", guest: str = "ch4",
 ) -> None:
     fields = list(next(iter(results.values())))
     with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["method", "model", "loading_CH4", *fields])
+        writer = csv.DictWriter(handle, fieldnames=["method", "mof", "guest", "model", "loading", *fields])
         writer.writeheader()
         for (model, loading), values in results.items():
             for index in range(len(values["temperature_K"])):
                 writer.writerow({
-                    "method": method, "model": model, "loading_CH4": loading,
+                    "method": method, "mof": mof, "guest": guest, "model": model, "loading": loading,
                     **{field: values[field][index] for field in fields},
                 })
 
@@ -86,6 +91,7 @@ def write_csv(
 def plot_components(
     path: Path, method: str, loadings: list[int],
     results: dict[tuple[str, int], dict[str, np.ndarray]], ymax: float,
+    mof: str = "mof5", guest: str = "ch4",
 ) -> None:
     figure, axes = plt.subplots(
         len(MODELS), len(loadings), figsize=(4.7 * len(loadings), 7.6),
@@ -101,7 +107,7 @@ def plot_components(
                     markersize=4, linewidth=1.8, color=color,
                     linestyle=linestyle, label=label,
                 )
-            axis.set_title(f"{MODEL_TITLES[model]}, {loading} CH4")
+            axis.set_title(f"{MODEL_TITLES[model]}, {loading} {guest.upper()}")
             axis.set_ylim(0, ymax)
             axis.grid(alpha=0.25)
             if row == len(MODELS) - 1:
@@ -109,7 +115,7 @@ def plot_components(
             if column == 0:
                 axis.set_ylabel(r"Standard uncertainty (J g$^{-1}$ K$^{-1}$)")
 
-    figure.suptitle(f"MOF-5 + methane: hybrid uncertainty — {METHOD_TITLES[method]}", y=0.985, fontsize=15)
+    figure.suptitle(f"{mof} + {guest.upper()}: hybrid uncertainty — {METHOD_TITLES[method]}", y=0.985, fontsize=15)
     handles, labels = axes[0, 0].get_legend_handles_labels()
     figure.legend(
         handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.95),
@@ -140,6 +146,7 @@ def plot_components(
 
 def main() -> None:
     args = parse_args()
+    validate_selection(args.mof, args.guest)
     loadings = [int(value.strip()) for value in args.loadings.split(",") if value.strip()]
     if not loadings or any(value < 1 for value in loadings) or len(set(loadings)) != len(loadings):
         raise ValueError("--loadings must contain unique positive integers")
@@ -149,9 +156,9 @@ def main() -> None:
         method_results = {}
         for model in MODELS:
             for loading in loadings:
-                hybrid_path = args.input_root / model / f"{loading}ch4" / "heat-capacity.exploratory-discard-imaginary.npz"
-                variance_path = args.analysis_root / model / f"{loading}ch4" / "variance_heat_capacity_comparison.npz"
-                ensemble_path = args.analysis_root / model / f"{loading}ch4" / "model_uncertainty_heat_capacity.npz"
+                hybrid_path = args.input_root / system_directory(model, loading, args.mof, args.guest) / "heat-capacity.exploratory-discard-imaginary.npz"
+                variance_path = args.analysis_root / system_directory(model, loading, args.mof, args.guest) / "variance_heat_capacity_comparison.npz"
+                ensemble_path = args.analysis_root / system_directory(model, loading, args.mof, args.guest) / "model_uncertainty_heat_capacity.npz"
                 method_results[(model, loading)] = hybrid_uncertainty_components(
                     hybrid_path, method=method, variance_path=variance_path,
                     ensemble_path=ensemble_path, require_all_frames=args.require_all_frames,
@@ -178,8 +185,8 @@ def main() -> None:
         path = args.output
         if len(methods) == 2:
             path = path.with_name(f"{path.stem}-{method}{path.suffix}")
-        plot_components(path, method, loadings, results[method], ymax)
-        write_csv(path.with_suffix(".csv"), method, results[method])
+        plot_components(path, method, loadings, results[method], ymax, args.mof, args.guest)
+        write_csv(path.with_suffix(".csv"), method, results[method], args.mof, args.guest)
 
 
 if __name__ == "__main__":

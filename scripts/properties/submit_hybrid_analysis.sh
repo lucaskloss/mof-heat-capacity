@@ -7,10 +7,11 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
+source "${PROJECT_DIR}/scripts/slurm/campaign_selection.sh"
 MODEL="pet-mad"
 LOADING=100
 REPLICAS="1"
-TEMPERATURES="200,225,250,275,300,325,350,375,400"
+TEMPERATURES="${DEFAULT_MD_TEMPERATURES}"
 REPORT_TEMPERATURES=""
 HESSIAN_SOURCE_TEMPERATURE=""
 PARTITION="${MOF_ANALYSIS_PARTITION:-gpu}"
@@ -35,6 +36,8 @@ DRY_RUN=0
 
 
 run_hybrid_worker() {
+    local mof=mof5
+    local guest=ch4
     local model_label=""
     local loading=""
     local replicas=""
@@ -51,6 +54,8 @@ run_hybrid_worker() {
     shift
     while (($#)); do
         case "$1" in
+            --mof) mof="$2"; shift 2 ;;
+            --guest) guest="$2"; shift 2 ;;
             --model-label) model_label="$2"; shift 2 ;;
             --loading) loading="$2"; shift 2 ;;
             --replicas) replicas="$2"; shift 2 ;;
@@ -105,6 +110,7 @@ run_hybrid_worker() {
 
     local command=(
         "${analysis_python}" -m mof_heat_capacity.analysis.hybrid
+        --mof "${mof}" --guest "${guest}"
         --model-label "${model_label}"
         --loading "${loading}"
         --replicas "${replicas}"
@@ -143,16 +149,20 @@ usage() {
 Usage: scripts/properties/submit_hybrid_analysis.sh [options]
 
 Options:
+  --mof NAME              MOF label (default: mof5).
+  --guest NAME            ch4, co2, or h2o (default: ch4; case-insensitive).
   --model NAME            pet-mad, pet-sol, or both (default: pet-mad).
-  --loading N             Positive methane loading (default: 100).
+  --loading N             Positive guest loading (default: 100).
   --replicas LIST         Classical MD replicas (default: 1).
   --temperatures LIST     Classical MD temperatures
-                          (default: 200 to 400 K in 25 K steps).
+                          (default: 175 to 425 K in 25 K steps).
   --report-temperatures LIST
                           Subset of the MD grid to report and evaluate with
-                          the shared Hessian (default: all temperatures).
+                          the shared Hessian (default: 200–400 K for the
+                          default padded grid; all temperatures for a custom grid).
   --hessian-source-temperature N
-                          Shared spectrum source (default: highest MD temperature).
+                          Shared spectrum source (default: highest reported
+                          temperature, 400 K for the default grid).
   --partition NAME        Slurm partition (default: gpu).
   --qos NAME              Slurm QOS (default: normal).
   --time HH:MM:SS         Wall time per model (default: 00:30:00).
@@ -192,6 +202,8 @@ require_value() {
 
 while (($#)); do
     case "$1" in
+        --mof) require_value "$@"; MOF="$2"; shift 2 ;;
+        --guest) require_value "$@"; GUEST="$2"; shift 2 ;;
         --model) require_value "$@"; MODEL="$2"; shift 2 ;;
         --loading) require_value "$@"; LOADING="$2"; shift 2 ;;
         --replicas) require_value "$@"; REPLICAS="$2"; shift 2 ;;
@@ -216,6 +228,8 @@ while (($#)); do
         *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
 done
+
+validate_campaign_selection
 
 
 case "${MODEL}" in
@@ -276,6 +290,9 @@ for temperature in "${TEMPERATURE_VALUES[@]}"; do
     SEEN_TEMPERATURES[${temperature}]=1
     previous_temperature="${temperature}"
 done
+if [[ -z "${REPORT_TEMPERATURES}" && "${TEMPERATURES}" == "${DEFAULT_MD_TEMPERATURES}" ]]; then
+    REPORT_TEMPERATURES="${DEFAULT_REPORT_TEMPERATURES}"
+fi
 HESSIAN_EVALUATION_MAX_TEMPERATURE="${previous_temperature}"
 if [[ -n "${REPORT_TEMPERATURES}" ]]; then
     IFS=',' read -r -a REPORT_TEMPERATURE_VALUES <<< "${REPORT_TEMPERATURES}"
@@ -332,18 +349,18 @@ if [[ -n "${AFTEROK}" ]]; then
     echo "Upstream afterok jobs: ${AFTEROK}"
 fi
 for model_label in "${MODEL_LABELS[@]}"; do
-    output="${OUTPUT_ROOT}/post-processing/harmonic-correction/${model_label}/${LOADING}ch4/heat-capacity.npz"
+    output="${OUTPUT_ROOT}/post-processing/harmonic-correction/${MOF_PATH}${model_label}/${LOADING}${GUEST}/heat-capacity.npz"
     if ((DISCARD_IMAGINARY_MODES)); then
         output="${output%.npz}.exploratory-discard-imaginary.npz"
     fi
     if ((CENTRAL_HESSIANS_ONLY)); then
         output="${output%.npz}.central-only.npz"
     fi
-    model_uncertainty_path="${ANALYSIS_DIR}/${model_label}/${LOADING}ch4/model_uncertainty_heat_capacity.npz"
-    slurm_hybrid_dir="${SLURM_OUTPUT_DIR}/hybrid-analysis/${model_label}/${LOADING}ch4"
+    model_uncertainty_path="${ANALYSIS_DIR}/${MOF_PATH}${model_label}/${LOADING}${GUEST}/model_uncertainty_heat_capacity.npz"
+    slurm_hybrid_dir="${SLURM_OUTPUT_DIR}/hybrid-analysis/${MOF_PATH}${model_label}/${LOADING}${GUEST}"
     command=(
         sbatch --parsable
-        --job-name="mof5-hybrid-analysis-${model_label}"
+        --job-name="${MOF}-hybrid-analysis-${model_label}"
         "${DEPENDENCY_ARGUMENTS[@]}"
         --partition="${PARTITION}" --qos="${QOS}"
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
@@ -351,6 +368,7 @@ for model_label in "${MODEL_LABELS[@]}"; do
         --output="${slurm_hybrid_dir}/%j.out"
         "${SCRIPT_DIR}/submit_hybrid_analysis.sh"
         --internal-hybrid-worker
+        --mof "${MOF}" --guest "${GUEST}"
         --model-label "${model_label}"
         --loading "${LOADING}"
         --replicas "${REPLICAS}"

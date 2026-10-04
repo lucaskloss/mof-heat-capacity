@@ -5,13 +5,20 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from pathlib import Path
 
 import numpy as np
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from mof_heat_capacity.campaign import GUEST_SYMBOLS, structure_directory, system_directory, validate_selection
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mof", default="mof5")
+    parser.add_argument("--guest", type=str.lower, choices=tuple(GUEST_SYMBOLS), default="ch4")
     parser.add_argument("--model-label", required=True)
     parser.add_argument(
         "--input-root",
@@ -24,11 +31,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    archive = args.input_root / args.model_label / "0ch4/hessians/hessian.npz"
+    validate_selection(args.mof, args.guest)
+    archive = args.input_root / system_directory(args.model_label, 0, args.mof, args.guest) / "hessians/hessian.npz"
     output = args.output or (
         args.input_root
-        / args.model_label
-        / "0ch4/heat-capacity.exploratory-discard-imaginary.csv"
+        / system_directory(args.model_label, 0, args.mof, args.guest)
+        / "heat-capacity.exploratory-discard-imaginary.csv"
     )
     if not archive.is_file():
         raise FileNotFoundError(f"empty-MOF Hessian archive not found: {archive}")

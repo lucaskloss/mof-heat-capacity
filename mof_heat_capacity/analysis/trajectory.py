@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections import Counter
+
+from ..campaign import GUEST_SYMBOLS
 
 import numpy as np
 
@@ -11,29 +14,28 @@ AMU_PER_ANGSTROM3_TO_G_PER_CM3 = 1.66053906660
 EV_PER_ANGSTROM3_TO_BAR = 1.602176634e6
 
 
-def _methane_centers_fractional(atoms, host_atoms: int) -> np.ndarray:
-    """Return wrapped methane centers of mass for appended C/H/H/H/H groups."""
+def _guest_centers_fractional(atoms, host_atoms: int, guest: str = "ch4") -> np.ndarray:
+    """Return wrapped COMs of the contiguous guest groups appended during insertion."""
+    molecule_symbols = GUEST_SYMBOLS[guest]
+    size = len(molecule_symbols)
     symbols = np.asarray(atoms.get_chemical_symbols())
     guest_count = len(atoms) - host_atoms
     if guest_count == 0:
         return np.empty((0, 3), dtype=float)
-    if guest_count % 5:
+    if guest_count % size:
         raise ValueError(
-            f"{guest_count} guest atoms cannot be divided into five-atom methane groups"
+            f"{guest_count} guest atoms cannot be divided into {size}-atom {guest.upper()} groups"
         )
 
     scaled = atoms.get_scaled_positions(wrap=False)
     masses = atoms.get_masses()
     centers = []
-    for start in range(host_atoms, len(atoms), 5):
-        group = slice(start, start + 5)
+    for start in range(host_atoms, len(atoms), size):
+        group = slice(start, start + size)
         group_symbols = symbols[group]
-        carbon = np.flatnonzero(group_symbols == "C")
-        if len(carbon) != 1 or np.count_nonzero(group_symbols == "H") != 4:
-            raise ValueError(
-                f"atoms {start}:{start + 5} are not one C followed by four H atoms"
-            )
-        anchor = scaled[start + int(carbon[0])]
+        if Counter(group_symbols) != Counter(molecule_symbols):
+            raise ValueError(f"atoms {start}:{start + size} are not one {guest.upper()} molecule")
+        anchor = scaled[start]
         displacements = scaled[group] - anchor
         displacements -= np.rint(displacements)
         unwrapped_group = anchor + displacements
@@ -89,13 +91,13 @@ def _framework_metrics(
 
 
 def _distance_metrics(
-    atoms, host_atoms: int, methane_centers_fractional: np.ndarray
+    atoms, host_atoms: int, guest_centers_fractional: np.ndarray
 ) -> tuple[float, float, float]:
     from ase.geometry import get_distances
 
-    if len(methane_centers_fractional) == 0:
+    if len(guest_centers_fractional) == 0:
         return float("nan"), float("nan"), float("nan")
-    centers = methane_centers_fractional @ atoms.cell.array
+    centers = guest_centers_fractional @ atoms.cell.array
     host = atoms.positions[:host_atoms]
     guest = atoms.positions[host_atoms:]
     _, host_guest = get_distances(host, guest, cell=atoms.cell, pbc=atoms.pbc)
@@ -114,16 +116,16 @@ def _distance_metrics(
 def _accumulate_rdf(
     atoms,
     host_atoms: int,
-    methane_centers_fractional: np.ndarray,
+    guest_centers_fractional: np.ndarray,
     edges: np.ndarray,
     host_guest_counts: np.ndarray,
     guest_guest_counts: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     from ase.geometry import get_distances
 
-    if len(methane_centers_fractional) == 0:
+    if len(guest_centers_fractional) == 0:
         return host_guest_counts, guest_guest_counts
-    centers = methane_centers_fractional @ atoms.cell.array
+    centers = guest_centers_fractional @ atoms.cell.array
     host = atoms.positions[:host_atoms]
     _, host_guest = get_distances(host, centers, cell=atoms.cell, pbc=atoms.pbc)
     _, guest_guest = get_distances(
@@ -206,6 +208,7 @@ def read_trajectory_observables(
     frame_spacing_fs: float,
     production_start_ps: float,
     host_atoms: int,
+    guest: str = "ch4",
     structural_stride: int,
     rdf_stride: int,
     rdf_bins: int,
@@ -265,8 +268,8 @@ def read_trajectory_observables(
             "framework_bond_rms_change_A",
             "framework_bond_max_change_A",
             "minimum_host_guest_atom_distance_A",
-            "minimum_host_methane_com_distance_A",
-            "minimum_methane_com_distance_A",
+            "minimum_host_guest_com_distance_A",
+            "minimum_guest_com_distance_A",
         )
     }
 
@@ -277,8 +280,8 @@ def read_trajectory_observables(
     bond_first = bond_second = reference_bonds = None
     previous_centers = None
     unwrapped_centers = None
-    methane_center_frames: list[np.ndarray] = []
-    methane_center_cells: list[np.ndarray] = []
+    guest_center_frames: list[np.ndarray] = []
+    guest_center_cells: list[np.ndarray] = []
     rdf_edges = None
     rdf_host_guest = None
     rdf_guest_guest = None
@@ -418,7 +421,7 @@ def read_trajectory_observables(
             series_lists[name].append(value)
 
         if frame_index % structural_stride == 0:
-            centers = _methane_centers_fractional(atoms, host_atoms)
+            centers = _guest_centers_fractional(atoms, host_atoms, guest)
             if previous_centers is None:
                 unwrapped_centers = centers.copy()
             else:
@@ -426,8 +429,8 @@ def read_trajectory_observables(
                 step -= np.rint(step)
                 unwrapped_centers = unwrapped_centers + step
             previous_centers = centers
-            methane_center_frames.append(unwrapped_centers @ atoms.cell.array)
-            methane_center_cells.append(np.asarray(atoms.cell.array))
+            guest_center_frames.append(unwrapped_centers @ atoms.cell.array)
+            guest_center_cells.append(np.asarray(atoms.cell.array))
 
             framework = _framework_metrics(
                 atoms,
@@ -445,8 +448,8 @@ def read_trajectory_observables(
                 "framework_bond_rms_change_A": framework[1],
                 "framework_bond_max_change_A": framework[2],
                 "minimum_host_guest_atom_distance_A": distances[0],
-                "minimum_host_methane_com_distance_A": distances[1],
-                "minimum_methane_com_distance_A": distances[2],
+                "minimum_host_guest_com_distance_A": distances[1],
+                "minimum_guest_com_distance_A": distances[2],
             }
             for name, value in structural_values.items():
                 structural_lists[name].append(value)
@@ -496,7 +499,9 @@ def read_trajectory_observables(
             "trajectory": str(trajectory_path),
             "atom_count": atom_count,
             "host_atoms": host_atoms,
-            "methane_molecules": (atom_count - host_atoms) // 5,
+            "guest": guest,
+            "guest_molecules": (atom_count - host_atoms) // len(GUEST_SYMBOLS[guest]),
+            **({"methane_molecules": (atom_count - host_atoms) // 5} if guest == "ch4" else {}),
             "total_mass_amu": total_mass_amu,
             "chemical_formula": chemical_formula,
             "frames": len(series_lists["frame"]),
@@ -516,27 +521,27 @@ def read_trajectory_observables(
                 name: np.asarray(values)
                 for name, values in structural_lists.items()
             },
-            "methane_com_unwrapped_A": np.asarray(methane_center_frames),
-            "methane_com_cells_A": np.asarray(methane_center_cells),
+            "guest_com_unwrapped_A": np.asarray(guest_center_frames),
+            "guest_com_cells_A": np.asarray(guest_center_cells),
             "rdf_distance_A": rdf_centers,
-            "host_methane_com_rdf": host_guest_rdf,
-            "methane_com_rdf": guest_guest_rdf,
+            "host_guest_com_rdf": host_guest_rdf,
+            "guest_com_rdf": guest_guest_rdf,
         },
     }
 
 
-def methane_mean_squared_displacement(
-    methane_centers_A: np.ndarray,
+def guest_mean_squared_displacement(
+    guest_centers_A: np.ndarray,
     times_ps: np.ndarray,
     *,
     production_start_ps: float,
     maximum_lags: int = 200,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute methane COM MSD using multiple time origins."""
-    centers = np.asarray(methane_centers_A, dtype=float)
+    """Compute guest COM MSD using multiple time origins."""
+    centers = np.asarray(guest_centers_A, dtype=float)
     times = np.asarray(times_ps, dtype=float)
     if centers.ndim != 3 or centers.shape[0] != len(times):
-        raise ValueError("methane center and time arrays are inconsistent")
+        raise ValueError("guest center and time arrays are inconsistent")
     selected = np.flatnonzero(times >= production_start_ps)
     if len(selected) < 2 or centers.shape[1] == 0:
         return np.empty(0), np.empty(0)
@@ -556,3 +561,7 @@ def methane_mean_squared_displacement(
         msd.append(float(np.mean(np.sum(displacement**2, axis=2))))
         lag_times.append(float(np.mean(times[lag:] - times[:-lag])))
     return np.asarray(lag_times), np.asarray(msd)
+
+
+# Compatibility for existing methane analysis imports.
+methane_mean_squared_displacement = guest_mean_squared_displacement

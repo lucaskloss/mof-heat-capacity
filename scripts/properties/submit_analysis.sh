@@ -7,12 +7,13 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
+source "${PROJECT_DIR}/scripts/slurm/campaign_selection.sh"
 ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof}"
 VALIDATE_PYTHON="${MOF_ANALYSIS_PYTHON:-${ENV_PREFIX}/bin/python}"
 RUNS=""
 MODEL="both"
 LOADINGS="100"
-TEMPERATURES="200,225,250,275,300,325,350,375,400"
+TEMPERATURES="${DEFAULT_MD_TEMPERATURES}"
 REPLICAS="1"
 DISCARD_PS="100"
 ENTHALPY_CONVERGENCE_STEP_PS="25"
@@ -167,10 +168,12 @@ usage() {
 Usage: scripts/properties/submit_analysis.sh [options]
 
 Options:
+  --mof NAME              MOF label (default: mof5).
+  --guest NAME            ch4, co2, or h2o (default: ch4; case-insensitive).
   --model NAME            pet-mad, pet-sol, or both (default: both).
-  --loading LIST          Comma-separated positive methane counts (default: 100).
+  --loading LIST          Comma-separated positive guest counts (default: 100).
   --temperatures LIST     Comma-separated temperatures in K
-                          (default: 200 to 400 K in 25 K steps).
+                          (default: 175 to 425 K in 25 K steps).
   --replicas LIST         Comma-separated replica numbers (default: 1).
   --runs PATTERN          Advanced: explicit run-name glob(s); overrides selectors.
   --discard-ps VALUE      Initial trajectory time to discard (default: 100 ps).
@@ -178,7 +181,7 @@ Options:
                           Interval between cumulative enthalpy uncertainty
                           estimates (default: 25 ps).
   --analysis-dir PATH     Analysis output override (default:
-                          repository output/post-processing/trajectory-analysis/<model>/<loading>ch4).
+                          repository output/post-processing/trajectory-analysis/[<mof>/]<model>/<loading><guest>).
   --partition NAME        Slurm partition (default: gpu).
   --qos NAME              Slurm QOS (default: normal).
   --time HH:MM:SS         Wall time (default: 01:15:00).
@@ -208,7 +211,7 @@ allocate one GPU. Standard diagnostics are CPU-based; optional ensemble
 inference uses that GPU. Each selected trajectory is analyzed in its own Slurm
 job. A small dependent job assembles
 the combined CSV, manifest, and temperature-sweep plot. By default, loaded
-classical replica 1 is selected from 200 to 400 K in 25 K steps for both MLIPs.
+classical replica 1 is selected from 175 to 425 K in 25 K steps for both MLIPs.
 Empty MOF-5 has no MD stage in the hybrid workflow.
 
 Model-uncertainty analysis uses first-order CEA on member-specific NPT
@@ -230,6 +233,8 @@ require_value() {
 
 while (($#)); do
     case "$1" in
+        --mof) require_value "$@"; MOF="$2"; shift 2 ;;
+        --guest) require_value "$@"; GUEST="$2"; shift 2 ;;
         --model) require_value "$@"; MODEL="$2"; shift 2 ;;
         --loading) require_value "$@"; LOADINGS="$2"; shift 2 ;;
         --temperatures) require_value "$@"; TEMPERATURES="$2"; shift 2 ;;
@@ -257,6 +262,8 @@ while (($#)); do
         *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
 done
+
+validate_campaign_selection
 
 
 if [[ -z "${RUNS}" ]]; then
@@ -288,7 +295,7 @@ if [[ -z "${RUNS}" ]]; then
                     fi
                     printf -v replica_tag '%02d' "${replica}"
                     RUN_PATTERNS+=(
-                        "mof5-${loading}ch4-${model_name}-npt-${temperature}K-rep${replica_tag}"
+                        "${MOF}-${loading}${GUEST}-${model_name}-npt-${temperature}K-rep${replica_tag}"
                     )
                 done
             done
@@ -371,7 +378,8 @@ from mof_heat_capacity.analysis.uncertainty import (
     default_llpr_checkpoint,
     load_llpr_energy_parameters,
 )
-from mof_heat_capacity.config import find_classical_output_file
+from mof_heat_capacity.config import find_classical_output_file, LOADED_RUN_PATTERN
+from mof_heat_capacity.campaign import system_directory
 
 patterns = [item.strip() for item in sys.argv[1].split(",") if item.strip()]
 model_uncertainty = bool(int(sys.argv[2]))
@@ -455,15 +463,12 @@ for _, config, trajectory in runs:
     else:
         detail = "trajectory present"
     print(f"  {config.name}: {trajectory} ({detail})", file=sys.stderr)
-run_pattern = re.compile(
-    r"^mof5-(?P<loading>[1-9][0-9]*)ch4-(?P<model>.+)-npt-"
-    r"[1-9][0-9]*K-rep[0-9]+$"
-)
 for name in selected_names:
-    match = run_pattern.fullmatch(name)
+    match = LOADED_RUN_PATTERN.fullmatch(name)
     if match is None:
         raise SystemExit(f"error: cannot group nonstandard run name by MLIP: {name}")
-    print(f"{name}\t{match.group('model')}\t{match.group('loading')}")
+    directory = system_directory(match.group("model"), int(match.group("loading")), match.group("mof"), match.group("guest"))
+    print(f"{name}\t{directory}")
 PY
 )
 mapfile -t SELECTED_RUN_RECORDS <<< "${selection_output}"
@@ -484,11 +489,10 @@ declare -A GROUP_RUNS=()
 declare -A GROUP_JOB_IDS=()
 declare -A GROUP_DIRS=()
 for record in "${SELECTED_RUN_RECORDS[@]}"; do
-    IFS=$'\t' read -r run_name model_label loading <<< "${record}"
-    group_key="${model_label}/${loading}ch4"
+    IFS=$'\t' read -r run_name group_key <<< "${record}"
     if [[ -z "${GROUP_DIRS[${group_key}]:-}" ]]; then
         GROUP_KEYS+=("${group_key}")
-        GROUP_DIRS[${group_key}]="${ANALYSIS_DIR}/${model_label}/${loading}ch4"
+        GROUP_DIRS[${group_key}]="${ANALYSIS_DIR}/${group_key}"
         GROUP_RUNS[${group_key}]="${run_name}"
     else
         GROUP_RUNS[${group_key}]="${GROUP_RUNS[${group_key}]},${run_name}"
@@ -498,14 +502,14 @@ for record in "${SELECTED_RUN_RECORDS[@]}"; do
     fi
     run_analysis_dir="${GROUP_DIRS[${group_key}]}"
     if [[ "${run_name}" =~ -npt-([0-9]+)K-rep([0-9]+)$ ]]; then
-        slurm_run_dir="${SLURM_OUTPUT_DIR}/trajectory-analysis/${model_label}/${loading}ch4/${BASH_REMATCH[1]}K/rep${BASH_REMATCH[2]}"
+        slurm_run_dir="${SLURM_OUTPUT_DIR}/trajectory-analysis/${group_key}/${BASH_REMATCH[1]}K/rep${BASH_REMATCH[2]}"
     else
         echo "error: cannot determine Slurm log directory for ${run_name}" >&2
         exit 2
     fi
     command=(
         sbatch --parsable
-        --job-name="mof5-analysis-${run_name#mof5-}"
+        --job-name="analysis-${run_name}"
         --partition="${PARTITION}" --qos="${QOS}"
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1
@@ -556,18 +560,17 @@ if ((NO_AGGREGATE)); then
 fi
 
 for group_key in "${GROUP_KEYS[@]}"; do
-    model_label=${group_key%%/*}
-    loading_label=${group_key#*/}
+    group_label=${group_key//\//-}
     if ((AGGREGATE_ONLY)); then
         dependency=""
     elif ((DRY_RUN)); then
-        dependency="afterok:<${model_label}-${loading_label}-analysis-jobs>"
+        dependency="afterok:<${group_label}-analysis-jobs>"
     else
         dependency="afterok:${GROUP_JOB_IDS[${group_key}]}"
     fi
     aggregate_command=(
         sbatch --parsable
-        --job-name="mof5-analysis-${model_label}-${loading_label}-summary"
+        --job-name="analysis-${group_label}-summary"
     )
     if [[ -n "${dependency}" ]]; then
         aggregate_command+=(--dependency="${dependency}")
@@ -577,7 +580,7 @@ for group_key in "${GROUP_KEYS[@]}"; do
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"
         --gres=gpu:1
         --time="${WALL_TIME}"
-        --output="${SLURM_OUTPUT_DIR}/trajectory-analysis/${model_label}/${loading_label}/summary/%j.out"
+        --output="${SLURM_OUTPUT_DIR}/trajectory-analysis/${group_key}/summary/%j.out"
         "${SCRIPT_DIR}/submit_analysis.sh"
         --internal-analysis-worker
         --runs "${GROUP_RUNS[${group_key}]}"
@@ -605,8 +608,8 @@ for group_key in "${GROUP_KEYS[@]}"; do
     if ((DRY_RUN)); then
         printf 'DRY RUN:'; printf ' %q' "${aggregate_command[@]}"; printf '\n'
     else
-        mkdir -p "${SLURM_OUTPUT_DIR}/trajectory-analysis/${model_label}/${loading_label}/summary"
+        mkdir -p "${SLURM_OUTPUT_DIR}/trajectory-analysis/${group_key}/summary"
         submission=$("${aggregate_command[@]}")
-        echo "Submitted dependent ${model_label}/${loading_label} summary: ${submission%%;*}"
+        echo "Submitted dependent ${group_key} summary: ${submission%%;*}"
     fi
 done

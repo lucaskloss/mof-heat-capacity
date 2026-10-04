@@ -4,6 +4,56 @@ This folder contains the user-facing property-calculation Bash commands and
 guide. They read existing configurations and simulation results and never
 start or resume molecular dynamics.
 
+All three submission commands accept `--mof NAME`, `--guest ch4|co2|h2o`,
+and `--loading N`. Defaults remain `mof5`, `ch4`, and `100`. Use the same
+selection as MD; `submit_analysis.sh` also accepts a comma-separated loading
+list. The plotting, estimator-comparison, empty-curve, and reference-splitting
+Python scripts accept `--mof` and `--guest` as well.
+
+For a CO₂-loaded MOF-5 campaign, after the MD jobs complete:
+
+```bash
+./scripts/properties/submit_analysis.sh --model pet-mad \
+  --mof mof5 --guest co2 --loading 100 --replicas 1
+./scripts/properties/submit_heat_capacity.sh --model pet-mad \
+  --mof mof5 --guest co2 --loading 100 --source-temperature 400 --replicas 1
+# Use the final merge job ID printed by the Hessian command:
+./scripts/properties/submit_hybrid_analysis.sh --model pet-mad \
+  --mof mof5 --guest co2 --loading 100 --replicas 1 --afterok MERGE_JOB_ID
+```
+
+For another MOF, replace `--mof mof5` with its label. Hessian submission uses
+`--host PATH` for the empty reference, or finds `input/<mof>` with the same
+extension search as MD. `--empty-structure PATH` explicitly overrides that
+reference; `--skip-empty` omits it. Trajectory analysis reads the guest species
+and host atom count from generated campaign metadata, so a different host
+does not inherit the old 424-atom MOF-5 assumption. Legacy methane configs
+retain that default. Guest COM, RDF, and MSD calculations use five-atom CH₄
+or three-atom CO₂/H₂O groups appended during insertion.
+
+New combinations use these directories below `MOF_OUTPUT_ROOT`:
+
+```text
+post-processing/trajectory-analysis/<mof>/<model>/<N><guest>/<temperature>K/repNN/
+post-processing/trajectory-analysis/<mof>/<model>/<N><guest>/runs.csv
+post-processing/harmonic-correction/<mof>/<model>/<N><guest>/minima/...
+post-processing/harmonic-correction/<mof>/<model>/<N><guest>/hessians/...
+post-processing/harmonic-correction/<mof>/<model>/<N><guest>/heat-capacity*.{npz,csv,json,png}
+post-processing/harmonic-correction/<mof>/<model>/0<guest>/...
+```
+
+Slurm logs follow the same system hierarchy. `0<guest>` denotes the empty host
+reference associated with that guest campaign, and contains no guest molecules.
+MOF-5/CH₄ continues to use its existing paths without the `<mof>/` prefix.
+Explicit analysis-root overrides retain the system subdirectories. The direct
+`python -m mof_heat_capacity.analysis.results` command also groups selected
+systems before processing and aggregation.
+
+Plot exports with a required `--output` use the exact path supplied. Give each
+MOF/species comparison a distinct export filename or directory. Reference
+curves for other systems are read from `<reference-root>/<mof>/<N><guest>.csv`;
+the existing methane/MOF-5 reference paths remain unchanged.
+
 For Hessian library calls, model metadata, numerical settings, archive fields,
 and debugging, see [HESSIANS.md](HESSIANS.md). Scientific theory and equations
 are in [SADMOF.md](../../docs/SADMOF.md) and [PET.md](../../docs/PET.md).
@@ -307,9 +357,9 @@ evaluated over the full `--cv-temperatures` grid. The third combines classical
 enthalpy derivatives with the harmonic quantum correction. Their reusable
 implementations live in `mof_heat_capacity/analysis/`.
 
-Hybrid assembly uses the highest temperature in its MD grid as the shared
+Hybrid assembly uses the highest reported temperature as the shared
 Hessian source by default, including the corresponding LLPR member spectra.
-If the Hessian submission used a higher source temperature than the assembly
+If the Hessian submission used a higher source temperature than the reporting
 grid, pass `--hessian-source-temperature N` to `submit_hybrid_analysis.sh`.
 Lower-temperature minima and Hessian archives are not needed or read. Each
 harmonic sum uses its evaluation temperature with the shared eigenfrequencies;
@@ -361,12 +411,19 @@ their uncertainties against temperature in both unit systems. The volumetric
 values use the loaded NPT mean volume and cell mass at each temperature; the
 accompanying JSON notes the uncertainty assumptions.
 
-Classical analysis and hybrid assembly default to the same 200–400 K grid in
-25 K steps as MD submission. Interior enthalpy derivatives are centered; the
-200 and 400 K values use second-order one-sided estimates. The independently
+Classical analysis and hybrid differentiation default to the same 175–425 K
+grid in 25 K steps as MD submission. The 175 and 425 K enthalpies provide
+centered finite differences at 200 and 400 K. Hybrid outputs default to
+200–400 K; the padded temperatures are used for differentiation. For a custom
+`--temperatures` grid, all its temperatures are reported unless
+`--report-temperatures` selects a subset. Only the outermost differentiation
+points use second-order one-sided estimates if included in the report. The independently
 configurable harmonic diagnostic grid defaults to `200:400:25`; normal-mode
 $C_V(T)$ is evaluated analytically and can use another grid without additional
 Hessian calculations.
+
+The default shared Hessian still comes from 400 K, the highest reported
+temperature. The 175/425 K padding does not require extra Hessian evaluations.
 
 This workflow is independent of the simulation commands: results are read from
 the shared work output tree or selected explicitly where the underlying command

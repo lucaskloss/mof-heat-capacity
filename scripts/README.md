@@ -14,3 +14,8 @@ All Bash scripts live here and are grouped by responsibility:
 Run these commands from the repository root. See `md/README.md` and
 `properties/README.md` for workflow-specific usage; reusable Python
 implementation remains in `mof_heat_capacity/`.
+
+MD and property submissions share `--mof`, `--guest`, and `--loading` selectors.
+`slurm/campaign_selection.sh` provides their common shell validation and path
+convention; it is sourced by the entry points. CH₄/MOF-5 remains the default,
+while CO₂, H₂O, and supplied additional MOFs use separate system directories.
