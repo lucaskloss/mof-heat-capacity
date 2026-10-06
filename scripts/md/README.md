@@ -29,8 +29,54 @@ species or counts, invoke it separately for each selection.
 MOF labels must start with a lowercase letter and contain only lowercase
 letters, digits, underscores, and hyphens. Without `--host`, the command looks
 for `input/<mof>.pdb`, `.cif`, `.gro`, then `.extxyz`, in that order. The
-repository supplies MOF-5; other hosts must be supplied by the user. The host
+repository currently includes `mof5.pdb`, `mgmof74.cif`, and `mof303.cif`.
+Select these with `--mof mof5`, `--mof mgmof74`, or `--mof mof303`; no
+`--host` or manual conversion is needed. Other hosts must be supplied by the user. The host
 must have a nonzero cell and be periodic in all three directions.
+
+For the supplied CIF hosts, using PET-MAD and 50 guest molecules:
+
+```bash
+./scripts/md/submit_loaded_md.sh --model pet-mad --mof mgmof74 --guest ch4 --loading 50
+./scripts/md/submit_loaded_md.sh --model pet-mad --mof mgmof74 --guest co2 --loading 50
+./scripts/md/submit_loaded_md.sh --model pet-mad --mof mgmof74 --guest h2o --loading 50
+./scripts/md/submit_loaded_md.sh --model pet-mad --mof mof303 --guest ch4 --loading 50
+./scripts/md/submit_loaded_md.sh --model pet-mad --mof mof303 --guest co2 --loading 50
+./scripts/md/submit_loaded_md.sh --model pet-mad --mof mof303 --guest h2o --loading 50
+```
+
+Preparation reads the CIF, expands its symmetry, inserts the selected number
+of molecules, and automatically writes `structure.extxyz`, `structure.pdb`,
+and `structure.data` in the campaign's structures directory. MD configurations
+use the full-precision ExtXYZ structure for CIF inputs, preserving cell vectors
+and atom coordinates through the conversion to LAMMPS. The PDB is an additional
+export with the rounding inherent to that format. MOF-5 continues to use its
+existing PDB input and generated PDB path. Element/type mappings include Mg
+for `mgmof74`, and Al and N for `mof303`.
+
+Mg-MOF-74 runs first relax the entire loaded structure at fixed cell with
+LAMMPS FIRE and the selected MD model. This applies to CH4, CO2, and H2O in
+fresh calibration and production runs; restart continuations skip relaxation.
+Generated Mg-MOF-74 configurations record these adjustable settings:
+
+```toml
+[initial_relaxation]
+enabled = true
+force_tolerance_eV_A = 0.05
+max_iterations = 2000
+max_evaluations = 20000
+max_displacement_A = 0.05
+```
+
+The tolerance bounds the largest absolute force component. Relaxation stops
+the job before NPT if that tolerance is not reached. Its log, relaxed LAMMPS
+data, and final coordinates/forces are saved alongside MD outputs as
+`<prefix>.lammps.relaxation.log`, `<prefix>.lammps.relaxed.data`, and
+`<prefix>.lammps.relaxed.lammpstrj`. The MD clock and timestep are reset after
+relaxation, retaining the 500 ps simulation and 100 ps equilibration window.
+The calibration wall-time measurement includes relaxation, making its
+production-time estimate conservative. Other MOFs retain their previous
+initialization unless relaxation is explicitly enabled in their TOML.
 
 The default guest templates are `input/ch4.gro`, `input/co2.gro`, and
 `input/h2o.gro`. Use `--molecule PATH` to substitute your own single-molecule
@@ -40,6 +86,38 @@ geometries for the existing topology-free MLIP workflow; no classical water or
 CO₂ force field is added. The selected model must support the host/guest
 elements. Numerical settings such as timestep and insertion distance retain
 their existing defaults and should be checked for each new physical system.
+
+Insertion defaults to `--insertion-method auto`: it first tries sequential
+random placement, then rearranges previously placed guests if that packing
+gets blocked. Repacking removes and reinserts a random quarter of the guests,
+with a complete restart every fourth round, up to `--packing-restarts 20`.
+The framework, requested molecule count, rigid molecule geometries, and
+1.5 Å minimum periodic separation remain fixed. Distances account for the
+triclinic cell and are independently validated with ASE before writing files.
+Failure reports how many molecules could be placed and never writes a partial
+loaded structure. A failed search does not prove the requested loading cannot
+fit; it may require more packing rounds or a different initial arrangement.
+
+Use the same command to retry MOF-303 with 50 methane molecules:
+
+```bash
+./scripts/md/submit_loaded_md.sh --model pet-mad --mof mof303 --guest ch4 --loading 50
+```
+
+Select `--insertion-method random` for a single sequential placement pass or
+`--insertion-method repacking` to explicitly select the rearrangement method.
+Both the Python preparation command and the MD submission command accept
+`--insertion-method` and `--packing-restarts`; the standalone insertion command
+accepts them too. New `inputs.json` files record the requested/resolved method,
+attempt budget, and number of repacking rounds. Existing structures are reused
+with `auto`, preserving previous metadata. An explicit method conflicting
+with an existing structure is rejected; Python `--force` regenerates inputs
+only when intentionally requested. Packing success establishes geometric
+separation, not equilibration or stable MD with the chosen model.
+
+LAMMPS neighbor-list capacity grows with the atom count to handle short
+periodic cells and long model cutoffs. This changes the allowed storage limit;
+it does not remove neighbors or alter the model cutoff.
 
 For input and configuration inspection without writing files or submitting
 jobs:
@@ -161,6 +239,14 @@ the latest numeric LAMMPS restart, appends the log and trajectory, and uses
 LAMMPS `run ... upto` to retain the original absolute million-step target. This
 repeats automatically until LAMMPS writes the final restart. Runtime or model
 failures do not automatically resubmit.
+
+If calibration fails, its planner remains pending with
+`DependencyNeverSatisfied`: production requires a successful calibration.
+Inspect the calibration's Slurm and LAMMPS logs, correct the failure, cancel
+the obsolete planner with `scancel <planner-job-id>`, and submit the campaign
+again. Do not use `--resume` to bypass a failed stability check. Renaming a MOF
+input or campaign on disk does not update commands already submitted to Slurm;
+submit subsequent Mg-MOF-74 campaigns with `--mof mgmof74`.
 
 Pass `--time TIME` to override the allocation length or `--no-auto-resume` to
 disable automatic continuation. The manual recovery command remains available:

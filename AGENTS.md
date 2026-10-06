@@ -19,11 +19,20 @@ PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
 - `configs/` holds reusable TOML run specifications. Paths in a TOML file are
   resolved relative to that file.
 - `input/` holds source MOF structures and CH4/CO2/H2O insertion templates.
+  The supplied `mgmof74.cif` and `mof303.cif` are found by changing only
+  `--mof`. CIF campaigns use generated ExtXYZ structures to preserve precise
+  cell geometry, with PDB and LAMMPS data exports alongside them.
+  Fresh Mg-MOF-74 MD runs use fixed-cell FIRE relaxation before velocity
+  initialization; restart continuations skip it. Settings are recorded in
+  `[initial_relaxation]`; failed force convergence must stop before NPT.
 - `mof_heat_capacity/campaign.py` and `scripts/slurm/campaign_selection.sh`
   define shared host/guest selection and folder conventions. All submission
   commands accept `--mof`, `--guest`, and `--loading`. Preserve the existing
   MOF-5/CH4 directories; all other systems use `<mof>/<model>/<N><guest>`.
   Generated campaign metadata records the host atom count and source identity.
+  Guest insertion uses automatic repacking when sequential random placement
+  jams, with exact triclinic periodic separation validation. Preserve existing
+  structures on reuse and record insertion methods/budgets in `inputs.json`.
   MD and analysis default to 175–425 K in 25 K steps; 175/425 K provide
   centered derivatives at 200/400 K. Hybrid reports default to 200–400 K.
 - `scripts/setup/install_sadmof.sh` installs the SADMOF/PET-JAX stack; it expects the

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+from itertools import product
 from pathlib import Path
 
 import numpy as np
 from ase import Atoms, io
-from ase.geometry import get_distances
+from ase.geometry import get_distances, minkowski_reduce
+from scipy.spatial import cKDTree
 
 from ..campaign import GUEST_SYMBOLS, host_path, structure_directory, validate_guest, validate_selection
 from ..config import output_root
@@ -15,6 +17,7 @@ from ..io import write_lammps_data, write_structure_pdb
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
+INSERTION_METHODS = ("auto", "random", "repacking")
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,6 +39,10 @@ def parse_args() -> argparse.Namespace:
                         help="Placement attempts per molecule (default: 1000).")
     parser.add_argument("--min-distance", type=float, default=1.5,
                         help="Minimum periodic atom distance in Angstrom (default: 1.5).")
+    parser.add_argument("--insertion-method", choices=INSERTION_METHODS, default="auto",
+                        help="auto retries blocked random insertion with repacking (default: auto).")
+    parser.add_argument("--packing-restarts", type=int, default=20,
+                        help="Maximum rearrangement/restart rounds (default: 20).")
     parser.add_argument("--seed", type=int, default=2025,
                         help="Random seed (default: 2025).")
     parser.add_argument("--dry-run", action="store_true",
@@ -71,28 +78,91 @@ def has_no_overlap(candidate: Atoms, existing: Atoms, minimum: float) -> bool:
     return bool(np.min(distances) >= minimum)
 
 
+class _PeriodicNeighbors:
+    """Nearest atom distances using images of a Minkowski-reduced cell."""
+
+    def __init__(self, host: Atoms):
+        self.cell, _ = minkowski_reduce(host.cell, pbc=host.pbc)
+        self.inverse = np.linalg.inv(self.cell)
+        self.shifts = np.array(list(product((-1, 0, 1), repeat=3))) @ self.cell
+        self.tree = None
+
+    def wrap(self, positions: np.ndarray) -> np.ndarray:
+        return ((positions @ self.inverse) % 1.0) @ self.cell
+
+    def update(self, positions: np.ndarray) -> None:
+        wrapped = self.wrap(positions)
+        images = wrapped[None, :, :] + self.shifts[:, None, :]
+        self.tree = cKDTree(images.reshape(-1, 3))
+
+    def accepts(self, positions: np.ndarray, minimum: float) -> bool:
+        distances, _ = self.tree.query(self.wrap(positions), k=1)
+        return bool(np.all(distances >= minimum))
+
+
 def insert_molecules(host: Atoms, molecule: Atoms, count: int, tries: int,
-                     minimum: float, seed: int) -> Atoms:
-    """Insert randomly oriented molecules into the host periodic cell."""
+                     minimum: float, seed: int, *, method: str = "auto",
+                     packing_restarts: int = 20) -> Atoms:
+    """Pack rigid guests, revisiting earlier placements when insertion jams.
+
+    Auto first tries the original sequential random algorithm. Repacking can
+    remove and reinsert a random quarter of the guests, with a complete restart
+    every fourth round. Neither the host nor the separation rule is changed.
+    """
+    if method not in INSERTION_METHODS:
+        raise ValueError(f"unknown insertion method: {method}")
+    if count < 0 or tries < 1 or minimum <= 0 or packing_restarts < 0:
+        raise ValueError("invalid molecule count, placement attempts, distance, or restarts")
+    if host.cell.volume <= 0 or not all(host.pbc):
+        raise ValueError("insertion requires a nonzero, fully periodic host cell")
     random = np.random.default_rng(seed)
-    result = host.copy()
-    result.set_pbc(host.pbc)
-
-    for molecule_number in range(count):
-        for _ in range(tries):
-            candidate = prepare_molecule(molecule, random_rotation(random))
-            fractional_position = random.random(3)
-            candidate.positions += result.cell.cartesian_positions(fractional_position)
-            if has_no_overlap(candidate, result, minimum):
-                result += candidate
+    neighbors = _PeriodicNeighbors(host)
+    placements = []
+    best_count = 0
+    rounds = 0 if method == "random" else packing_restarts
+    for restart in range(rounds + 1):
+        positions = np.concatenate([host.positions, *placements], axis=0)
+        neighbors.update(positions)
+        while len(placements) < count:
+            for _ in range(tries):
+                candidate = prepare_molecule(molecule, random_rotation(random))
+                candidate.positions += host.cell.cartesian_positions(random.random(3))
+                if neighbors.accepts(candidate.positions, minimum):
+                    placements.append(candidate.positions.copy())
+                    neighbors.update(np.concatenate([host.positions, *placements], axis=0))
+                    break
+            else:
                 break
+        best_count = max(best_count, len(placements))
+        if len(placements) == count:
+            result = host.copy()
+            for positions in placements:
+                guest = molecule.copy()
+                guest.positions = positions
+                # Independently confirm the exact ASE minimum-image distances.
+                if not has_no_overlap(guest, result, minimum):
+                    raise RuntimeError("periodic separation validation failed; no structure was returned")
+                result += guest
+            result.info["insertion_method"] = "repacking" if restart or method == "repacking" else "random"
+            result.info["packing_rounds"] = restart
+            return result
+        if restart == rounds:
+            break
+        print(f"Insertion blocked at {len(placements)}/{count} molecules; "
+              f"repacking round {restart + 1}/{rounds} at {minimum:g} A separation", flush=True)
+        if (restart + 1) % 4 == 0:
+            placements = []
         else:
-            raise RuntimeError(
-                f"could not place guest molecule {molecule_number + 1} after {tries} attempts; "
-                "reduce --nmol or --min-distance"
-            )
-
-    return result
+            remove_count = max(1, len(placements) // 4)
+            if placements:
+                removed = set(random.choice(len(placements), remove_count, replace=False))
+                placements = [p for i, p in enumerate(placements) if i not in removed]
+    raise RuntimeError(
+        f"could only place {best_count}/{count} guest molecules at {minimum:g} A separation "
+        f"with {tries} attempts per molecule and {rounds} repacking rounds; "
+        "no partial structure was returned. Try more --packing-restarts or --try; "
+        "the requested loading may not fit this unit cell at the specified separation."
+    )
 
 
 def main() -> None:
@@ -119,7 +189,8 @@ def main() -> None:
     validate_guest(molecule, args.guest)
 
     combined = insert_molecules(host, molecule, args.nmol, args.tries,
-                                args.min_distance, args.seed)
+                                args.min_distance, args.seed, method=args.insertion_method,
+                                packing_restarts=args.packing_restarts)
     print(f"Prepared {len(combined)} atoms ({args.nmol} {args.guest.upper()} molecules) in "
           f"{combined.cell.volume:.3f} A^3")
     if not args.dry_run:

@@ -17,8 +17,8 @@ from ..campaign import (
     validate_guest, validate_selection,
 )
 from ..config import loaded_config_path, output_root
-from ..io import load_structure, write_lammps_data, write_structure_pdb
-from ..structures.methane import insert_molecules
+from ..io import load_structure, write_lammps_data, write_structure_extxyz, write_structure_pdb
+from ..structures.methane import INSERTION_METHODS, insert_molecules
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_REPLICAS = 1
@@ -37,6 +37,14 @@ MODEL_PRESETS = {
         "jax_checkpoint": "../models/pet_sol-s-best_nostress_jax",
     },
 }
+
+INITIAL_RELAXATION = """\n[initial_relaxation]
+enabled = true
+force_tolerance_eV_A = 0.05
+max_iterations = 2000
+max_evaluations = 20000
+max_displacement_A = 0.05
+"""
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,6 +74,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--tries", type=int, default=20000)
     parser.add_argument("--min-distance", type=float, default=1.5)
+    parser.add_argument("--insertion-method", choices=INSERTION_METHODS, default="auto")
+    parser.add_argument("--packing-restarts", type=int, default=20)
     parser.add_argument("--seed-base", type=int, default=20250000)
     parser.add_argument("--checkpoint")
     parser.add_argument("--exported-model")
@@ -166,6 +176,8 @@ def render_config(
             "molecule_sha256": hashlib.sha256(args.molecule.read_bytes()).hexdigest(),
         }.items()
     ) + "\n"
+    if args.mof == "mgmof74":
+        rendered += INITIAL_RELAXATION
     return base_name, rendered
 
 
@@ -179,15 +191,30 @@ def prepare_structure(
     tries: int,
     minimum: float,
     seed: int,
-) -> None:
+    method: str = "auto",
+    packing_restarts: int = 20,
+) -> dict:
     combined = (
         host.copy()
         if loading == 0
-        else insert_molecules(host, molecule, loading, tries, minimum, seed)
+        else insert_molecules(host, molecule, loading, tries, minimum, seed,
+                              method=method, packing_restarts=packing_restarts)
     )
     combined.set_pbc(host.pbc)
-    write_structure_pdb(path, combined)
+    if path.suffix == ".extxyz":
+        write_structure_extxyz(path, combined)
+        write_structure_pdb(path.with_suffix(".pdb"), combined)
+    else:
+        write_structure_pdb(path, combined)
     write_lammps_data(data_path, combined)
+    return {
+        "requested_method": method,
+        "resolved_method": combined.info.get("insertion_method", "none"),
+        "algorithm_version": 1,
+        "tries_per_molecule": tries,
+        "max_repacking_rounds": packing_restarts,
+        "used_repacking_rounds": combined.info.get("packing_rounds", 0),
+    }
 
 
 def update_output_paths(config_path: Path, rendered_config: str) -> bool:
@@ -209,6 +236,8 @@ def update_output_paths(config_path: Path, rendered_config: str) -> bool:
         raise ValueError("rendered configuration is missing generated-data paths")
     updated = re.sub(r"^output_dir = .*$", output_dir.group(), existing, flags=re.MULTILINE)
     updated = re.sub(r"^path = .*$", structure_path.group(), updated, flags=re.MULTILINE)
+    if new["mof"] == "mgmof74" and "initial_relaxation" not in tomllib.loads(existing):
+        updated += INITIAL_RELAXATION
     if updated == existing:
         return False
     config_path.write_text(updated)
@@ -249,7 +278,7 @@ def main() -> None:
         args.stress_validated = True
     selected_temperatures = temperatures(args.temperatures)
     replicas = DEFAULT_REPLICAS if args.replicas is None else args.replicas
-    if replicas < 1 or args.tries < 1 or args.min_distance <= 0:
+    if replicas < 1 or args.tries < 1 or args.min_distance <= 0 or args.packing_restarts < 0:
         raise ValueError(
             "replicas, tries, and minimum distance must be positive"
         )
@@ -270,7 +299,9 @@ def main() -> None:
                 output_root / "md" / "structures" / structure_directory(args.loading, args.mof, args.guest)
                 / f"{temperature}K" / f"rep{replica:02d}"
             )
-            structure_path = structure_dir / "structure.pdb"
+            # CIF hosts can have precise non-orthogonal cells; PDB is only an export.
+            structure_filename = "structure.extxyz" if args.host.suffix.lower() == ".cif" else "structure.pdb"
+            structure_path = structure_dir / structure_filename
             identity_path = structure_dir / "inputs.json"
             identity = {
                 "mof": args.mof, "guest": args.guest, "loading": args.loading,
@@ -281,8 +312,17 @@ def main() -> None:
                 "min_distance_A": args.min_distance,
             }
             if identity_path.is_file() and not args.force:
-                if json.loads(identity_path.read_text()) != identity:
+                existing_identity = json.loads(identity_path.read_text())
+                previous_insertion = existing_identity.get("insertion", {})
+                existing_inputs = {key: value for key, value in existing_identity.items() if key != "insertion"}
+                if existing_inputs != identity:
                     raise ValueError(f"insertion inputs changed: {identity_path}; select a new --mof label or use --force")
+                resolved_method = previous_insertion.get("resolved_method", "random")
+                if args.insertion_method != "auto" and args.insertion_method != resolved_method:
+                    raise ValueError(
+                        f"existing structure uses {resolved_method} insertion, not {args.insertion_method}: "
+                        f"{identity_path}; select a new --mof label or explicitly regenerate with --force"
+                    )
             data_path = structure_dir / "structure.data"
             name, config_text = render_config(
                 template,
@@ -332,12 +372,14 @@ def main() -> None:
             if not args.configs_only:
                 if structure_path.exists() and data_path.exists() and args.skip_existing:
                     print(f"Reusing existing structure: {structure_path}")
+                    if identity_path.is_file():
+                        identity = json.loads(identity_path.read_text())
                 else:
                     if structure_path.exists() and not args.force and not args.skip_existing:
                         raise FileExistsError(
                             f"structure exists; use --force: {structure_path}"
                         )
-                    prepare_structure(
+                    identity["insertion"] = prepare_structure(
                         structure_path,
                         data_path,
                         host=host,
@@ -346,6 +388,8 @@ def main() -> None:
                         tries=args.tries,
                         minimum=args.min_distance,
                         seed=seed,
+                        method=args.insertion_method,
+                        packing_restarts=args.packing_restarts,
                     )
                 identity_path.write_text(json.dumps(identity, indent=2) + "\n")
             if not keep_config:

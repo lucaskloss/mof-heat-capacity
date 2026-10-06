@@ -75,6 +75,11 @@ class RunConfig:
     host_atoms: int = 424
     source_host: Path | None = None
     source_molecule: Path | None = None
+    initial_relaxation: bool = False
+    relaxation_force_tolerance: float = 0.05
+    relaxation_max_iterations: int = 2000
+    relaxation_max_evaluations: int = 20000
+    relaxation_max_displacement: float = 0.05
 
 
 def load_run_config(path: Path) -> RunConfig:
@@ -107,12 +112,19 @@ def load_run_config(path: Path) -> RunConfig:
     )
 
     campaign = _table(data, "campaign")
+    relaxation = _table(data, "initial_relaxation")
     match = LOADED_RUN_PATTERN.fullmatch(str(run.get("name", config_path.stem)))
     required = structure.get("required_elements")
     required_elements = frozenset(str(item) for item in required) if required else None
+    mof = str(campaign.get("mof", match.group("mof") if match else "mof5"))
     config = RunConfig(
         name=str(run.get("name", config_path.stem)),
-        mof=str(campaign.get("mof", match.group("mof") if match else "mof5")),
+        mof=mof,
+        initial_relaxation=bool(relaxation.get("enabled", mof == "mgmof74")),
+        relaxation_force_tolerance=float(relaxation.get("force_tolerance_eV_A", 0.05)),
+        relaxation_max_iterations=int(relaxation.get("max_iterations", 2000)),
+        relaxation_max_evaluations=int(relaxation.get("max_evaluations", 20000)),
+        relaxation_max_displacement=float(relaxation.get("max_displacement_A", 0.05)),
         guest=str(campaign.get("guest", match.group("guest") if match else "ch4")),
         loading=int(campaign["loading"]) if "loading" in campaign else (int(match.group("loading")) if match else None),
         host_atoms=int(campaign.get("host_atoms", 424)),
@@ -260,6 +272,11 @@ def _optional_resolve(base: Path, value: str | None) -> Path | None:
 
 def _validate(config: RunConfig) -> None:
     validate_selection(config.mof, config.guest)
+    if (config.relaxation_force_tolerance <= 0.0
+            or config.relaxation_max_displacement <= 0.0
+            or config.relaxation_max_iterations < 1
+            or config.relaxation_max_evaluations < 1):
+        raise ValueError("initial relaxation tolerances and iteration limits must be positive")
     match = LOADED_RUN_PATTERN.fullmatch(config.name)
     if match is not None and (
         config.mof != match.group("mof") or config.guest != match.group("guest")

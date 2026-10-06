@@ -87,6 +87,21 @@ class CampaignSelectionTest(unittest.TestCase):
             self.prepare("h2o", "pet-mad", "--skip-existing")
         self.assertEqual(path.read_bytes(), before)
 
+    def test_auto_reuses_legacy_insertion_and_explicit_method_conflicts_are_rejected(self):
+        path = self.prepare("ch4", "pet-mad", "--insertion-method", "random")
+        config = load_run_config(path)
+        metadata = config.structure.parent / "inputs.json"
+        identity = json.loads(metadata.read_text())
+        self.assertEqual(identity.pop("insertion")["resolved_method"], "random")
+        metadata.write_text(json.dumps(identity))
+        before = config.structure.read_bytes()
+        self.prepare("ch4", "pet-mad", "--skip-existing")
+        self.assertEqual(config.structure.read_bytes(), before)
+        self.assertEqual(json.loads(metadata.read_text()), identity)
+        with self.assertRaisesRegex(ValueError, "existing structure uses random insertion"):
+            self.prepare("ch4", "pet-mad", "--skip-existing", "--insertion-method", "repacking")
+        self.assertEqual(config.structure.read_bytes(), before)
+
     def test_legacy_paths_and_names_remain_usable(self):
         self.assertEqual(campaign.system_directory(MODEL, 100), Path(MODEL) / "100ch4")
         legacy_path = self.root / "legacy.toml"
@@ -237,11 +252,13 @@ class SlurmSelectionTest(unittest.TestCase):
                 self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
                 return completed.stdout
 
-            output = run("scripts/md/submit_loaded_md.sh", "--temperatures", "300", "--host", str(host))
+            output = run("scripts/md/submit_loaded_md.sh", "--temperatures", "300", "--host", str(host),
+                         "--insertion-method", "repacking", "--packing-restarts", "7")
             planner = shlex.split(output.splitlines()[-1].removeprefix("DRY RUN: "))
             continuation = planner[planner.index("--wrap") + 1]
             self.assertIn("--mof example --guest co2", continuation)
             self.assertIn(f"--host {host}", continuation)
+            self.assertIn("--insertion-method repacking --packing-restarts 7", continuation)
             self.assertIn(f"md/calibration/example/{MODEL}/2co2/", output)
             config = load_run_config(root / f"configs/example/{MODEL}/2co2/300K-rep01.toml")
             config.output_dir.mkdir(parents=True)

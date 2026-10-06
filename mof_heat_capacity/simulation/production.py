@@ -122,8 +122,14 @@ def run_classical_npt(
         output_stride=config.output_stride,
         restart_stride=config.restart_stride,
         seed=config.random_seed,
+        atom_count=len(atoms),
         restart_path=restart_path,
         species=lammps_species(atoms),
+        initial_relaxation=config.initial_relaxation,
+        relaxation_force_tolerance=config.relaxation_force_tolerance,
+        relaxation_max_iterations=config.relaxation_max_iterations,
+        relaxation_max_evaluations=config.relaxation_max_evaluations,
+        relaxation_max_displacement=config.relaxation_max_displacement,
     )
     print(
         f"Run {config.name}: LAMMPS flexible NPT, {config.temperature_K:g} K, "

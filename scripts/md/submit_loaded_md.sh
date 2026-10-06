@@ -13,6 +13,8 @@ ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof}"
 VALIDATE_PYTHON="${MOF_CAMPAIGN_PYTHON:-${ENV_PREFIX}/bin/python}"
 MODEL="both"
 LOADING=100
+INSERTION_METHOD=auto
+PACKING_RESTARTS=20
 IFS=',' read -r -a TEMPERATURES <<< "${DEFAULT_MD_TEMPERATURES}"
 REPLICAS=1
 PARTITION="${MOF_MD_PARTITION:-gpu}"
@@ -56,6 +58,8 @@ Options:
   --host PATH             Host input override (MD and empty-reference preparation).
   --model NAME         pet-mad, pet-sol, or both (default: both).
   --loading N          Positive guest count (default: 100).
+  --insertion-method NAME  auto, random, or repacking (default: auto).
+  --packing-restarts N  Maximum guest rearrangement/restart rounds (default: 20).
   --temperatures LIST  Comma-separated temperatures
                        (default: 175 to 425 K in 25 K steps;
                        175/425 K support centered derivatives at 200/400 K).
@@ -96,6 +100,8 @@ while (($#)); do
         --host) require_value "$@"; HOST="$2"; shift 2 ;;
         --model) require_value "$@"; MODEL="$2"; shift 2 ;;
         --loading) require_value "$@"; LOADING="$2"; shift 2 ;;
+        --insertion-method) require_value "$@"; INSERTION_METHOD="$2"; shift 2 ;;
+        --packing-restarts) require_value "$@"; PACKING_RESTARTS="$2"; shift 2 ;;
         --temperatures) require_value "$@"; IFS=',' read -r -a TEMPERATURES <<< "$2"; shift 2 ;;
         --replicas) require_value "$@"; REPLICAS="$2"; shift 2 ;;
         --partition) require_value "$@"; PARTITION="$2"; shift 2 ;;
@@ -117,6 +123,14 @@ while (($#)); do
 done
 
 validate_campaign_selection
+case "${INSERTION_METHOD}" in
+    auto|random|repacking) ;;
+    *) echo "error: --insertion-method must be auto, random, or repacking" >&2; exit 2 ;;
+esac
+if [[ ! "${PACKING_RESTARTS}" =~ ^[0-9]+$ ]]; then
+    echo "error: --packing-restarts must be a nonnegative integer" >&2
+    exit 2
+fi
 
 
 case "${MODEL}" in
@@ -190,6 +204,7 @@ prepare_campaign() {
             "${selection_args[@]}" \
             --model "${model}" \
             --loading "${LOADING}" \
+            --insertion-method "${INSERTION_METHOD}" --packing-restarts "${PACKING_RESTARTS}" \
             --temperatures "${temperature_list}" \
             --replicas "${REPLICAS}" \
             --output-root "${OUTPUT_ROOT}" \
@@ -364,6 +379,7 @@ submit_automatic_pipeline() {
             "${PROJECT_DIR}/scripts/md/submit_loaded_md.sh"
             --mof "${MOF}" --guest "${GUEST}"
             --model "${model}" --loading "${LOADING}"
+            --insertion-method "${INSERTION_METHOD}" --packing-restarts "${PACKING_RESTARTS}"
             --temperatures "$(IFS=,; echo "${TEMPERATURES[*]}")" --replicas "${REPLICAS}"
             --partition "${PARTITION}" --qos "${QOS}" --cpus "${CPUS_PER_TASK}"
             --production-after-calibration "${timing_file}"

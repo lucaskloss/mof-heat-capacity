@@ -62,6 +62,11 @@ Select the guest species, molecule count, and host from the command line:
 For a new MOF, supply its periodic structure with `--host`, or place it at
 `input/<mof>.pdb`, `.cif`, `.gro`, or `.extxyz`. The MOF label is a lowercase
 folder identifier, such as `mof5` or `uio-66`. Guest names are case-insensitive.
+The supplied `mgmof74.cif` and `mof303.cif` are selected automatically with
+`--mof mgmof74` and `--mof mof303`. CIF-based campaigns generate full-precision
+ExtXYZ inputs, plus PDB and LAMMPS data exports, without manual conversion.
+Insertion automatically retries a blocked packing by rearranging guests,
+keeping the specified molecule count and minimum periodic separation.
 `--loading` always counts molecules. Pass the same `--mof`, `--guest`, and
 `--loading` to subsequent property commands. See the
 [MD guide](scripts/md/README.md) for input overrides and folder layout.
