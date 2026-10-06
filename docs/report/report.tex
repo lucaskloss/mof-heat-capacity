@@ -101,6 +101,189 @@ force-field results.
 \section{Theory}
 \label{sec:theory}
 
+\subsection{Born--Oppenheimer approximation: from quantum matter to nuclear motion}
+\label{sec:born-oppenheimer}
+
+\subsubsection{The coupled electron--nuclear problem}
+
+For electron positions $\bm r$ and nuclear positions $\bm R$, the
+nonrelativistic Hamiltonian at fixed cell $\bm h$ is
+\begin{align}
+  \hat{\mathcal H}_{\mathrm{tot}}
+    &=\hat K_{\mathrm n}+\hat K_{\mathrm e}
+      +\hat V_{\mathrm{ee}}+\hat V_{\mathrm{en}}+V_{\mathrm{nn}},
+      \label{eq:electron-nuclear-hamiltonian}\\
+  \hat K_{\mathrm n}
+    &=-\sum_{i=1}^{N}\frac{\hbar^2}{2m_i}\nabla_{\bm R_i}^2,
+  \qquad
+  \hat K_{\mathrm e}
+    =-\sum_{a=1}^{N_{\mathrm e}}\frac{\hbar^2}{2m_{\mathrm e}}
+      \nabla_{\bm r_a}^2.
+\end{align}
+The $V$ terms describe electron--electron, electron--nuclear, and
+nuclear--nuclear Coulomb interactions. The full wavefunction obeys
+\begin{equation}
+  i\hbar\frac{\partial\Psi(\bm r,\bm R,t)}{\partial t}
+    =\hat{\mathcal H}_{\mathrm{tot}}\Psi(\bm r,\bm R,t).
+  \label{eq:full-schrodinger}
+\end{equation}
+Electron--nuclear attraction couples the two sets of coordinates, making
+direct propagation impractical for a loaded periodic MOF.
+
+\subsubsection{Adiabatic separation and the potential-energy surface}
+
+Nuclei are much heavier than electrons. When nuclear motion is slow enough
+to avoid electronic transitions, solve the electronic ground state at each
+fixed nuclear geometry \cite{rothlisberger2019}:
+\begin{align}
+  \hat{\mathcal H}_{\mathrm{el}}(\bm R;\bm h)
+    \psi_0(\bm r;\bm R)
+    &=\varepsilon_0(\bm R;\bm h)\psi_0(\bm r;\bm R),
+    \label{eq:electronic-ground-state}\\
+  \hat{\mathcal H}_{\mathrm{el}}
+    &=\hat K_{\mathrm e}+\hat V_{\mathrm{ee}}+\hat V_{\mathrm{en}},
+  \qquad
+  U(\bm R;\bm h)=\varepsilon_0(\bm R;\bm h)+V_{\mathrm{nn}}(\bm R;\bm h).
+    \label{eq:bo-potential}
+\end{align}
+Approximating $\Psi\simeq\psi_0\chi$ and neglecting nuclear derivatives
+of $\psi_0$ removes nonadiabatic couplings and the diagonal adiabatic
+correction. The remaining nuclear problem is still quantum:
+\begin{equation}
+  \hat{\mathcal H}_{\mathrm{BO}}
+    =-\sum_i\frac{\hbar^2}{2m_i}\nabla_{\bm R_i}^2+U(\bm R;\bm h),
+  \qquad
+  \hat{\mathcal H}_{\mathrm{BO}}\chi_n=E_n\chi_n.
+  \label{eq:bo-nuclear-hamiltonian}
+\end{equation}
+Thus Born--Oppenheimer defines a potential-energy surface, rather than
+requiring classical nuclei. Here PET approximates that surface without
+solving the electronic problem at every MD step. Electronic transitions
+and nonadiabatic effects remain outside both nuclear treatments.
+
+\subsubsection{Classical MD and quantum nuclear statistics}
+
+Classical MD further replaces nuclear operators by positions and momenta,
+giving the Hamiltonian in Eq.~\eqref{eq:classical-hamiltonian} and Newtonian
+forces $m_i\ddot{\bm R}_i=-\nabla_iU$. A useful harmonic criterion and
+thermal length scale are
+\begin{equation}
+  \beta\hbar\omega\ll1,
+  \qquad
+  \lambda_i=\sqrt{\frac{2\pi\hbar^2}{m_i k_{\mathrm B}T}},
+  \qquad \beta=(k_{\mathrm B}T)^{-1}.
+  \label{eq:nuclear-classical-limit}
+\end{equation}
+Classical sampling is appropriate when quantum level spacing is small
+relative to thermal energy and nuclear delocalization is negligible on
+relevant structural scales. A hydrogen-containing system can satisfy these
+conditions for slow collective modes while violating them for bond vibrations.
+
+Retaining quantum nuclei on the same surface gives the canonical density
+operator, partition function, and observable average
+\begin{align}
+  \hat\rho_{\mathrm q}
+    &=Z_{\mathrm q}^{-1}e^{-\beta\hat{\mathcal H}_{\mathrm{BO}}},
+  \qquad
+  Z_{\mathrm q}=\operatorname{Tr}e^{-\beta\hat{\mathcal H}_{\mathrm{BO}}}
+    =\sum_n e^{-\beta E_n},
+    \label{eq:quantum-nuclear-statistics}\\
+  \langle A\rangle_{\mathrm q}
+    &=\operatorname{Tr}(\hat\rho_{\mathrm q}\hat A).
+\end{align}
+The nuclear trace avoids explicit electronic propagation, but not the
+quantum nuclear problem. PIMD evaluates it through imaginary-time paths:
+factorizing the exponential and inserting position states produces the
+ring-polymer distribution in Section~\ref{sec:pimd-theory}.
+
+We will use the Born--Oppenheimer surface for classical MD and also for
+PIMD to include nuclear quantum effects, especially in $\mathrm{H_2O}$
+loadings. Hydrogen's small mass increases delocalization; O--H zero-point
+motion and quantum fluctuations of hydrogen bonds motivate this treatment
+\cite{ceriotti2013water}. Their effect on confined-water heat capacity must
+be evaluated on the selected potential. PIMD retains anharmonic nuclear
+sampling, rather than adding a harmonic correction to classical motion.
+The methane results reported here still use classical MD with the separate
+harmonic correction; water PIMD is a planned extension.
+
+\subsection{Density functional theory and the MLIP reference data}
+\label{sec:dft}
+
+Density functional theory (DFT) is a quantum-mechanical method for computing
+the electronic structure and energy of an atomic configuration. Within the
+Born--Oppenheimer approximation, the nuclei are held fixed while the
+electronic ground state is determined. Its central variable is the electron
+density $n(\bm r)$, the number of electrons per unit volume, rather than the
+full many-electron wavefunction. The Hohenberg--Kohn theorems establish that
+the ground-state energy can be expressed as a functional of this density:
+a rule assigning an energy to an entire density distribution. Minimizing
+the exact functional at fixed electron number gives the ground-state
+density and energy \cite{hohenberg1964}.
+In the Kohn--Sham decomposition, the electronic energy functional is
+\begin{equation}
+  E_{\mathrm{el}}[n;\bm R,\bm h]
+    =T_{\mathrm s}[n]+\int_{\mathrm{cell}}
+      v_{\mathrm{ext}}(\bm r;\bm R,\bm h)n(\bm r)\,\mathrm d\bm r
+      +E_{\mathrm H}[n]+E_{\mathrm{xc}}[n],
+  \label{eq:dft-energy-functional}
+\end{equation}
+where $T_{\mathrm s}$ is the kinetic energy of the auxiliary noninteracting
+electrons, $v_{\mathrm{ext}}$ is the nuclear potential, $E_{\mathrm H}$ is
+the classical electron--electron electrostatic energy, and $E_{\mathrm{xc}}$
+is the exchange--correlation energy. The ground-state density minimizes
+this functional subject to $\int_{\mathrm{cell}}n(\bm r)\,\mathrm d\bm r
+=N_{\mathrm e}$.
+
+In the usual Kohn--Sham formulation, an auxiliary system of noninteracting
+electrons reproduces the density of the interacting system
+\cite{kohn1965}. Its one-electron equations contain an effective potential
+combining nuclear attraction, the electrostatic field of the electron
+density, and exchange--correlation effects:
+\begin{align}
+  \left[-\frac{\hbar^2}{2m_{\mathrm e}}\nabla^2
+    +v_{\mathrm{eff}}[n](\bm r)\right]\phi_a(\bm r)
+    &=\epsilon_a\phi_a(\bm r),
+    \label{eq:kohn-sham-equations}\\
+  v_{\mathrm{eff}}[n](\bm r)
+    &=v_{\mathrm{ext}}(\bm r)
+      +\frac{\delta E_{\mathrm H}}{\delta n(\bm r)}
+      +\frac{\delta E_{\mathrm{xc}}}{\delta n(\bm r)},
+    \label{eq:kohn-sham-potential}\\
+  n(\bm r)&=\sum_a f_a|\phi_a(\bm r)|^2,
+  \qquad \sum_a f_a=N_{\mathrm e}.
+    \label{eq:kohn-sham-density}
+\end{align}
+Here $\phi_a$ and $\epsilon_a$ are the auxiliary orbitals and their
+eigenvalues, and $f_a$ are their occupation numbers; for a periodic solid,
+the sum includes band and wavevector weights. The exchange--correlation
+functional accounts for the remaining many-electron contributions and
+must be approximated in practical calculations. Starting from a trial
+density, the equations are solved to obtain electronic orbitals and an
+updated density; this cycle is repeated until the density and energy are
+self-consistent: the output density must reproduce the density used to
+build $v_{\mathrm{eff}}$. At the converged density $n_0$, adding nuclear
+repulsion gives the potential energy and its nuclear derivatives give
+the reference forces:
+\begin{equation}
+  U_{\mathrm{DFT}}(\bm R;\bm h)
+    =E_{\mathrm{el}}[n_0;\bm R,\bm h]+V_{\mathrm{nn}}(\bm R;\bm h),
+  \qquad
+  \bm F_i^{\mathrm{DFT}}
+    =-\left.\nabla_{\bm R_i}U_{\mathrm{DFT}}\right|_{\bm h}.
+  \label{eq:dft-reference-energy-forces}
+\end{equation}
+Derivatives with respect to cell strain similarly provide reference stresses.
+
+These DFT energies, forces, and stresses provide reference labels for
+training a machine-learned interatomic potential (MLIP). PET-MAD, for
+example, is pretrained on a chemically diverse DFT dataset \cite{petmad}.
+The MLIP learns to predict the reference potential-energy surface directly
+from atomic configurations, making long MD trajectories and Hessian
+calculations affordable without repeating the electronic calculation at
+each step. Its accuracy depends both on the DFT approximations used to
+generate the labels and on how well the training configurations cover the
+environments encountered in the simulation.
+
 \subsection{Statistical mechanics for molecular dynamics}
 \label{sec:statistical-mechanics}
 
@@ -110,9 +293,9 @@ limit the information in finite trajectories \cite{allen2017,tuckerman2023}.
 
 \subsubsection{Microscopic model and equations of motion}
 
-The Born--Oppenheimer potential $U(\bm R;\bm h)$ describes electronic energy
-as a function of nuclear positions. Treating nuclei classically is a separate
-approximation. With momenta $\bm p_i=m_i\bm v_i$ and volume $V=\det\bm h$,
+Taking the classical nuclear limit of
+Section~\ref{sec:born-oppenheimer}, with momenta $\bm p_i=m_i\bm v_i$
+and volume $V=\det\bm h$, gives
 \begin{equation}
   \mathcal H(\bm R,\bm p;\bm h)
   =K(\bm p)+U(\bm R;\bm h),\qquad
@@ -952,21 +1135,19 @@ recover that suppression.
 \subsection{Path integral molecular dynamics}
 \label{sec:pimd-theory}
 
-PIMD samples equilibrium quantum nuclei on the full anharmonic potential.
-It is a prospective extension; present results use classical MD plus a
-harmonic correction. The following assumes distinguishable nuclei and
-neglects exchange permutations \cite{tuckerman2023}.
+PIMD samples the quantum nuclear statistics of
+Section~\ref{sec:born-oppenheimer} on the full anharmonic Born--Oppenheimer
+surface. We will use it to assess quantum effects in water-loaded MOFs,
+particularly those associated with hydrogen. Present methane results use
+classical MD plus a harmonic correction. The following assumes distinguishable
+nuclei and neglects exchange permutations \cite{tuckerman2023}.
 
 \subsubsection{Ring-polymer mapping}
 
-At fixed cell,
-\begin{equation}
-  Z_{\mathrm q}=\operatorname{Tr}e^{-\beta\hat{\mathcal H}},\qquad
-  \hat{\mathcal H}=\sum_i\frac{\hat{\bm p}_i^2}{2m_i}
-                         +U(\hat{\bm R};\bm h).
-\end{equation}
-Noncommuting kinetic and potential operators are split into $L$ imaginary-time
-slices, $\beta_L=\beta/L$:
+Starting from Eq.~\eqref{eq:quantum-nuclear-statistics} at fixed cell,
+write $\hat{\mathcal H}=\hat{\mathcal H}_{\mathrm{BO}}=\hat K+\hat U$.
+The noncommuting nuclear kinetic and potential operators are split into
+$L$ imaginary-time slices, $\beta_L=\beta/L$:
 \begin{equation}
   e^{-\beta\hat{\mathcal H}}
   =\lim_{L\to\infty}
@@ -1052,7 +1233,10 @@ evaluations. An i-PI/PET interface \cite{ipi-documentation} should first
 recover $L=1$ classical results, then stable quantum harmonic benchmarks,
 before loaded-MOF NPT tests. Converge timestep, thermostats, cell size, and
 sampling as well as beads; validate quantum-displaced configurations against
-the potential's domain. Converged PIMD would test the hybrid's missing quantum
+the potential's domain. For $\mathrm{H_2O}$ loadings, test O--H vibrations
+and hydrogen-bond observables alongside heat capacity; high-frequency
+hydrogen modes can require more beads even near room temperature.
+Converged PIMD would test the hybrid's missing quantum
 anharmonic and pressure--volume terms. Do not add a harmonic quantum
 correction again to PIMD results.
 
@@ -1997,6 +2181,32 @@ M. E. Tuckerman,
 \emph{Statistical Mechanics: Theory and Molecular Simulation}, 2nd ed.,
 Oxford University Press (2023),
 \href{https://doi.org/10.1093/oso/9780198825562.001.0001}{publisher edition}.
+
+\bibitem{rothlisberger2019}
+U. R\"othlisberger,
+\emph{Introduction to Electronic Structure Methods}, EPFL lecture notes
+(2019), Sections 2.2 and 9.3,
+\href{https://www.epfl.ch/labs/lcbc/wp-content/uploads/2019/09/lecture_2019-1.pdf}
+{course notes}.
+
+\bibitem{hohenberg1964}
+P. Hohenberg and W. Kohn,
+\emph{Inhomogeneous Electron Gas}, Physical Review \textbf{136}, B864--B871
+(1964),
+\href{https://doi.org/10.1103/PhysRev.136.B864}{doi:10.1103/PhysRev.136.B864}.
+
+\bibitem{kohn1965}
+W. Kohn and L. J. Sham,
+\emph{Self-Consistent Equations Including Exchange and Correlation Effects},
+Physical Review \textbf{140}, A1133--A1138 (1965),
+\href{https://doi.org/10.1103/PhysRev.140.A1133}{doi:10.1103/PhysRev.140.A1133}.
+
+\bibitem{ceriotti2013water}
+M. Ceriotti, J. Cuny, M. Parrinello, and D. E. Manolopoulos,
+\emph{Nuclear Quantum Effects and Hydrogen Bond Fluctuations in Water},
+Proceedings of the National Academy of Sciences \textbf{110}, 15591--15596
+(2013),
+\href{https://doi.org/10.1073/pnas.1308560110}{doi:10.1073/pnas.1308560110}.
 
 \bibitem{lammps-pressure}
 LAMMPS documentation,
