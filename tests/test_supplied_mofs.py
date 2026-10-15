@@ -23,6 +23,23 @@ MODEL = "pet-mad-1.5-s-40nn"
 
 
 class SuppliedMOFsTest(unittest.TestCase):
+    def test_size_matched_supercells_are_auto_selected_by_mof_label(self):
+        expected = {
+            "mof303_2x2x2": (1024, 19627.084873,
+                             {"C", "H", "O", "N", "Al"}),
+            "mgmof74_1x1x4": (648, 16426.81913,
+                              {"C", "H", "O", "Mg"}),
+        }
+        for mof, (atom_count, volume, elements) in expected.items():
+            with self.subTest(mof=mof):
+                path = campaign.host_path(mof)
+                self.assertEqual(path, PROJECT / "input" / f"{mof}.cif")
+                structure = load_structure(path)
+                self.assertEqual(len(structure), atom_count)
+                self.assertEqual(set(structure.get_chemical_symbols()), elements)
+                self.assertAlmostEqual(structure.cell.volume, volume, places=3)
+                np.testing.assert_array_equal(structure.pbc, [True, True, True])
+
     def test_label_only_preparation_preserves_cells_and_lammps_element_mapping(self):
         expected = {
             "mgmof74": (162, {"C", "H", "O", "Mg"}, "6 1 8 12"),
@@ -53,7 +70,7 @@ class SuppliedMOFsTest(unittest.TestCase):
                             loaded.main()
                         path = loaded_config_path(root / "configs", MODEL, 50, 300, 1, mof, guest)
                         config = load_run_config(path)
-                        self.assertEqual(config.initial_relaxation, mof == "mgmof74")
+                        self.assertTrue(config.initial_relaxation)
                         self.assertEqual(config.source_host, root / "input" / f"{mof}.cif")
                         self.assertEqual(config.host_atoms, host_count)
                         self.assertEqual(config.required_elements, frozenset(elements))
@@ -79,25 +96,22 @@ class SuppliedMOFsTest(unittest.TestCase):
                             production.run_classical_npt(config)
                         self.assertEqual(execute.call_count, 1)
                         script = (config.output_dir / "md.lammps.in").read_text()
-                        if mof == "mgmof74":
-                            self.assertLess(script.index("minimize "), script.index("velocity all create"))
-                            self.assertLess(script.index("reset_timestep 0"), script.index("fix loaded_npt"))
-                            self.assertIn("min_modify norm inf dmax 0.05", script)
-                            self.assertNotIn("box/relax", script)
-                            self.assertIn("quit 1", script)
-                            restart = config.output_dir / "md.restart.100000"
-                            restart.touch()
-                            with patch.object(production, "_validate_stress_capability"), \
-                                    patch.object(production, "_executable", return_value="lmp"), \
-                                    patch.object(production.subprocess, "run"), \
-                                    redirect_stdout(StringIO()):
-                                production.run_classical_npt(config, resume=True)
-                            resumed = (config.output_dir / "md.lammps.in").read_text()
-                            self.assertNotIn("minimize ", resumed)
-                            self.assertNotIn("reset_timestep", resumed)
-                            self.assertIn(f"read_restart {restart}", resumed)
-                        else:
-                            self.assertNotIn("minimize ", script)
+                        self.assertLess(script.index("minimize "), script.index("velocity all create"))
+                        self.assertLess(script.index("reset_timestep 0"), script.index("fix loaded_npt"))
+                        self.assertIn("min_modify norm inf dmax 0.05", script)
+                        self.assertNotIn("box/relax", script)
+                        self.assertIn("quit 1", script)
+                        restart = config.output_dir / "md.restart.100000"
+                        restart.touch()
+                        with patch.object(production, "_validate_stress_capability"), \
+                                patch.object(production, "_executable", return_value="lmp"), \
+                                patch.object(production.subprocess, "run"), \
+                                redirect_stdout(StringIO()):
+                            production.run_classical_npt(config, resume=True)
+                        resumed = (config.output_dir / "md.lammps.in").read_text()
+                        self.assertNotIn("minimize ", resumed)
+                        self.assertNotIn("reset_timestep", resumed)
+                        self.assertIn(f"read_restart {restart}", resumed)
                         self.assertIn(f"pair_coeff * * {pair_coeff}\n", script)
                         runtime_data = io.read(config.output_dir / "md.initial.data", format="lammps-data")
                         np.testing.assert_allclose(runtime_data.cell.array, source.cell.array, rtol=0, atol=1e-12)

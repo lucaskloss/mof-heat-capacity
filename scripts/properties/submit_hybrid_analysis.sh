@@ -6,7 +6,15 @@ set -euo pipefail
 
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
+if [[ -n "${SLURM_SUBMIT_DIR:-}" \
+    && -f "${SLURM_SUBMIT_DIR}/scripts/slurm/campaign_selection.sh" ]]; then
+    # Slurm may run a staged copy of this entry point from its spool directory.
+    # Resolve project files from the directory where sbatch was invoked instead.
+    PROJECT_DIR=$(cd -- "${SLURM_SUBMIT_DIR}" && pwd)
+    SCRIPT_DIR="${PROJECT_DIR}/scripts/properties"
+else
+    PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
+fi
 source "${PROJECT_DIR}/scripts/slurm/campaign_selection.sh"
 MODEL="pet-mad"
 LOADING=100

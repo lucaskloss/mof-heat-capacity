@@ -15,7 +15,9 @@ Run commands from the repository root:
 
 `--mof` selects the host label (default `mof5`), `--guest` selects `ch4`,
 `co2`, or `h2o` (default `ch4`), and `--loading N` sets a positive molecule
-count. Each invocation prepares one host/species/count campaign. To run several
+count. `--seed-base N` sets the reproducible seed used for guest placement and
+MD velocities; use a new base to create a different starting placement for a
+retry. Each invocation prepares one host/species/count campaign. To run several
 species or counts, invoke it separately for each selection.
 
 ```bash
@@ -29,10 +31,30 @@ species or counts, invoke it separately for each selection.
 MOF labels must start with a lowercase letter and contain only lowercase
 letters, digits, underscores, and hyphens. Without `--host`, the command looks
 for `input/<mof>.pdb`, `.cif`, `.gro`, then `.extxyz`, in that order. The
-repository currently includes `mof5.pdb`, `mgmof74.cif`, and `mof303.cif`.
-Select these with `--mof mof5`, `--mof mgmof74`, or `--mof mof303`; no
-`--host` or manual conversion is needed. Other hosts must be supplied by the user. The host
-must have a nonzero cell and be periodic in all three directions.
+repository includes `mof5.pdb`, the supplied primitive cells `mgmof74.cif`
+and `mof303.cif`, plus MOF-5-size-matched supercells `mgmof74_1x1x4.cif` and
+`mof303_2x2x2.cif`. ZIF-8 is available as `zif8.cif` and the 2×2×2
+supercell `zif8_2x2x2.cif`. Select them with `--mof mof5`, `--mof mgmof74`,
+`--mof mof303`, `--mof mgmof74_1x1x4`, `--mof mof303_2x2x2`, or
+`--mof zif8_2x2x2`; no `--host`
+or manual conversion is needed. The original primitive CIF files remain
+unchanged. The matched supercells have volumes 16,426.8 and 19,627.1 Å³,
+respectively, compared with 17,305.6 Å³ for the MOF-5 cell. Their atom counts
+are 648 and 1,024. The expanded labels create separate output/configuration
+trees, preserving prior primitive-cell results. Other hosts must be supplied
+by the user. The host must have a nonzero cell and be periodic in all three
+directions.
+
+For 50 H₂O molecules in cells comparable in size to MOF-5:
+
+```bash
+./scripts/md/submit_loaded_md.sh --model pet-mad --mof mof303_2x2x2 --guest h2o --loading 50
+./scripts/md/submit_loaded_md.sh --model pet-mad --mof mgmof74_1x1x4 --guest h2o --loading 50
+```
+
+The repeat factors are 2×2×2 for MOF-303 and 1×1×4 along the channel axis
+for Mg-MOF-74. They bring the total box volumes and linear dimensions close to
+the MOF-5 simulation cell while retaining the same 50-molecule loading.
 
 For the supplied CIF hosts, using PET-MAD and 50 guest molecules:
 
@@ -54,10 +76,11 @@ export with the rounding inherent to that format. MOF-5 continues to use its
 existing PDB input and generated PDB path. Element/type mappings include Mg
 for `mgmof74`, and Al and N for `mof303`.
 
-Mg-MOF-74 runs first relax the entire loaded structure at fixed cell with
-LAMMPS FIRE and the selected MD model. This applies to CH4, CO2, and H2O in
-fresh calibration and production runs; restart continuations skip relaxation.
-Generated Mg-MOF-74 configurations record these adjustable settings:
+Every fresh loaded-MOF run first relaxes the entire loaded structure at fixed
+cell with LAMMPS FIRE and the selected MD model. This applies to MOF-5,
+Mg-MOF-74, MOF-303, and other selected hosts for CH4, CO2, and H2O; restart
+continuations skip relaxation. Generated campaign configurations record these
+adjustable settings:
 
 ```toml
 [initial_relaxation]
@@ -75,8 +98,8 @@ data, and final coordinates/forces are saved alongside MD outputs as
 `<prefix>.lammps.relaxed.lammpstrj`. The MD clock and timestep are reset after
 relaxation, retaining the 500 ps simulation and 100 ps equilibration window.
 The calibration wall-time measurement includes relaxation, making its
-production-time estimate conservative. Other MOFs retain their previous
-initialization unless relaxation is explicitly enabled in their TOML.
+production-time estimate conservative. Set `enabled = false` in the campaign
+TOML to opt out of the relaxation.
 
 The default guest templates are `input/ch4.gro`, `input/co2.gro`, and
 `input/h2o.gro`. Use `--molecule PATH` to substitute your own single-molecule

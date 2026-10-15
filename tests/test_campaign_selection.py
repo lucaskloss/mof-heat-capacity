@@ -207,11 +207,21 @@ class CampaignSelectionTest(unittest.TestCase):
         with patch("sys.argv", ["hybrid", "--hybrid-dir", str(self.root / "harmonic")]):
             args = hybrid.parse_args()
         records = (temperatures, temperatures**3, np.zeros(11), np.full(11, 1000), np.zeros(11), 100., [])
+        member_corrections = np.broadcast_to(
+            np.arange(64, dtype=float)[:, None] * 0.01, (64, 9)
+        ).copy()
         with patch.object(hybrid, "_enthalpy_records", return_value=records) as enthalpy, \
-                patch.object(hybrid, "_harmonic_corrections", return_value=(np.zeros(9), np.zeros(9), None, None, [])), \
-                patch.object(hybrid, "plot_hybrid_heat_capacity"), redirect_stdout(StringIO()):
+                patch.object(hybrid, "_harmonic_corrections", return_value=(
+                    np.zeros(9), np.zeros(9), member_corrections, "llpr-hash", []
+                )), \
+                patch.object(hybrid, "plot_hybrid_heat_capacity") as plot, \
+                redirect_stdout(StringIO()):
             output = hybrid.run(args)
         self.assertEqual(enthalpy.call_args.kwargs["temperatures"], temperatures.tolist())
+        expected_harmonic_spread = member_corrections.std(axis=0, ddof=1)
+        np.testing.assert_allclose(
+            plot.call_args.kwargs["correction_error"], expected_harmonic_spread
+        )
         with np.load(output) as data:
             np.testing.assert_array_equal(data["temperatures_K"], np.arange(200, 401, 25))
             cp = data["classical_anharmonic_cp_J_per_gK"]

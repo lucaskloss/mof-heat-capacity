@@ -347,87 +347,53 @@ def plot_hybrid_heat_capacity(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    figure, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharex=True)
-    series = (
-        (
-            axes[0],
-            classical,
-            classical_error,
-            correction,
-            correction_error,
-            approximate,
-            approximate_error,
-            r"Heat capacity ($J\,g^{-1}\,K^{-1}$)",
-        ),
-        (
-            axes[1],
-            classical_vol,
-            classical_error_vol,
-            correction_vol,
-            correction_error_vol,
-            approximate_vol,
-            approximate_error_vol,
-            r"Heat capacity ($J\,cm^{-3}\,K^{-1}$)",
-        ),
+    figure, axis = plt.subplots(figsize=(7.5, 4.8))
+    axis.plot(
+        temperatures,
+        classical,
+        marker="o",
+        linestyle="--",
+        label=r"Classical $C_P$",
     )
-    for (
-        axis,
-        classical_values,
-        classical_errors,
-        correction_values,
-        correction_errors,
-        approximate_values,
-        approximate_errors,
-        ylabel,
-    ) in series:
-        axis.plot(
-            temperatures,
-            classical_values,
-            marker="o",
-            linestyle="--",
-            label=r"Classical $C_P$",
-        )
-        axis.fill_between(
-            temperatures,
-            classical_values - classical_errors,
-            classical_values + classical_errors,
-            alpha=0.12,
-        )
-        axis.plot(
-            temperatures,
-            correction_values,
-            marker="o",
-            linestyle=":",
-            label="Harmonic correction",
-        )
-        axis.fill_between(
-            temperatures,
-            correction_values - correction_errors,
-            correction_values + correction_errors,
-            alpha=0.12,
-        )
-        axis.plot(
-            temperatures,
-            approximate_values,
-            marker="o",
-            linewidth=2.0,
-            label=r"Hybrid $C_P$",
-        )
-        axis.fill_between(
-            temperatures,
-            approximate_values - approximate_errors,
-            approximate_values + approximate_errors,
-            alpha=0.2,
-            label=(
-                r"Combined $\pm 1\sigma$"
-                if model_uncertainty_included
-                else r"Sampling $\pm 1$ SE"
-            ),
-        )
-        axis.axhline(0.0, color="black", linewidth=0.7, alpha=0.4)
-        axis.set(xlabel="Temperature (K)", ylabel=ylabel)
-        axis.grid(alpha=0.2)
-        axis.legend(fontsize=8)
+    axis.fill_between(
+        temperatures,
+        classical - classical_error,
+        classical + classical_error,
+        alpha=0.12,
+    )
+    axis.plot(
+        temperatures,
+        correction,
+        marker="o",
+        linestyle=":",
+        label="Harmonic correction",
+    )
+    axis.fill_between(
+        temperatures,
+        correction - correction_error,
+        correction + correction_error,
+        alpha=0.12,
+    )
+    axis.plot(
+        temperatures,
+        approximate,
+        marker="o",
+        linewidth=2.0,
+        label=r"Hybrid $C_P$",
+    )
+    axis.fill_between(
+        temperatures,
+        approximate - approximate_error,
+        approximate + approximate_error,
+        alpha=0.2,
+    )
+    axis.axhline(0.0, color="black", linewidth=0.7, alpha=0.4)
+    axis.set(
+        xlabel="Temperature (K)",
+        ylabel=r"Heat capacity ($J\,g^{-1}\,K^{-1}$)",
+    )
+    axis.grid(alpha=0.2)
+    axis.legend(fontsize=9)
     figure.suptitle(f"{mof}, {model_label}, {loading} {guest.upper()}")
     figure.tight_layout()
     figure.savefig(path, dpi=180)
@@ -829,6 +795,12 @@ def run(args: argparse.Namespace) -> Path:
     approximate_combined_uncertainty_vol = np.hypot(
         approximate_error_vol, approximate_model_error_vol
     )
+    harmonic_combined_uncertainty = np.hypot(
+        correction_error, harmonic_model_error
+    )
+    harmonic_combined_uncertainty_vol = np.hypot(
+        correction_error_vol, harmonic_model_error_vol
+    )
     reported_model_error = (
         classical_model_error
         if model_uncertainty_record is not None
@@ -1070,13 +1042,13 @@ def run(args: argparse.Namespace) -> Path:
         classical=classical_cp,
         classical_error=classical_combined_uncertainty,
         correction=correction,
-        correction_error=correction_error,
+        correction_error=harmonic_combined_uncertainty,
         approximate=approximate,
         approximate_error=approximate_combined_uncertainty,
         classical_vol=classical_cp_vol,
         classical_error_vol=classical_combined_uncertainty_vol,
         correction_vol=correction_vol,
-        correction_error_vol=correction_error_vol,
+        correction_error_vol=harmonic_combined_uncertainty_vol,
         approximate_vol=approximate_vol,
         approximate_error_vol=approximate_combined_uncertainty_vol,
         model_uncertainty_included=(

@@ -120,7 +120,7 @@ def load_run_config(path: Path) -> RunConfig:
     config = RunConfig(
         name=str(run.get("name", config_path.stem)),
         mof=mof,
-        initial_relaxation=bool(relaxation.get("enabled", mof == "mgmof74")),
+        initial_relaxation=bool(relaxation.get("enabled", "campaign" in data)),
         relaxation_force_tolerance=float(relaxation.get("force_tolerance_eV_A", 0.05)),
         relaxation_max_iterations=int(relaxation.get("max_iterations", 2000)),
         relaxation_max_evaluations=int(relaxation.get("max_evaluations", 20000)),

@@ -19,10 +19,11 @@ PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
 - `configs/` holds reusable TOML run specifications. Paths in a TOML file are
   resolved relative to that file.
 - `input/` holds source MOF structures and CH4/CO2/H2O insertion templates.
-  The supplied `mgmof74.cif` and `mof303.cif` are found by changing only
-  `--mof`. CIF campaigns use generated ExtXYZ structures to preserve precise
+  The supplied `mgmof74.cif` and `mof303.cif`, and their MOF-5-size-matched
+  supercells `mgmof74_1x1x4.cif` and `mof303_2x2x2.cif`, are found by changing
+  only `--mof`. CIF campaigns use generated ExtXYZ structures to preserve precise
   cell geometry, with PDB and LAMMPS data exports alongside them.
-  Fresh Mg-MOF-74 MD runs use fixed-cell FIRE relaxation before velocity
+  Fresh loaded-MOF MD runs use fixed-cell FIRE relaxation before velocity
   initialization; restart continuations skip it. Settings are recorded in
   `[initial_relaxation]`; failed force convergence must stop before NPT.
 - `mof_heat_capacity/campaign.py` and `scripts/slurm/campaign_selection.sh`

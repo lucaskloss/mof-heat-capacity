@@ -176,8 +176,9 @@ def render_config(
             "molecule_sha256": hashlib.sha256(args.molecule.read_bytes()).hexdigest(),
         }.items()
     ) + "\n"
-    if args.mof == "mgmof74":
-        rendered += INITIAL_RELAXATION
+    # Minimize every freshly inserted guest/framework configuration before
+    # assigning velocities and starting flexible-cell NPT.
+    rendered += INITIAL_RELAXATION
     return base_name, rendered
 
 
@@ -236,7 +237,7 @@ def update_output_paths(config_path: Path, rendered_config: str) -> bool:
         raise ValueError("rendered configuration is missing generated-data paths")
     updated = re.sub(r"^output_dir = .*$", output_dir.group(), existing, flags=re.MULTILINE)
     updated = re.sub(r"^path = .*$", structure_path.group(), updated, flags=re.MULTILINE)
-    if new["mof"] == "mgmof74" and "initial_relaxation" not in tomllib.loads(existing):
+    if "initial_relaxation" not in tomllib.loads(existing):
         updated += INITIAL_RELAXATION
     if updated == existing:
         return False
