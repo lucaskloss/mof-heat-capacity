@@ -1,0 +1,64 @@
+{
+  "source": "output/chemiscope/mof5-mof303-zif8-empty-and-loaded.json.gz",
+  "source_sha256": "5d2e9b9c5e571147fbf1b067d49ff40fa8b40b643d599559f9a68d9a366983a4",
+  "chemiscope_version": "1.1.0",
+  "description": "Empty and 50-molecule guest-loaded structures for the MOFs currently used in the project. Guest configurations are generated with the project insertion routine using a 1.5 \u00c5 minimum-distance rule; these are visualization starting configurations before relaxation.",
+  "settings": {
+    "target": "structure",
+    "pinned": [
+      0
+    ],
+    "structure": [
+      {
+        "unitCell": true,
+        "axes": "abc",
+        "rotation": false,
+        "supercell": [
+          1,
+          1,
+          1
+        ],
+        "keepOrientation": false,
+        "environments": {
+          "activated": false,
+          "center": false
+        }
+      }
+    ]
+  },
+  "figures": [
+    {
+      "file": "mof5-empty.png",
+      "structure_index": 0,
+      "structure": "MOF-5 (empty)",
+      "atoms": 424,
+      "view_direction_cartesian": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "file": "mof303-empty.png",
+      "structure_index": 4,
+      "structure": "MOF-303 2x2x2 (empty)",
+      "atoms": 1024,
+      "view_direction_cartesian": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "file": "zif8-empty.png",
+      "structure_index": 8,
+      "structure": "ZIF-8 2x2x2 (empty)",
+      "atoms": 2208,
+      "view_direction_cartesian": [
+        0,
+        0,
+        1
+      ]
+    }
+  ]
+}
