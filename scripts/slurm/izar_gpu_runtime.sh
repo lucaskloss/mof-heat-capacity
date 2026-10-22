@@ -34,6 +34,7 @@ export MOF_OUTPUT_ROOT
 MOF_STAGE="${MOF_STAGE:-md}"
 MOF_CONFIG="${MOF_CONFIG:-}"
 MOF_ENV_PREFIX="${MOF_ENV_PREFIX:-${HOME}/.conda/envs/mof}"
+MOF_JAX_PLATFORM="${MOF_JAX_PLATFORM:-gpu}"
 MOF_STEPS="${MOF_STEPS:-}"
 MOF_OUTPUT_DIR="${MOF_OUTPUT_DIR:-}"
 MOF_PREFIX="${MOF_PREFIX:-}"
@@ -135,6 +136,22 @@ fi
 
 conda activate "${MOF_ENV_PREFIX}"
 
+case "${MOF_JAX_PLATFORM,,}" in
+    cpu)
+        MOF_JAX_PLATFORM=cpu
+        export JAX_PLATFORMS=cpu
+        ;;
+    gpu|cuda)
+        unset JAX_PLATFORMS
+        MOF_JAX_PLATFORM=gpu
+        ;;
+    *)
+        echo "error: MOF_JAX_PLATFORM must be cpu or gpu" >&2
+        exit 2
+        ;;
+esac
+export MOF_JAX_PLATFORM
+
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export PYTHONUNBUFFERED=1
@@ -233,12 +250,15 @@ PY
 
 check_jax_cuda() {
     python - <<'PY'
+import os
 import jax
 
 devices = jax.devices()
 print(f"JAX: {jax.__version__}; devices: {devices}")
-if not any(device.platform == "gpu" for device in devices):
-    raise RuntimeError("JAX cannot initialize the allocated CUDA device")
+requested = os.environ.get("MOF_JAX_PLATFORM", "gpu")
+expected = "cpu" if requested == "cpu" else "gpu"
+if not any(device.platform == expected for device in devices):
+    raise RuntimeError(f"JAX cannot initialize the requested {expected} backend")
 PY
 }
 

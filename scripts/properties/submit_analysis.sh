@@ -462,11 +462,9 @@ for _, config, trajectory in runs:
                 f"error: {config.name} ends at step {final_step}, "
                 f"before configured step {config.md_steps}"
             )
-        unique_frames = len(set(zip(thermo["md_step"], thermo["time_ps"])))
-        duplicates = len(thermo["md_step"]) - unique_frames
         detail = (
-            f"{unique_frames} unique thermo frames, step {final_step}, "
-            f"{duplicates} restart duplicate(s) to remove"
+            f"{len(thermo['md_step'])} normalized thermo frames, "
+            f"step {final_step}"
         )
     else:
         detail = "trajectory present"

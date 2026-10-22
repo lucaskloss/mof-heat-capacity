@@ -292,6 +292,8 @@ def read_trajectory_observables(
     thermo_indices: dict[int, int] | None = None
     duplicate_thermo_records = 0
     previous_dump_timestep: int | None = None
+    seen_dump_timesteps: set[int] = set()
+    duplicate_dump_records_ignored = 0
     if thermodynamic_series is not None:
         thermo_indices, duplicate_thermo_records = _thermo_indices_by_timestep(
             thermodynamic_series
@@ -338,14 +340,16 @@ def read_trajectory_observables(
 
         if thermodynamic_series is not None:
             timestep = dump_timestep
-            if (
-                previous_dump_timestep is not None
-                and timestep <= previous_dump_timestep
-            ):
+            if timestep in seen_dump_timesteps:
+                duplicate_dump_records_ignored += 1
+                continue
+            if previous_dump_timestep is not None and timestep < previous_dump_timestep:
                 raise ValueError(
-                    "LAMMPS trajectory timesteps must be strictly increasing"
+                    "LAMMPS trajectory timestep moved backward to a step that was "
+                    "not present earlier; this is not a restart overlap"
                 )
             previous_dump_timestep = timestep
+            seen_dump_timesteps.add(timestep)
             thermo_index = thermo_indices.get(timestep)
             if thermo_index is None:
                 raise ValueError(
@@ -506,6 +510,7 @@ def read_trajectory_observables(
             "chemical_formula": chemical_formula,
             "frames": len(series_lists["frame"]),
             "raw_frames": raw_frame_count,
+            "duplicate_trajectory_records_ignored": duplicate_dump_records_ignored,
             "duplicate_thermo_records_ignored": duplicate_thermo_records,
             "frame_spacing_fs": frame_spacing_fs,
             "structural_stride": structural_stride,

@@ -457,6 +457,19 @@ each model's empty reference is also independent. They run in parallel as
 resources become available. Their wall time continues to use the configured
 default (or an explicit `--time` override).
 
+For large cells whose full AD Hessian exceeds GPU memory, keep the saved
+minima and submit only the Hessian stage on JAX's CPU backend:
+
+```bash
+MOF_JAX_PLATFORM=cpu ./scripts/properties/submit_heat_capacity.sh \
+  --model pet-mad --mof zif8_2x2x2 --guest co2 --loading 54 \
+  --replicas 1 --hessian-only
+```
+
+The jobs still request the standard GPU allocation for the shared runtime and
+PyTorch checks, but JAX places Hessian calculations in system memory. The
+setting is inherited by the preflight, central Hessian, and LLPR array jobs.
+
 Hessian archives store signed frequencies. Final hybrid assembly requires the
 relaxation provenance, rejects imaginary modes below the configured threshold,
 and allows at most the three translational near-zero modes. If a loaded quench

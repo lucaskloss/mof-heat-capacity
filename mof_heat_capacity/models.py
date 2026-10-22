@@ -11,8 +11,11 @@ def configure_metatomic_neighbors(metatomic_neighbors) -> None:
 
     metatomic-ase computes ``max_neighbors`` from a floating-point cutoff.
     nvalchemi 0.3/0.4 passes that value to ``torch.full`` as a tensor shape,
-    while Torch 2.5 requires integer dimensions. Keep the GPU backend enabled
-    and normalize the argument at the integration boundary.
+    while Torch 2.5 requires integer dimensions. In the large-system cell-list
+    path, metatomic-ase also multiplies the per-atom neighbor capacity by the
+    atom count. Undo that multiplication: nvalchemi allocates a matrix with
+    shape ``(atoms, max_neighbors)``, so retaining it causes quadratic memory
+    growth and can exhaust a GPU for large periodic cells.
     """
     if metatomic_neighbors.HAS_NVALCHEMIOPS:
         neighbor_list = metatomic_neighbors.nvalchemi_neighbor_list
@@ -21,7 +24,17 @@ def configure_metatomic_neighbors(metatomic_neighbors) -> None:
 
             def neighbor_list_with_integer_capacity(*args, **kwargs):
                 if "max_neighbors" in kwargs:
-                    kwargs["max_neighbors"] = int(kwargs["max_neighbors"])
+                    capacity = int(kwargs["max_neighbors"])
+                    positions = args[0] if args else kwargs.get("positions")
+                    if positions is not None:
+                        atom_count = len(positions)
+                        # metatomic-ase supplies N * max(128, cutoff**3),
+                        # although nvalchemi interprets this as neighbors per
+                        # atom. Recover the intended per-atom bound for the
+                        # >=2000-atom cell-list path.
+                        if atom_count > 0 and capacity >= atom_count * 128:
+                            capacity = max(128, (capacity + atom_count - 1) // atom_count)
+                    kwargs["max_neighbors"] = capacity
                 return original(*args, **kwargs)
 
             neighbor_list_with_integer_capacity._mof5_patched = True
