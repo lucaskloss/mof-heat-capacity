@@ -1112,6 +1112,278 @@ Column intersection & Derivative columns & Possible nonzeros sharing an output r
 \end{tabular}
 \end{table}
 
+\subsection{Machine learning and deep learning}
+\label{sec:deep-learning}
+
+\subsubsection{Learning from reference data}
+
+Machine learning fits a function to examples so that it can predict outputs
+for new inputs. For interatomic potentials, this is a supervised regression
+problem: an input $\bm x$ describes an atomic configuration, and the target
+$\bm y$ contains continuous quantities such as energies, forces, or stresses
+from electronic-structure calculations. A model $f_\theta$ predicts
+$\hat{\bm y}=f_\theta(\bm x)$ using adjustable parameters $\theta$.
+
+A simple example is linear regression, $f_\theta(x)=a_0+a_1x$, where the
+parameters are the intercept and slope. Training selects these parameters
+by minimizing a loss that measures disagreement with the reference data.
+For $N_{\mathrm{train}}$ examples, a regularized squared-error objective is
+\begin{equation}
+  \mathcal L(\theta)
+  =\frac{1}{N_{\mathrm{train}}}\sum_{n=1}^{N_{\mathrm{train}}}
+    \left\|f_\theta(\bm x_n)-\bm y_n\right\|^2
+    +\lambda_{\mathrm{reg}}\mathcal R(\theta),
+  \label{eq:ml-training-loss}
+\end{equation}
+where $\mathcal R$ is an optional penalty and $\lambda_{\mathrm{reg}}$
+controls its strength. With no penalty and scalar outputs, the objective
+reduces to the mean squared error. When energies, forces, and stresses are
+fitted together, their errors require separate weights and consistent units.
+
+\subsubsection{Gradient descent}
+
+Gradient descent updates the parameters in the direction opposite to the
+loss gradient:
+\begin{equation}
+  \theta_{k+1}=\theta_k-\eta\nabla_\theta\mathcal L(\theta_k),
+  \label{eq:gradient-descent}
+\end{equation}
+where $k$ counts updates and $\eta$ is the learning rate. The gradient gives
+the direction of steepest local increase in the chosen parameter
+coordinates, so a sufficiently small step in the opposite direction lowers
+the loss. A large learning rate can cause overshooting or divergence;
+a very small one slows convergence. For neural networks, the loss is
+generally nonconvex, and convergence to a global minimum is not guaranteed.
+Training commonly estimates each gradient from a small batch of examples
+rather than the entire dataset.
+
+Figure~\ref{fig:gradient-descent} illustrates the updates on a contour map
+of a quadratic loss. The axes represent adjustable model parameters, and
+each contour connects parameter values with equal loss.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.78\textwidth]{figures/gradient-descent-contours.pdf}
+  \caption{Gradient descent viewed from above on the illustrative loss
+  $\mathcal L(\theta_1,\theta_2)=\theta_1^2+2\theta_2^2$.
+  Starting from $(2.6,-2.2)$, each update follows
+  $\bm\theta_{k+1}=\bm\theta_k-\eta\nabla\mathcal L(\bm\theta_k)$
+  with learning rate $\eta=0.12$. Red points show twenty updates and their
+  initial point; arrows indicate the direction of the first six steps.
+  The loss decreases toward the minimum at $(0,0)$, marked by a star.
+  Contour labels and the color scale indicate the loss; darker shading
+  corresponds to larger values.
+  This quadratic example illustrates optimization; neural-network loss
+  surfaces are generally more complex.}
+  \label{fig:gradient-descent}
+\end{figure}
+
+\subsubsection{Generalization and overfitting}
+
+The aim of training is to predict configurations absent from the training
+set. A model that is too restrictive can underfit the data, while an overly
+flexible model can fit noise and generalize poorly. Figure~\ref{fig:overfitting}
+compares a linear model with polynomial models
+$f(x)=\sum_{k=0}^{d}a_kx^k$ fitted to the same synthetic observations.
+The straight line misses the curvature, the cubic polynomial captures the
+trend, and the degree-eleven polynomial interpolates the noisy training
+points but has a larger validation error.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/regression-fits.pdf}
+  \caption{Linear and polynomial regression on twelve synthetic training
+  points sampled from a cubic function with Gaussian noise. All panels use
+  the same data and axis limits. The dashed blue curve is the underlying
+  function, red points are training observations, and the green curve is
+  the fitted model. Root-mean-square errors (RMSE) are calculated on the
+  training set and on 200 independent noisy validation observations, which
+  are omitted for clarity. The degree-eleven model has essentially zero
+  training error but a larger validation error than the cubic model.
+  These are illustrative data, not MLIP predictions.}
+  \label{fig:overfitting}
+\end{figure}
+
+A separate validation set guides choices such as model size, learning rate,
+and regularization strength. Monitoring its error also enables early
+stopping: if training error continues to decrease while validation error
+rises, an earlier set of parameters may generalize better. A held-out test
+set assesses the final model after these choices have been made. Correlated
+trajectory frames should remain in the same split to avoid overly
+optimistic errors.
+
+Regularization provides another way to limit overfitting. An $L_1$ penalty
+encourages sparse parameters, whereas an $L_2$ penalty discourages large
+parameter values. Neither validation nor regularization guarantees reliable
+predictions outside the configurations represented by the reference data.
+
+\subsubsection{Neural networks and the forward pass}
+
+Deep learning uses neural networks with multiple learned layers to represent
+complex relationships between inputs and outputs. Neurons carry computed
+values; the trainable parameters are the connection weights and biases.
+As shown in Figure~\ref{fig:simple-neural-network}, each hidden layer forms
+weighted sums of the previous layer's outputs and applies a nonlinear
+activation:
+\begin{equation}
+  \begin{aligned}
+    \bm z^{(\ell+1)}&=\bm W^{(\ell)}\bm h^{(\ell)}+\bm b^{(\ell)},\\
+    \bm h^{(\ell+1)}&=\sigma\!\left(\bm z^{(\ell+1)}\right),
+    \qquad \bm h^{(0)}=\bm x.
+  \end{aligned}
+  \label{eq:neural-network-layer}
+\end{equation}
+Here $\bm z$ denotes values before activation and $\bm h$ denotes the
+resulting features. The activation $\sigma$ acts componentwise. Without
+nonlinear activations, composing these layers would remain an affine map.
+For $L$ hidden layers and scalar regression, a final linear readout gives
+\begin{equation}
+  \hat y=\bm w_{\mathrm{out}}^{\mathrm T}\bm h^{(L)}+b_{\mathrm{out}}.
+  \label{eq:network-readout}
+\end{equation}
+Evaluating these operations from input to output is the forward pass.
+The hidden layers build intermediate, or latent, representations rather
+than requiring every useful feature to be specified in advance. Suitable
+networks with sufficient capacity can approximate continuous functions on
+compact domains, but this representational ability alone does not guarantee
+successful training or generalization.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/simple-neural-network.pdf}
+  \caption{A simple fully connected neural network with three inputs,
+  two hidden layers, and one scalar output $\hat y$.
+  Circles represent input features or neurons, and connections represent
+  learned weights. The forward pass evaluates the prediction from left
+  to right. During training, backpropagation carries loss gradients in
+  the reverse direction to calculate parameter updates. Biases are
+  included in the neuron equation but omitted from the connections for
+  clarity. This generic network illustrates the layer operations used
+  within more specialized interatomic-potential architectures.}
+  \label{fig:simple-neural-network}
+\end{figure}
+
+\subsubsection{Backpropagation and parameter updates}
+\label{sec:backpropagation}
+
+Backpropagation computes the loss gradients required by an optimizer such
+as gradient descent. It applies the chain rule backward through the
+operations recorded during the forward pass, reusing intermediate values.
+It therefore complements gradient descent: backpropagation calculates the
+gradients, and the optimizer uses them to update the parameters.
+
+In practice, this calculation is implemented using reverse-mode automatic
+differentiation (AD). The network and loss are evaluated as a computation
+graph whose nodes are operations, such as multiplication, addition, and
+activation, and whose edges record dependencies between intermediate
+values. Each operation has a local derivative rule. AD combines these
+rules automatically, so the derivative of the complete network need not
+be derived or programmed separately for each architecture.
+
+For scalar intermediate values $v_i$, define the adjoint
+$\bar v_i=\partial\mathcal L/\partial v_i$. After the forward evaluation,
+the reverse pass starts with $\bar{\mathcal L}=1$ and all other adjoints
+initialized to zero. It visits operations in reverse dependency order.
+For every input $v_i$ of an operation producing $v_j$, it accumulates
+
+\begin{equation}
+  \bar v_i\mathrel{+}=\bar v_j\frac{\partial v_j}{\partial v_i}.
+  \label{eq:ad-adjoint-accumulation}
+\end{equation}
+
+The accumulation matters when one value contributes to the loss through
+several paths: all contributions must be added. For vector operations,
+the corresponding rule multiplies an incoming adjoint by a transposed
+local Jacobian, usually without constructing that Jacobian explicitly.
+The activations retained or recomputed from the forward pass supply the
+values needed to evaluate these local derivatives.
+
+A single reverse pass computes the gradient of a scalar loss with respect
+to all model parameters, making reverse-mode AD well suited to training
+networks with many weights. It applies the chain rule to the implemented
+operations rather than approximating derivatives by finite differences
+or constructing a global symbolic expression. The resulting derivatives
+are subject to floating-point error \cite{baydin2018}. The layer formulas
+below are the neural-network form of this general procedure.
+
+For a single scalar-output training example, consider the unregularized
+loss $l=\tfrac12(\hat y-y)^2$. The factor $\tfrac12$ simplifies the
+derivatives. The derivative at the output is the signed residual,
+$r=\partial l/\partial\hat y=\hat y-y$. Consequently,
+$\partial l/\partial\bm w_{\mathrm{out}}=r\bm h^{(L)}$ and
+$\partial l/\partial b_{\mathrm{out}}=r$.
+
+To propagate this information into the hidden layers, define
+$\bm\delta^{(\ell)}=\partial l/\partial\bm z^{(\ell)}$.
+For the final hidden layer and the preceding layers, the chain rule gives
+\begin{equation}
+  \begin{aligned}
+    \bm\delta^{(L)}
+      &=r\bm w_{\mathrm{out}}\odot\sigma'\!\left(\bm z^{(L)}\right),\\
+    \bm\delta^{(\ell)}
+      &=\left[(\bm W^{(\ell)})^{\mathrm T}\bm\delta^{(\ell+1)}\right]
+        \odot\sigma'\!\left(\bm z^{(\ell)}\right),
+        \quad \ell=L-1,\ldots,1.
+  \end{aligned}
+  \label{eq:backpropagation}
+\end{equation}
+The symbol $\odot$ denotes componentwise multiplication. The transposed
+weight matrix combines the sensitivities from the next layer, and the
+activation derivative accounts for how each neuron responds to its input.
+The parameter gradients then follow directly:
+\begin{equation}
+  \frac{\partial l}{\partial\bm W^{(\ell)}}
+    =\bm\delta^{(\ell+1)}(\bm h^{(\ell)})^{\mathrm T},
+  \qquad
+  \frac{\partial l}{\partial\bm b^{(\ell)}}=\bm\delta^{(\ell+1)},
+  \quad \ell=0,\ldots,L-1.
+  \label{eq:network-parameter-gradients}
+\end{equation}
+Each weight gradient is the product of the incoming feature and the
+sensitivity of the receiving neuron. Thus, the backward pass assigns a
+loss derivative to every trainable connection and bias.
+
+For a batch, these per-example gradients are averaged. The mean squared
+error in Eq.~\eqref{eq:ml-training-loss} contributes an additional factor
+of two relative to the illustrative half-squared loss, and regularization
+adds $\lambda_{\mathrm{reg}}\nabla_\theta\mathcal R$.
+After the backward pass, gradient descent updates all weights and biases:
+\begin{equation}
+  \begin{aligned}
+    \bm W^{(\ell)}&\leftarrow\bm W^{(\ell)}
+      -\eta\nabla_{\bm W^{(\ell)}}\mathcal L,\\
+    \bm b^{(\ell)}&\leftarrow\bm b^{(\ell)}
+      -\eta\nabla_{\bm b^{(\ell)}}\mathcal L.
+  \end{aligned}
+  \label{eq:weight-update}
+\end{equation}
+The forward pass, backward pass, and parameter update are repeated during
+training. Once training is complete, inference evaluates the network with
+fixed parameters.
+
+The same AD machinery also computes physical derivatives of an MLIP.
+During training, the independent variables are the model parameters and
+the differentiated scalar is the loss. For force evaluation, the parameters
+are held fixed and the atomic coordinates are differentiated instead:
+$\bm F=-\nabla_{\bm R}U_\theta$. A reverse pass through the energy
+calculation therefore returns all force components.
+
+Provided the operations support second derivatives, the energy-gradient
+calculation can itself be differentiated to obtain Hessian information.
+For example, forward-mode AD applied to the reverse-mode energy gradient
+computes a Hessian--vector product $\bm H\bm v$. Recovering the full
+Hessian requires multiple such products or a suitable sparse
+reconstruction; one energy backward pass alone gives only the gradient.
+Section~\ref{sec:automatic-differentiation} develops this construction for
+the vibrational calculations. Training on forces also differentiates
+through an energy derivative, in that case producing mixed derivatives
+with respect to coordinates and parameters.
+
+Smooth activations and appropriate physical symmetries are therefore
+important for these models. Graph neural networks adapt the layer
+construction to interacting atoms by exchanging information between
+neighbors, as described next.
+
 \subsection{Machine-learned interatomic potentials}
 \label{sec:mlip-theory}
 
@@ -1392,8 +1664,12 @@ The Hessian symbol $\bm H$ denotes a matrix, distinct from the scalar
 enthalpy $H$.
 
 \subsubsection{Automatic differentiation}
+\label{sec:automatic-differentiation}
 
-At fixed parameters, a neural-network energy composes differentiable operations:
+Section~\ref{sec:backpropagation} introduced reverse-mode AD for parameter
+gradients during training. Here the parameters are fixed, and the same
+chain-rule machinery differentiates the energy with respect to atomic
+coordinates. A neural-network energy composes differentiable operations:
 \begin{equation}
   \bm z^{(0)}=\bm R,\qquad
   \bm z^{(\ell+1)}=\phi_\ell(\bm z^{(\ell)};\theta),\qquad
@@ -1642,14 +1918,13 @@ For star coloring, admissibility also enforces the four-vertex-path rule.
 Greedy coloring need not find the minimum possible number of colors to
 give correct recovery; extra colors cost work \cite{asdexcoloring}.
 
-\section{Reference evidence and the hybrid approximation}
+\section{Methods}
+
+\subsection{Hybrid approximation}
 
 Kapil \emph{et al.}\ tested empty MOF-5 and 50-, 100-, and 150-methane cells
 \cite{kapil2019}. Their hybrid strategy motivates this project; its accuracy
 on PET remains to be established.
-
-\subsection{Differences from the reference calculation}
-\label{sec:reference-comparison}
 
 The reference used QuickFF \cite{quickff}: B3LYP cluster-based bonded terms,
 MBIS charges from periodic PBE, Gaussian electrostatics, and MM3 Buckingham
@@ -1662,9 +1937,6 @@ Eq.~\eqref{eq:finite-difference-cp}, with $\Delta T=\SI{25}{K}$.
 The reference used optimized Yaff Hessians and TAMkin modes, compared QuickFF
 and UFF4MOF for the empty host, and optimized five Monte Carlo configurations
 for the 100-methane harmonic calculation.
-
-\subsection{Physical conclusions}
-\label{sec:reference-conclusions}
 
 The reference found nearly harmonic, quantum-mechanical empty MOF-5
 (roughly \SI{0.7}{J\per g\per K} near room temperature). Classical
@@ -1680,10 +1952,8 @@ The combination
         \end{equation}
 reproduced the minimum qualitatively and was useful above about \SI{200}{K}
 in their 100-methane test. A loaded-system spectrum is essential: the empty
-Hessian omits guest modes and host--guest coupling. Equation~\eqref{eq:hybrid-cp}
-gives the operational PET estimator.
-
-\section{Methods}
+Hessian omits guest modes and host--guest coupling. The PET estimator uses
+the same combination in Eq.~\eqref{eq:quantum-correction}.
 
 \subsection{Structure preparation and methane insertion}
 
@@ -1928,7 +2198,7 @@ In traditional machine learning, ensemble learning is a technique that combines 
 In practice, ensemble learning is widely used in various machine learning tasks, including regression, classification, and forecasting.
 One of the most efficient models are tree-based models, such as Random Forests and Gradient Boosting Machines, which combine the predictions of multiple decision trees to improve accuracy and reduce overfitting.
 However, training multiple models, especially in the case of MLIPs, is an expensive task.
-Instead of training multiple models, we can use the last-layer prediction rigidity (LLPR) \cite{ref:llpr} method to estimate the uncertainty of a single model.
+Instead of training multiple models, we can use the last-layer prediction rigidity (LLPR) \cite{bigi2024} method to estimate the uncertainty of a single model.
 The idea is that instead of training multiple models, we take the model we are using for the simulation and we create new models by just changing its last layer.
 The models with the different last layers could be considered as different models that were trained on different datasets.
 This method is cheap and efficient, and it has been shown to provide good uncertainty estimates for MLIPs.
@@ -2327,7 +2597,7 @@ Figures~\ref{fig:results-error-cea}--\ref{fig:results-error-gaussian}
 separate MD sampling, classical LLPR, harmonic LLPR, and paired total
 uncertainty. MD errors are about \SI{0.010}{J\per g\per K} at
 \SI{300}{K}; model terms dominate. Covariance can make the total smaller
-than an individual component (Eq.~\eqref{eq:paired-model-uncertainty}).
+than an individual component when the member contributions are anticorrelated.
 
 \begin{figure}[htbp]
   \centering
