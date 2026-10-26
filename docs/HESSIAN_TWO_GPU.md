@@ -77,3 +77,57 @@ Actual-model CPU regression (optional installed dependency and checkpoint):
 MOF_TEST_PET_CHECKPOINT=models/pet-mad-1.5-s_40nn_jax JAX_PLATFORMS=cpu \
   python -m unittest discover -s tests -p test_pet_fixed_selection.py -v
 ```
+
+To bypass CUDA command-buffer graph capture when the runtime fails with
+`Failed to add memset node to a CUDA graph`, prefix the `sbatch` command with
+`MOF_DISABLE_CUDA_GRAPHS=1`. The experimental launcher then appends
+`--xla_gpu_enable_command_buffer=` to `XLA_FLAGS`. This changes execution
+scheduling, not the derivative formula; it does not guarantee that GPU memory
+will be sufficient. Logs and output metadata record the flag.
+
+## ZIF-8 central model and 64 PET-MAD LLPR members
+
+`scripts/slurm/izar_hessian_ensemble_two_gpu.sh` accepts four positional
+arguments: configuration, saved structure, LLPR checkpoint, and a new output
+directory. The default array is `0-64%8`; override with `sbatch --array=0-64%N ...`: task 0 is central; tasks
+1–64 compute zero-based members 0–63. Each task reserves two GPUs for four
+hours and computes a full fixed-selection float64 Hessian using 0.00005 A
+finite differences, with CUDA graph capture disabled. The concurrency limit
+allows at most eight tasks (16 GPUs) at once, matching normal QOS's current per-user GPU limit. Other running GPU jobs may reduce capacity. This selection is specifically
+for the 64-member PET-MAD checkpoint; it does not select PET-SOL.
+
+Each task then calls `analysis.two_gpu_spectrum` to record full-matrix
+asymmetry, translation sums, and signed ASR-projected frequencies in
+`review.json` and `spectrum.npz`. Imaginary modes are retained. Stable spectra
+also report positive-mode harmonic C_v at 200–400 K; unstable spectra have
+C_v set to null. These are harmonic quantities, not a final hybrid plot.
+Small-column convergence does not establish full-spectrum convergence.
+Loaded reference relaxation provenance is included in each review.
+
+Outputs are `central/hessian.npy` and `member-00/hessian.npy` through
+`member-63/hessian.npy`, with corresponding JSON metadata and spectra. Each
+full matrix occupies about 404 MB for this ZIF-8 system (~26 GB for all 65).
+The run takes about 2.2 hours per matrix based on central-model probe timing;
+LLPR runtimes and queue waits can vary. Output files are never overwritten,
+and interrupted matrices currently require a new output directory to retry.
+
+## Exploratory hybrid assembly from a completed ensemble
+
+`python -m mof_heat_capacity.analysis.hybrid_two_gpu --ensemble DIR
+--analysis-archive PATH --output NEW_PREFIX.npz` validates all 65 completed
+spectra, member order, common numerical settings, reference-geometry hash,
+and matching trajectory/Hessian LLPR checkpoint identities. It creates a
+separate compatibility archive under the ensemble's `hybrid-inputs` directory
+and calls the existing hybrid analysis without changing production Hessians.
+The loaded correction needs only loaded spectra; an empty spectrum is not
+required for this plot. Existing output prefixes are refused.
+
+The result covers 200–400 K with 175/425 K MD padding. All 64 harmonic member
+corrections contribute to the uncertainty; classical and harmonic LLPR
+deviations are combined member by member by the existing hybrid routine.
+Unstable and near-zero modes are explicitly discarded for this exploratory
+product. Outputs include PNG/PDF heat-capacity plots in J/g/K, CSV/NPZ data,
+spectral-stability diagnostics and an ensemble-validation JSON file. Signed
+input spectra and the original relaxation provenance are preserved. This
+assembly does not establish full-spectrum finite-difference convergence or
+correct the known trajectory-reweighting overlap limitations.

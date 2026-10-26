@@ -2,6 +2,8 @@
 from pathlib import Path
 import argparse
 import inspect
+import hashlib
+import os
 import json
 import time
 import numpy as np
@@ -88,10 +90,12 @@ def main():
     atoms = read(args.structure, index=-1)
     checkpoint = ensure_jax_checkpoint(config.checkpoint, config.jax_checkpoint)
     model, params, metadata = load_pet(checkpoint, dtype='float64')
+    llpr = None
     if args.member is not None:
         if args.llpr_checkpoint is None or args.member < 0:
             raise ValueError('--member requires --llpr-checkpoint and a nonnegative index')
-        members = list(llpr_member_parameter_sets(params, load_llpr_energy_parameters(args.llpr_checkpoint)))
+        llpr = load_llpr_energy_parameters(args.llpr_checkpoint)
+        members = list(llpr_member_parameter_sets(params, llpr))
         params = members[args.member]
     elif args.llpr_checkpoint is not None:
         raise ValueError('Specify --member when supplying an LLPR checkpoint')
@@ -126,7 +130,8 @@ def main():
         raise ValueError('--columns must be between 1 and 3*N')
     args.output.parent.mkdir(parents=True, exist_ok=True)
     matrix = np.lib.format.open_memmap(args.output, mode='w+', dtype=np.float64, shape=(size, columns))
-    record = dict(implementation='experimental-two-device-streamed-hvp',
+    record = dict(structure_sha256=hashlib.sha256(args.structure.read_bytes()).hexdigest(),
+                  llpr_sha256=llpr['sha256'] if llpr else None, xla_flags=os.environ.get('XLA_FLAGS', ''), jax_version=jax.__version__, implementation='experimental-two-device-streamed-hvp',
                   structure=str(args.structure.resolve()), config=str(args.config.resolve()),
                   atom_count=len(atoms), model_position_count=model_position_count,
                   transport_padding=transport_padding, columns_requested=columns, columns_completed=0,

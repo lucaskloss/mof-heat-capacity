@@ -1128,13 +1128,15 @@ A simple example is linear regression, $f_\theta(x)=a_0+a_1x$, where the
 parameters are the intercept and slope. Training selects these parameters
 by minimizing a loss that measures disagreement with the reference data.
 For $N_{\mathrm{train}}$ examples, a regularized squared-error objective is
+
 \begin{equation}
   \mathcal L(\theta)
   =\frac{1}{N_{\mathrm{train}}}\sum_{n=1}^{N_{\mathrm{train}}}
-    \left\|f_\theta(\bm x_n)-\bm y_n\right\|^2
-    +\lambda_{\mathrm{reg}}\mathcal R(\theta),
+    \left\|\hat{\bm y}_n-\bm y_n\right\|^2
+    +\lambda\mathcal R(\theta),
   \label{eq:ml-training-loss}
 \end{equation}
+
 where $\mathcal R$ is an optional penalty and $\lambda_{\mathrm{reg}}$
 controls its strength. With no penalty and scalar outputs, the objective
 reduces to the mean squared error. When energies, forces, and stresses are
@@ -1387,11 +1389,148 @@ neighbors, as described next.
 \subsection{Machine-learned interatomic potentials}
 \label{sec:mlip-theory}
 
-An MLIP learns a potential-energy surface from reference electronic-structure
-data, making long trajectories and Hessians affordable. Its usefulness
-requires both accurate predictions and coverage of the configurations
-visited by the loaded framework. This section introduces the PET model;
-checkpoint and conversion details belong to Section~\ref{sec:pet-implementation}.
+A machine-learned interatomic potential (MLIP) approximates the energy of
+an atomic configuration using reference electronic-structure data. This
+reduces the cost of long trajectories and Hessian calculations. Reliable
+predictions require reference data that cover the configurations visited
+by the loaded framework. This section introduces transformers and their
+use in PET; checkpoint and conversion details belong to
+Section~\ref{sec:pet-implementation}.
+
+\subsubsection{Transformers: from language to atomic environments}
+\label{sec:transformers}
+
+Transformers became widely known through the success of large language
+models (LLMs), including GPT-3 \cite{brown2020}. The architecture was
+introduced by Vaswani \emph{et al.}\ in 2017 as an alternative to recurrent
+networks for sequence modeling \cite{vaswani2017}. Recurrent networks
+process a sequence through successive hidden states, which limits
+parallelization across positions within a training example. They can
+represent long-range dependencies, but transmitting information over many
+recurrent steps can make these dependencies difficult to learn.
+Self-attention instead connects token representations directly and allows
+positions to be processed in parallel during training. Autoregressive text
+generation still produces tokens sequentially.
+
+\paragraph{Tokens, queries, keys, and values.}
+A token is an input unit represented by a feature vector. In language,
+tokens typically correspond to text fragments; their embeddings are
+augmented with position information so that order can be represented.
+Let $\bm X\in\mathbb R^{n\times d}$ contain $n$ token representations,
+one per row. For one attention head, learned projections give
+\begin{equation}
+  \bm Q=\bm X\bm W_Q,\qquad
+  \bm K=\bm X\bm W_K,\qquad
+  \bm V=\bm X\bm W_V,
+  \label{eq:transformer-qkv}
+\end{equation}
+where $\bm W_Q,\bm W_K\in\mathbb R^{d\times d_k}$ and
+$\bm W_V\in\mathbb R^{d\times d_v}$. A query specifies the information
+sought by a token, keys determine compatibility, and values supply the
+information to combine. These descriptions explain their computational
+roles; the vectors are learned numerical features.
+
+\paragraph{Scaled dot-product attention.}
+The compatibility scores are normalized separately for each query:
+\begin{equation}
+  \begin{aligned}
+    s_{ab}&=\frac{\bm q_a^{\mathrm T}\bm k_b}{\sqrt{d_k}}+M_{ab},\\
+    A_{ab}&=\frac{\exp(s_{ab})}{\sum_{c=1}^{n}\exp(s_{ac})},\qquad
+    \bm y_a=\sum_{b=1}^{n}A_{ab}\bm v_b.
+  \end{aligned}
+  \label{eq:transformer-attention-weights}
+\end{equation}
+Here $\bm q_a$, $\bm k_b$, and $\bm v_b$ are column-vector forms of the
+corresponding rows. The factor $1/\sqrt{d_k}$ moderates score magnitudes
+as the query/key dimension increases. Each row of $\bm A$ sums to one,
+so each output is a weighted combination of value vectors. Equivalently,
+\begin{equation}
+  \bm Y=\operatorname{softmax}_{\mathrm{row}}\!\left(
+    \frac{\bm Q\bm K^{\mathrm T}}{\sqrt{d_k}}+\bm M\right)\bm V.
+  \label{eq:transformer-attention-matrix}
+\end{equation}
+Figure~\ref{fig:transformer-attention-flow} summarizes this computation.
+The projection matrices are trainable parameters, whereas the attention
+weights $A_{ab}$ are recalculated for each input.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/transformer-attention-flow.pdf}
+  \caption{Computation of one self-attention head. Token features are
+  projected into queries, keys, and values. Query--key compatibility
+  scores, optionally modified by a mask $\bm M$, are normalized by a
+  row-wise softmax. The resulting weights mix the value vectors into
+  updated token features. This schematic uses rows for tokens.}
+  \label{fig:transformer-attention-flow}
+\end{figure}
+
+For unmasked attention, $M_{ab}=0$. In an autoregressive language model,
+a causal mask sets $M_{ab}=-\infty$ for $b>a$ and zero otherwise. This
+prevents a token from attending to future positions while permitting
+parallel evaluation of the training sequence. Figure~\ref{fig:transformer-attention-maps}
+compares both cases. GPT-3 uses autoregressive prediction, and its results
+showed that scaling language models could improve performance across
+many tasks, including tasks specified by examples in the input
+\cite{brown2020}. These capabilities helped popularize transformers.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.88\textwidth]{figures/transformer-attention-maps.pdf}
+  \caption{Illustrative attention weights for four synthetic tokens using
+  the same queries and keys in both panels. Rows identify queries and
+  columns identify keys/values. Unmasked attention allows all tokens to
+  exchange information. Causal attention assigns zero weight to future
+  tokens and renormalizes the remaining weights. Rows sum to one before
+  rounding. These weights are computed from synthetic features and fixed
+  random projections, not from a trained language or interatomic model.}
+  \label{fig:transformer-attention-maps}
+\end{figure}
+
+\paragraph{Multiple heads and transformer blocks.}
+Multiple heads use separate projections to learn different ways of
+combining information. Their outputs are concatenated and projected back
+to the model dimension:
+\begin{equation}
+  \operatorname{MHA}(\bm X)
+  =\operatorname{Concat}(\bm Y_1,\ldots,\bm Y_H)\bm W_O.
+  \label{eq:transformer-multihead}
+\end{equation}
+Here $H$ is the number of heads. A transformer block combines this
+operation with a feedforward network applied independently to each token.
+For example, the original post-normalization arrangement is
+\begin{equation}
+  \begin{aligned}
+    \bm X'&=\operatorname{LN}\!\left(\bm X+\operatorname{MHA}(\bm X)\right),\\
+    \bm X''&=\operatorname{LN}\!\left(\bm X'+\operatorname{FFN}(\bm X')\right),
+  \end{aligned}
+  \label{eq:transformer-block}
+\end{equation}
+where $\operatorname{LN}$ denotes layer normalization and the additions
+are residual connections. The feedforward network consists of two learned
+affine transformations separated by a nonlinear activation. Stacking
+blocks repeatedly mixes information between tokens and transforms their
+features. Normalization order and other details vary between architectures
+\cite{vaswani2017}.
+
+\paragraph{Application to interatomic potentials.}
+For an MLIP, tokens describe atoms or directed neighbor environments
+through species and relative geometry. Attention lets the representation
+of one neighbor depend on the others, so its contribution reflects the
+surrounding coordination rather than only an isolated pair distance.
+Repeated updates can therefore build many-body features. PET uses
+attention within local atomic environments and message passing between
+them \cite{pet}.
+
+Atomic systems require adaptations beyond the language architecture.
+Atom labels have no sequence order, so a causal mask based on atom indices
+would introduce an arbitrary asymmetry. Local atomic attention instead
+uses the relevant neighbors, with smooth cutoff weights. The energy must
+also respect permutation, translation, and rotation symmetries and be
+sufficiently smooth for forces and Hessians \cite{pet}. Local attention
+limits computational cost but does not itself guarantee long-range
+physical interactions. The following sections introduce the energy
+and atomic graph, then specialize the generic attention equations to PET,
+including its cutoff-weighted normalization in Eq.~\eqref{eq:self-attention}.
 
 \subsubsection{Energy, forces, and atomic graphs}
 
@@ -2932,6 +3071,18 @@ Metal--Organic Frameworks: An Interplay of Quantum and Anharmonic
 Fluctuations}, Journal of Chemical Theory and Computation \textbf{15},
 3237--3249 (2019),
 \href{https://doi.org/10.1021/acs.jctc.8b01297}{doi:10.1021/acs.jctc.8b01297}.
+
+\bibitem{vaswani2017}
+A. Vaswani \emph{et al.},
+\emph{Attention Is All You Need}, Advances in Neural Information Processing
+Systems \textbf{30} (2017),
+\href{https://arxiv.org/abs/1706.03762}{arXiv:1706.03762}.
+
+\bibitem{brown2020}
+T. B. Brown \emph{et al.},
+\emph{Language Models are Few-Shot Learners}, Advances in Neural Information
+Processing Systems \textbf{33}, 1877--1901 (2020),
+\href{https://arxiv.org/abs/2005.14165}{arXiv:2005.14165}.
 
 \bibitem{petmad}
 A. Mazitov \emph{et al.},
