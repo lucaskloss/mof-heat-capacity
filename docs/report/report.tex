@@ -1061,59 +1061,6 @@ the optimized loaded structures provide the harmonic quantum correction.
 Differences in pore chemistry and flexibility motivate comparing all three
 hosts using the same thermodynamic workflow.
 
-\subsection{Graph Theory}
-\label{sec:graph-theory}
-
-Graphs describe atomic neighborhoods and derivative dependencies
-\cite{diestel2025,bronstein2021}. Their roles are distinguished in
-Table~\ref{tab:graph-roles}.
-
-\subsubsection{Adjacency, paths, and receptive fields}
-
-A graph $\mathcal G=(\mathcal V,\mathcal E)$ consists of vertices and
-edges. For an atomic graph, vertices represent atoms and edges identify
-neighbors within the model's interaction range. Periodic images carry
-translation labels, and messages may be directed even when the underlying
-neighbor relation is symmetric. For a simple undirected graph,
-\begin{equation}
-  A_{ij}=\begin{cases}1,&\{i,j\}\in\mathcal E,\\0,&\text{otherwise},\end{cases}
-  \qquad \mathcal N_i=\{j:A_{ij}=1\}.
-\end{equation}
-Graph distance counts edges along a shortest path. The $k$-hop neighborhood
-\begin{equation}
-  \mathcal B_k(i)=\{j:d_{\mathcal G}(i,j)\le k\}
-\end{equation}
-contains all vertices reached in at most $k$ steps. On the chain
-$1-2-3-4$, $\mathcal B_1(1)=\{1,2\}$ and
-$\mathcal B_2(1)=\{1,2,3\}$. This determines how far information propagates
-through a message-passing model.
-
-Relabeling atoms permutes the adjacency matrix as
-$\bm A\mapsto\bm P\bm A\bm P^{\mathrm T}$; the energy must remain unchanged,
-while atom-resolved outputs permute with the atoms. A separate computation
-graph records the operations used to evaluate the model. Its dependencies
-are differentiated by AD. Table~\ref{tab:graph-roles} distinguishes these
-graphs from the derivative graphs used later in Section~\ref{sec:graph-coloring}.
-
-\begin{table}[htbp]
-\centering
-\small
-\caption{Graph constructions used by the potential and its differentiation.}
-\label{tab:graph-roles}
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.22\textwidth}
-                  >{\raggedright\arraybackslash}p{0.23\textwidth}
-                  >{\raggedright\arraybackslash}p{0.46\textwidth}@{}}
-\toprule
-Graph & Vertices & Meaning of an edge \\
-\midrule
-Interaction & Atoms & Neighbor relation, with periodic-image attributes \\
-Computation & Values or operations & Directed computational dependence \\
-Hessian sparsity & Coordinates (or atom blocks) & Possible off-diagonal curvature coupling \\
-Column intersection & Derivative columns & Possible nonzeros sharing an output row \\
-\bottomrule
-\end{tabular}
-\end{table}
-
 \subsection{Machine learning and deep learning}
 \label{sec:deep-learning}
 
@@ -1276,14 +1223,35 @@ operations recorded during the forward pass, reusing intermediate values.
 It therefore complements gradient descent: backpropagation calculates the
 gradients, and the optimizer uses them to update the parameters.
 
-In practice, this calculation is implemented using reverse-mode automatic
-differentiation (AD). The network and loss are evaluated as a computation
-graph whose nodes are operations, such as multiplication, addition, and
-activation, and whose edges record dependencies between intermediate
-values. Each operation has a local derivative rule. AD combines these
-rules automatically, so the derivative of the complete network need not
-be derived or programmed separately for each architecture.
+\paragraph{Computational graphs.}
+In practice, backpropagation is implemented using reverse-mode automatic
+differentiation (AD). A computational graph decomposes the network and loss
+into elementary operations, such as multiplication, addition, and activation.
+Its nodes represent input values or the results of operations, and directed
+edges record which values an operation depends on. The graph for a fixed
+forward evaluation is directed and acyclic: a value must be available before
+an operation that uses it can be evaluated. Repeating a network layer creates
+further operations in this graph rather than a circular dependency.
 
+Input data and trainable parameters are both inputs to the computation;
+these input nodes are called leaves.
+During training, the data and reference targets are held fixed while the
+optimizer adjusts the parameters. The forward pass evaluates the graph in
+dependency order to obtain the prediction and loss. It also retains the
+intermediate values required for differentiation; some can instead be
+recomputed during the backward pass to reduce memory use. For example, the
+local derivatives of $u=wx$ are $\partial u/\partial w=x$ and
+$\partial u/\partial x=w$, so the backward calculation needs the forward
+values of $x$ and $w$.
+
+Each elementary operation has a derivative rule supplied by the AD system.
+The backward pass applies these rules to the recorded dependencies,
+automatically composing them through the chain rule. The complete derivative
+therefore need not be derived or programmed separately for each architecture.
+A computational graph records how the calculation is performed; it is
+different from the atomic neighbor graph used to describe a material.
+
+\paragraph{The reverse pass.}
 For scalar intermediate values $v_i$, define the adjoint
 $\bar v_i=\partial\mathcal L/\partial v_i$. After the forward evaluation,
 the reverse pass starts with $\bar{\mathcal L}=1$ and all other adjoints
@@ -1307,8 +1275,73 @@ to all model parameters, making reverse-mode AD well suited to training
 networks with many weights. It applies the chain rule to the implemented
 operations rather than approximating derivatives by finite differences
 or constructing a global symbolic expression. The resulting derivatives
-are subject to floating-point error \cite{baydin2018}. The layer formulas
-below are the neural-network form of this general procedure.
+are subject to floating-point error \cite{baydin2018}. The reverse sweep
+computes derivatives at the current parameter values; it does not change
+those values. Updating parameters is a subsequent optimizer step.
+
+\paragraph{A worked computational graph.}
+Consider an illustrative network consisting of one scalar neuron with a
+$\tanh$ output and a half-squared-error loss:
+\begin{equation}
+  \begin{aligned}
+    u&=wx, & z&=u+b,\\
+    \hat y&=\tanh z, & r&=\hat y-y,\\
+    l&=\tfrac12 r^2.
+  \end{aligned}
+  \label{eq:ad-scalar-forward}
+\end{equation}
+Here $x$ is the input, $w$ and $b$ are trainable parameters, and $y$ is the
+reference target. This small example illustrates the differentiation rules;
+it is not the full network architecture of
+Figure~\ref{fig:simple-neural-network}. For $x=2$, $w=0.5$, $b=-1$, and
+$y=1$, the forward pass gives $u=1$, $z=0$, $\hat y=0$, $r=-1$, and $l=0.5$.
+Figure~\ref{fig:computational-graph-backpropagation} shows the computation
+and its reverse pass.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/computational-graph-backpropagation.pdf}
+  \caption{Computational graph for the scalar-neuron example in
+  Eq.~\eqref{eq:ad-scalar-forward}. (a) The forward pass follows dependencies
+  to evaluate the prediction and loss; boxes show operations and their
+  numerical values. Green boxes identify trainable parameters. (b) The
+  reverse pass starts with $\bar l=1$ and propagates adjoints
+  $\bar v=\partial l/\partial v$. Arrow labels give local derivatives at
+  the forward values; multiplying them by incoming adjoints gives the
+  sensitivities in the boxes. Input and target adjoints are shown for
+  completeness, but only $w$ and $b$ are updated during training.}
+  \label{fig:computational-graph-backpropagation}
+\end{figure}
+
+Starting with $\bar l=1$, the reverse rules for this graph give
+\begin{equation}
+  \begin{aligned}
+    \bar r&=\bar l\,r, &
+    \overline{\hat y}&=\bar r,\\
+    \bar z&=\overline{\hat y}\,(1-\hat y^2), &
+    \bar u&=\bar z,\\
+    \bar w&=\bar u\,x, &
+    \bar b&=\bar z.
+  \end{aligned}
+  \label{eq:ad-scalar-reverse}
+\end{equation}
+The activation derivative $1-\hat y^2$ uses the output retained from the
+forward pass. At the chosen values, $\bar r=\overline{\hat y}=\bar z=\bar u=-1$,
+so $\partial l/\partial w=-2$ and $\partial l/\partial b=-1$.
+The other input derivatives are $\bar x=\bar u\,w=-0.5$ and
+$\bar y=-\bar r=1$. With learning rate $\eta$, gradient descent would update
+$w\leftarrow0.5+2\eta$ and $b\leftarrow-1+\eta$; it leaves $x$ and $y$ fixed.
+Thus backpropagation supplies the sensitivities used by the optimizer.
+
+If a parameter is reused in several operations, its graph has several
+outgoing dependency edges. Its final adjoint is the sum of the contributions
+arriving along all reverse paths, as specified by
+Eq.~\eqref{eq:ad-adjoint-accumulation}. This is relevant to shared weights
+in GNNs and transformers: using one learned map for many atoms or tokens
+means that all those uses contribute to the same parameter gradient.
+
+\paragraph{Backpropagation through network layers.}
+The layer formulas below are the vector form of the same procedure.
 
 For a single scalar-output training example, consider the unregularized
 loss $l=\tfrac12(\hat y-y)^2$. The factor $\tfrac12$ simplifies the
@@ -1376,8 +1409,8 @@ Provided the operations support second derivatives, the energy-gradient
 calculation can itself be differentiated to obtain Hessian information.
 For example, forward-mode AD applied to the reverse-mode energy gradient
 computes a Hessian--vector product $\bm H\bm v$. Recovering the full
-Hessian requires multiple such products or a suitable sparse
-reconstruction; one energy backward pass alone gives only the gradient.
+Hessian requires multiple such products; one energy backward pass alone
+gives only the gradient.
 Section~\ref{sec:automatic-differentiation} develops this construction for
 the vibrational calculations. Training on forces also differentiates
 through an energy derivative, in that case producing mixed derivatives
@@ -1395,144 +1428,10 @@ A machine-learned interatomic potential (MLIP) approximates the energy of
 an atomic configuration using reference electronic-structure data. This
 reduces the cost of long trajectories and Hessian calculations. Reliable
 predictions require reference data that cover the configurations visited
-by the loaded framework. This section introduces transformers and their
-use in PET; checkpoint and conversion details belong to
-Section~\ref{sec:pet-implementation}.
-
-\subsubsection{Transformers: from language to atomic environments}
-\label{sec:transformers}
-
-Transformers became widely known through the success of large language
-models (LLMs), including GPT-3 \cite{brown2020}. The architecture was
-introduced by Vaswani \emph{et al.}\ in 2017 as an alternative to recurrent
-networks for sequence modeling \cite{vaswani2017}. Recurrent networks
-process a sequence through successive hidden states, which limits
-parallelization across positions within a training example. They can
-represent long-range dependencies, but transmitting information over many
-recurrent steps can make these dependencies difficult to learn.
-Self-attention instead connects token representations directly and allows
-positions to be processed in parallel during training. Autoregressive text
-generation still produces tokens sequentially.
-
-\paragraph{Tokens, queries, keys, and values.}
-A token is an input unit represented by a feature vector. In language,
-tokens typically correspond to text fragments; their embeddings are
-augmented with position information so that order can be represented.
-Let $\bm X\in\mathbb R^{n\times d}$ contain $n$ token representations,
-one per row. For one attention head, learned projections give
-\begin{equation}
-  \bm Q=\bm X\bm W_Q,\qquad
-  \bm K=\bm X\bm W_K,\qquad
-  \bm V=\bm X\bm W_V,
-  \label{eq:transformer-qkv}
-\end{equation}
-where $\bm W_Q,\bm W_K\in\mathbb R^{d\times d_k}$ and
-$\bm W_V\in\mathbb R^{d\times d_v}$. A query specifies the information
-sought by a token, keys determine compatibility, and values supply the
-information to combine. These descriptions explain their computational
-roles; the vectors are learned numerical features.
-
-\paragraph{Scaled dot-product attention.}
-The compatibility scores are normalized separately for each query:
-\begin{equation}
-  \begin{aligned}
-    s_{ab}&=\frac{\bm q_a^{\mathrm T}\bm k_b}{\sqrt{d_k}}+M_{ab},\\
-    A_{ab}&=\frac{\exp(s_{ab})}{\sum_{c=1}^{n}\exp(s_{ac})},\qquad
-    \bm y_a=\sum_{b=1}^{n}A_{ab}\bm v_b.
-  \end{aligned}
-  \label{eq:transformer-attention-weights}
-\end{equation}
-Here $\bm q_a$, $\bm k_b$, and $\bm v_b$ are column-vector forms of the
-corresponding rows. The factor $1/\sqrt{d_k}$ moderates score magnitudes
-as the query/key dimension increases. Each row of $\bm A$ sums to one,
-so each output is a weighted combination of value vectors. Equivalently,
-\begin{equation}
-  \bm Y=\operatorname{softmax}_{\mathrm{row}}\!\left(
-    \frac{\bm Q\bm K^{\mathrm T}}{\sqrt{d_k}}+\bm M\right)\bm V.
-  \label{eq:transformer-attention-matrix}
-\end{equation}
-Figure~\ref{fig:transformer-attention-flow} summarizes this computation.
-The projection matrices are trainable parameters, whereas the attention
-weights $A_{ab}$ are recalculated for each input.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.8\textwidth]{figures/transformer-attention-flow.pdf}
-  \caption{Computation of one self-attention head. Token features are
-  projected into queries, keys, and values. Query--key compatibility
-  scores, optionally modified by a mask $\bm M$, are normalized by a
-  row-wise softmax. The resulting weights mix the value vectors into
-  updated token features. This schematic uses rows for tokens.}
-  \label{fig:transformer-attention-flow}
-\end{figure}
-
-For unmasked attention, $M_{ab}=0$. In an autoregressive language model,
-a causal mask sets $M_{ab}=-\infty$ for $b>a$ and zero otherwise. This
-prevents a token from attending to future positions while permitting
-parallel evaluation of the training sequence. Figure~\ref{fig:transformer-attention-maps}
-compares both cases. GPT-3 uses autoregressive prediction, and its results
-showed that scaling language models could improve performance across
-many tasks, including tasks specified by examples in the input
-\cite{brown2020}. These capabilities helped popularize transformers.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.8\textwidth]{figures/transformer-attention-maps.pdf}
-  \caption{Illustrative attention weights for four synthetic tokens using
-  the same queries and keys in both panels. Rows identify queries and
-  columns identify keys/values. Unmasked attention allows all tokens to
-  exchange information. Causal attention assigns zero weight to future
-  tokens and renormalizes the remaining weights. Rows sum to one before
-  rounding. These weights are computed from synthetic features and fixed
-  random projections, not from a trained language or interatomic model.}
-  \label{fig:transformer-attention-maps}
-\end{figure}
-
-\paragraph{Multiple heads and transformer blocks.}
-Multiple heads use separate projections to learn different ways of
-combining information. Their outputs are concatenated and projected back
-to the model dimension:
-\begin{equation}
-  \operatorname{MHA}(\bm X)
-  =\operatorname{Concat}(\bm Y_1,\ldots,\bm Y_H)\bm W_O.
-  \label{eq:transformer-multihead}
-\end{equation}
-Here $H$ is the number of heads. A transformer block combines this
-operation with a feedforward network applied independently to each token.
-For example, the original post-normalization arrangement is
-\begin{equation}
-  \begin{aligned}
-    \bm X'&=\operatorname{LN}\!\left(\bm X+\operatorname{MHA}(\bm X)\right),\\
-    \bm X''&=\operatorname{LN}\!\left(\bm X'+\operatorname{FFN}(\bm X')\right),
-  \end{aligned}
-  \label{eq:transformer-block}
-\end{equation}
-where $\operatorname{LN}$ denotes layer normalization and the additions
-are residual connections. The feedforward network consists of two learned
-affine transformations separated by a nonlinear activation. Stacking
-blocks repeatedly mixes information between tokens and transforms their
-features. Normalization order and other details vary between architectures
-\cite{vaswani2017}.
-
-\paragraph{Application to interatomic potentials.}
-For an MLIP, tokens describe atoms or directed neighbor environments
-through species and relative geometry. Attention lets the representation
-of one neighbor depend on the others, so its contribution reflects the
-surrounding coordination rather than only an isolated pair distance.
-Repeated updates can therefore build many-body features. PET uses
-attention within local atomic environments and message passing between
-them \cite{pet}.
-
-Atomic systems require adaptations beyond the language architecture.
-Atom labels have no sequence order, so a causal mask based on atom indices
-would introduce an arbitrary asymmetry. Local atomic attention instead
-uses the relevant neighbors, with smooth cutoff weights. The energy must
-also respect permutation, translation, and rotation symmetries and be
-sufficiently smooth for forces and Hessians \cite{pet}. Local attention
-limits computational cost but does not itself guarantee long-range
-physical interactions. The following sections introduce the energy
-and atomic graph, then specialize the generic attention equations to PET,
-including its cutoff-weighted normalization in Eq.~\eqref{eq:self-attention}.
+by the loaded framework. This section describes PET; a step-by-step
+explanation of its transformer operations is provided in
+Appendix~\ref{sec:transformers}. Checkpoint and conversion details belong
+to Section~\ref{sec:pet-implementation}.
 
 \subsubsection{Point Edge Transformer architecture}
 \label{sec:pet-architecture}
@@ -1564,7 +1463,8 @@ where $\mathbf{r}_{ij}$ represents the position of atom $j$ relative to atom $i$
 $s_j$ is the species of atom $j$, which is a categorical variable that could correspond to the the atomic number $Z_j$,
 and $R_c$ is the cutoff radius, which limits the number of neighbors considered in the environment.
 The environment includes all neighboring atoms $j$ within this cutoff distance from the central atom $i$.
-The model only takes one atomic environment as input at a time, and the total energy is computed as a sum of contributions from each environment.
+The same local block is applied to all atomic environments, usually batched
+for parallel evaluation, and the total energy sums their learned contributions.
 Once the environment is defined,
 the PET architecture processes it through $n_{\mathrm{GNN}}$ message-passing (MP) blocks as shown in Figure~\ref{fig:pet-architecture} a.
 The first MP block takes as input only the atomic environment $A_i$ and produces an output (here the energy),
@@ -1629,63 +1529,77 @@ token construction above, rather than an additional encoding step.
 
 \paragraph{Transformer layers and attention}
 
-Attention, introduced in Section~\ref{sec:transformers}, lets each token
-use information from every other token in the environment. A neighbor
-representation can consequently depend on angles and coordination as well
-as its own displacement. One output remains associated with each input,
-so the transformer mixes information without discarding neighbor identities.
+The tokens constructed above are processed by $n_{\mathrm{TL}}$ transformer
+layers. As explained in Appendix~\ref{sec:transformers}, self-attention lets
+each token use information from every other token in the environment.
+Consequently, a neighbor's representation can depend on the surrounding
+geometry as well as its own displacement from the center.
 
-Abruptly removing a neighbor at $R_c$ would change the attention
-normalization and could make the energy discontinuous. Section~6 of
-Ref.~\cite{pet} therefore multiplies the ordinary attention coefficients
-by the source token's cutoff weight and renormalizes them. With $a,b,c$
-indexing local tokens, define the explanatory shorthand
-$c_b=f_c(r_{ib}\mid R_c,\Delta_{R_c})$ for a neighbor and $c_b=1$ for the
-central token. The paper's update is
-
-\begin{equation}
-  \alpha_{ab}\ \leftarrow\
-    \frac{\alpha_{ab}c_b}{\sum_c\alpha_{ac}c_c},
-  \qquad
-  \text{attention output for }a=\sum_b\alpha_{ab}\bm v_b,
-  \label{eq:self-attention}
-\end{equation}
-
-where the initial $\alpha_{ab}$ are the ordinary softmax weights from
-Eq.~\eqref{eq:transformer-attention-weights} and $\bm v_b$ is the value
-vector. A departing neighbor disappears from both numerator and
-denominator. The central token retains unit weight, so this denominator
-remains positive in exact arithmetic. Padded neighbor slots must be masked.
-Appendix~F.1, Eq.~(9), gives the cutoff explicitly:
+A neighbor must lose its influence smoothly as it approaches $R_c$.
+Otherwise, removing its token at the cutoff would abruptly change the
+attention weights and their normalization, potentially making the predicted
+energy discontinuous. PET therefore introduces a smooth cutoff, given in
+Appendix~F.1, Eq.~(9), of Ref.~\cite{pet}:
 
 \begin{equation}
   \begin{aligned}
-  f_c(r\mid R_c,\Delta_{R_c})
+    f_c(r\mid R_c,\Delta_{R_c})
     &=\begin{cases}
       1,&r\le R_c-\Delta_{R_c},\\
       \frac12\left[\tanh\!\left(\frac{1}{x+1}+\frac{1}{x-1}\right)+1\right],
-        &R_c-\Delta_{R_c}<r<R_c,\\
+      &R_c-\Delta_{R_c}<r<R_c,\\
       0,&r\ge R_c,
     \end{cases}\\
-  x&=2\frac{r-R_c+0.5\Delta_{R_c}}{\Delta_{R_c}}
-     \quad\text{inside the switching interval}.
+    x&=2\frac{r-R_c+0.5\Delta_{R_c}}{\Delta_{R_c}}
+    \quad\text{inside the switching interval}.
   \end{aligned}
   \label{eq:pet-cutoff}
 \end{equation}
 
-The constant branches are used at the endpoints. The width $\Delta_{R_c}$
-controls how gradually the neighbor is removed. Smooth joining avoids
-cutoff discontinuities; a narrow switching interval can still produce
-large derivatives within the interval.
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.4\textwidth]{figures/cutoff_single.pdf}
+  \caption{Smooth cutoff function $f_c(r\mid R_c,\Delta_{R_c})$ from
+  Eq.~\eqref{eq:pet-cutoff} with $R_c=5.0$\,\AA\ and
+  $\Delta_{R_c}=0.5$\,\AA. The function is unity for $r<R_c-\Delta_{R_c}$,
+  smoothly decreases to zero over the switching interval, and is zero for
+  $r>R_c$.}
+  \label{fig:pet-cutoff}
+\end{figure}
 
-Each of the $n_{\mathrm{TL}}$ transformer layers mixes tokens through
-attention and transforms them through token-wise feed-forward operations,
-with residual paths. The PET paper refers to a classical transformer;
-it does not explicitly fix every normalization convention in its equations.
-Shared operations ensure that permuting the neighbor list permutes the
-outputs. The paper's description of aggregation-free message passing
-refers to retaining separate edge messages: attention itself still uses
-weighted sums.
+The width $\Delta_{R_c}>0$ controls the interval over which a neighbor is
+switched off. The constant branches are used at the endpoints, where the
+fractions in the middle branch are undefined. The function joins smoothly
+to these branches, although a narrow switching interval can still produce
+large derivatives within it.
+
+Section~6 of Ref.~\cite{pet} applies this cutoff to the ordinary softmax
+attention weights and then renormalizes them. Let $a,b,c$ index tokens in
+the environment centered on atom $i$, with
+$c_b=f_c(r_{ib}\mid R_c,\Delta_{R_c})$ for a neighbor and $c_b=1$ for the
+central token. For one attention head, the modified weights and output are
+\begin{equation}
+  \alpha_{ab}^{\mathrm{cut}}
+    =\frac{\alpha_{ab}c_b}{\sum_c\alpha_{ac}c_c},
+  \qquad
+  \bm y_a=\sum_b\alpha_{ab}^{\mathrm{cut}}\bm v_b,
+  \label{eq:self-attention}
+\end{equation}
+where $\alpha_{ab}$ are the ordinary weights from
+Eq.~\eqref{eq:transformer-attention-weights} and $\bm v_b$ is the value
+vector. The superscript $\mathrm{cut}$ distinguishes the modified weights
+from the original ones. As a neighbor leaves, it disappears smoothly from
+both the weighted sum and its normalization. The central token retains unit
+cutoff weight, keeping the denominator positive in exact arithmetic.
+
+Each transformer layer combines multi-head attention with token-wise
+feedforward operations, residual connections, and layer normalization;
+Eq.~\eqref{eq:transformer-block} illustrates the general arrangement.
+The output tokens of one layer become the inputs to the next, adding
+processing within the same environment. Shared operations preserve
+permutation equivariance: reordering the neighbor tokens produces the
+same reordering of their outputs, so their association with individual
+neighbors is retained (Figure~\ref{fig:pet-architecture}b).
 
 \paragraph{Transformer outputs}
 
@@ -1726,12 +1640,14 @@ Appendix~B adds fitted atomic self-contributions to the network output.
 Writing $E_{\mathrm{self}}=\sum_i b_{s_i}$ for that composition-dependent
 baseline, the following expression assembles the paper's central, edge,
 and baseline terms:
+
 \begin{equation}
   \tilde E=E_{\mathrm{self}}
     +\sum_{k=1}^{n_{\mathrm{GNN}}}\sum_i
       \left[H_c^{(k)}(x_i^{(k)})+y_i^{\mathrm{bond}\,(k)}\right].
   \label{eq:pet-readout}
 \end{equation}
+
 Equation~\eqref{eq:pet-readout} is bookkeeping assembled from the text,
 not a separately numbered equation in Ref.~\cite{pet}; $E_{\mathrm{self}}$
 and $b_s$ are explanatory symbols. The total $\tilde E$ is the learned
@@ -1760,61 +1676,6 @@ layers each outperform twelve blocks with one layer each in that test.
 This supports tuning the two depths separately, not a universal choice
 of their values. Cutoff smoothness, symmetry treatment, and the coverage
 of training data remain separate design requirements.
-
-\subsubsection{Physical symmetries}
-
-Scalar energies should respect translation, rotation/reflection, and
-identical-atom permutation:
-
-\begin{equation}
-  \begin{aligned}
-  U(\bm R)&=U(\bm R+\bm a)=U(\bm Q\bm R)
-  \\
-           &=U(\bm P\bm R),\qquad \bm Q\in O(3).
-  \end{aligned}
-  \label{eq:energy-symmetry}
-\end{equation}
-
-Forces then transform equivariantly,
-$\bm F_i(\bm Q\bm R)=\bm Q\bm F_i(\bm R)$; periodic tests rotate both
-positions and cell. PET enforces translation and permutation symmetries,
-but learns rotational behavior through augmentation. Reported rotational
-errors below prediction errors \cite{petmad} do not validate this checkpoint
-on loaded MOF-5.
-
-\paragraph{ECSE is a separate construction.}
-Section~5 and Appendix~F of Ref.~\cite{pet} introduce the Equivariant
-Coordinate System Ensemble (ECSE). For each ordered noncollinear neighbor
-pair $j,j'$, a frame rotates with the environment. In the paper's notation,
-$\hat R_{jj'}^{-1}[A_i]$ is the environment expressed in that frame,
-$\bm y_0$ is the backbone prediction, and $\bm y_S$ is its symmetrized form.
-The paper's Eq.~(3) is
-\begin{equation}
-  \bm y_S(A_i)=
-   \frac{\sum_{jj'\in A_i}w_{jj'}\hat R_{jj'}
-     \!\left[\bm y_0\!\left(\hat R_{jj'}^{-1}[A_i]\right)\right]}
-        {\sum_{jj'\in A_i}w_{jj'}}.
-  \label{eq:pet-ecse}
-\end{equation}
-The outer rotation returns vector or tensor predictions to the original
-frame; it acts trivially on a scalar energy. The weights contain radial
-cutoffs and an angular cutoff that suppresses nearly collinear pairs.
-They make frames enter and leave smoothly. Appendix~F.3 treats the
-otherwise undefined case in which all weights vanish; F.4--F.5 reduce the
-number of evaluations through smooth frame selection and pruning.
-This right-handed frame construction enforces proper-rotation symmetry;
-reflection symmetry needs additional treatment.
-
-Forces from ECSE must include derivatives of both the coordinate frames
-and their weights. Appendices~F.6--F.7 explain why very sharp frame
-selection can worsen force accuracy despite mathematical smoothness.
-For message-passing models, the full dependency neighborhood must be
-handled consistently. Appendix~F.10 shows that symmetrizing each message
-layer independently requires compatible message transformation and
-training rules; it cannot generally be substituted after ordinary global
-rotational augmentation. The proof-of-principle implementation in F.11
-uses a global pool of frames. ECSE is not used in this project's current
-PET evaluation path.
 
 \subsubsection{Training and validity}
 
@@ -1927,226 +1788,10 @@ Forward-over-reverse evaluates
   \right|_{\epsilon=0}.
   \label{eq:hessian-vector-product}
 \end{equation}
-Dense Hessian recovery needs $3N$ such products. Sparse reconstruction reduces
-the seed count; cutoff smoothness and neighbor-selection conventions still
-control which function is differentiated.
-
-\subsubsection{Graph coloring and sparse automatic differentiation}
-\label{sec:graph-coloring}
-
-A proper vertex coloring assigns an integer $c(q)\in\{1,\ldots,n_c\}$
-to each vertex so that adjacent vertices have different colors.
-For differentiation, a color identifies input directions that can be
-processed together. The relevant edges must therefore represent conflicts
-in derivative recovery, rather than simply atomic neighbor relations.
-
-ASD separates structural preparation from numerical differentiation
-\cite{hill2025asd}:
-\begin{equation}
-  \underbrace{\text{detect pattern}\ \longrightarrow\ \text{color}}
-    _{\text{preparation}}
-  \ \longrightarrow\
-  \underbrace{\text{evaluate colored products}\ \longrightarrow\ \text{decompress}}
-    _{\text{numerical evaluation}}.
-  \label{eq:asd-preparation-pipeline}
-\end{equation}
-Preparation can be reused while the pattern remains valid.
-
-\paragraph{From derivatives to a conflict graph.}
-For a function $\bm f:\mathbb R^n\to\mathbb R^m$, let
-$J_{pq}=\partial f_p/\partial x_q$. A structural sparsity pattern
-$\bm S\in\{0,1\}^{m\times n}$ satisfies
-\begin{equation}
-  S_{pq}=0\ \Longrightarrow\ J_{pq}=0,
-  \qquad \mathcal R_q=\{p:S_{pq}=1\}.
-\end{equation}
-Thus $\mathcal R_q$ lists the output rows that column $q$ may affect.
-A numerical zero at one configuration does not necessarily imply a
-structural zero. Two columns conflict when their supports overlap, so the
-\emph{column-intersection graph} has one vertex per input coordinate and
-edges
-\begin{equation}
-  \{q,r\}\in\mathcal E_{\mathrm{col}}
-    \quad\Longleftrightarrow\quad
-    q\ne r\ \text{and}\ \mathcal R_q\cap\mathcal R_r\ne\varnothing.
-\end{equation}
-Proper coloring of this graph ensures that columns of the same color
-have disjoint supports, also called structural orthogonality
-\cite{hill2025asd}.
-
-The pattern can be inferred by propagating input-dependency sets through
-the computation graph, without evaluating every derivative. For addition,
-for example, the dependency set of $z=u+v$ is the union of those of $u$
-and $v$. A global pattern covers the input domain; a local pattern may
-exploit the active branches at one input but requires revalidation
-\cite{hill2025asd}.
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.34\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{figures/sparse-autodiff/sparsity_pattern.pdf}\\
-    (a) Sparsity pattern
-  \end{minipage}\hspace{0.06\textwidth}
-  \begin{minipage}{0.34\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{figures/sparse-autodiff/coloring.pdf}\\
-    (b) Column groups
-  \end{minipage}
-  \caption{Structural preparation: permitted entries determine two groups
-  of nonoverlapping columns. Reproduced from Hill, Dalle, and Montoison,
-  Figure 12 \cite{hill2025asd}.}
-  \label{fig:asd-pattern-coloring}
-\end{figure}
-
-\paragraph{Colored seeds, compression, and recovery.}
-Forward AD evaluates a Jacobian-vector product without first forming
-$\bm J$. The ordinary seed $\bm e_q$ yields column $q$; using all $n$
-coordinate seeds would therefore require $n$ directional evaluations.
-For a composition $\bm f=\bm h\circ\bm g$, the chain rule acts on a seed as
-\begin{equation}
-  \bm J_f(\bm x)\bm v
-    =\bm J_h(\bm g(\bm x))\bigl[\bm J_g(\bm x)\bm v\bigr].
-  \label{eq:matrix-free-chain-rule}
-\end{equation}
-AD propagates the direction through these operations without storing the
-intermediate Jacobian matrices \cite{baydin2018}.
-Construct one seed per color:
-\begin{equation}
-  \bm v_a=\sum_{q:c(q)=a}\bm e_q,
-  \qquad V_{qa}=\begin{cases}1,&c(q)=a,\\0,&\text{otherwise},\end{cases}
-  \qquad \bm Y=\bm J\bm V.
-  \label{eq:graph-colored-seeds}
-\end{equation}
-Each compressed entry is a sum,
-$Y_{pa}=\sum_{q:c(q)=a}J_{pq}$. Structural orthogonality guarantees that
-at most one term is permitted to be nonzero in a given row. Consequently,
-\begin{equation}
-  J_{pq}=Y_{p,c(q)}\quad\text{for }S_{pq}=1.
-  \label{eq:graph-jacobian-recovery}
-\end{equation}
-The pattern identifies which column supplied each value. Sparse automatic
-differentiation (ASD) combines this graph-based preparation with ordinary
-AD and subsequent decompression; the AD still differentiates the original
-function. The number of directions falls from $n$ to $n_c$, rather than
-computing a dense derivative and discarding its zeros afterward.
-
-Figure~\ref{fig:asd-compression-recovery} illustrates both numerical steps.
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.43\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{figures/sparse-autodiff/sparse_ad_forward_full.pdf}\\
-    (a) Two colored JVPs
-  \end{minipage}\hfill
-  \begin{minipage}{0.43\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{figures/sparse-autodiff/sparse_ad_forward_decompression.pdf}\\
-    (b) Decompression
-  \end{minipage}
-  \caption{Five columns recovered from two directional evaluations using
-  their known supports. Reproduced from Hill, Dalle, and Montoison,
-  Figure 10 \cite{hill2025asd}.}
-  \label{fig:asd-compression-recovery}
-\end{figure}
-
-For the MOF Hessian, take $\bm f=\nabla U$ and $n=m=3N$.
-Then $\bm J_f=\bm H$, and a forward derivative of the reverse-mode
-energy gradient gives $\bm H\bm v_a$ (Eq.~\eqref{eq:hessian-vector-product}).
-Coloring therefore groups Cartesian coordinates whose Hessian columns
-can be recovered from the same Hessian-vector product.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.75\textwidth]{figures/sparse-autodiff/colored_graph.pdf}\\[0.6em]
-  \includegraphics[width=0.75\textwidth]{figures/sparse-autodiff/colored_graph_infeasible.pdf}
-  \caption{Valid coloring (top) and conflicting same-color columns (bottom).
-  Reproduced from Hill, Dalle, and Montoison, Figures 17 and 19
-  \cite{hill2025asd}.}
-  \label{fig:asd-valid-invalid-coloring}
-\end{figure}
-Figure~\ref{fig:asd-valid-invalid-coloring} connects graph edges to conflicts
-between derivative columns.
-
-\paragraph{A worked example.}
-Consider the symmetric tridiagonal Hessian
-\begin{equation}
-  \bm M=\begin{pmatrix}
-    a&b&0&0\\ b&c&d&0\\ 0&d&e&f\\ 0&0&f&g
-  \end{pmatrix}.
-  \label{eq:graph-coloring-example}
-\end{equation}
-Its off-diagonal sparsity graph is the chain $1-2-3-4$.
-Coloring that chain with $(1,2,1,2)$ is proper, but does not permit direct
-column recovery: columns 1 and 3 both affect row 2, yielding the
-inseparable sum $b+d$. The column-intersection graph also connects
-vertices at distance two along the chain. A valid coloring of this larger
-conflict graph is $(1,2,3,1)$, giving
-\begin{equation}
-  \bm V=\begin{pmatrix}
-    1&0&0\\0&1&0\\0&0&1\\1&0&0
-  \end{pmatrix},
-  \qquad
-  \bm M\bm V=\begin{pmatrix}
-    a&b&0\\b&c&d\\f&d&e\\g&0&f
-  \end{pmatrix}.
-  \label{eq:graph-direct-compression}
-\end{equation}
-The first product combines columns 1 and 4, whose supports are disjoint:
-rows 1--2 supply column 1 and rows 3--4 supply column 4. Three products
-recover every entry, whereas dense recovery would use four. For a longer
-tridiagonal matrix, repeating three colors still suffices, so the benefit
-grows with matrix size.
-
-\paragraph{Star coloring exploits Hessian symmetry.}
-For a symmetric Hessian, $H_{pq}=H_{qp}$ supplies two possible compressed
-locations for each off-diagonal value: $Y_{p,c(q)}$ and $Y_{q,c(p)}$.
-It is sufficient that one of these is uncontaminated. This permits a less
-restrictive coloring than requiring every pair of column supports to be
-disjoint \cite{gebremedhin2009hessian}.
-
-A \emph{star coloring} is a proper coloring of the off-diagonal Hessian
-sparsity graph in which every path on four distinct vertices uses at least
-three colors. Equivalently, the subgraph formed by any two colors is a
-collection of stars. In each star, the center is the hub and its neighbors
-are spokes. A spoke has only one neighbor with the hub's color, so the
-hub--spoke entry can be extracted from that spoke's row; symmetry supplies
-the transposed entry. Proper coloring also keeps diagonal entries separate
-from off-diagonal contributions \cite{asdexcoloring}.
-
-For the same chain, $(1,2,1,3)$ is a star coloring. Its compression is
-\begin{equation}
-  \bm W=\begin{pmatrix}
-    1&0&0\\0&1&0\\1&0&0\\0&0&1
-  \end{pmatrix},
-  \qquad
-  \bm B=\bm M\bm W=\begin{pmatrix}
-    a&b&0\\b+d&c&0\\e&d&f\\f&0&g
-  \end{pmatrix}.
-  \label{eq:graph-star-compression}
-\end{equation}
-Although $B_{21}=b+d$ cannot be separated directly, $b=B_{12}$ and
-$d=B_{32}$ are individually available from the opposite orientations.
-The remaining values are $a=B_{11}$, $c=B_{22}$, $e=B_{31}$,
-$f=B_{33}=B_{41}$, and $g=B_{43}$.
-This example uses three colors with either strategy; star coloring can
-reduce the count further for other symmetric sparsity patterns.
-
-\paragraph{Accuracy and cost.}
-The coloring determines how many derivative directions are evaluated;
-Section~\ref{sec:asd-method} explains its application to PET's atom-pair
-sparsity pattern.
-
-The pattern must include every actual coupling for exact recovery.
-For example, if the true matrix above also had
-$M_{24}=M_{42}=\delta$ but the pattern omitted this pair, the direct
-coloring would still combine columns 1 and 4 and incorrectly recover
-$M_{21}$ as $b+\delta$. Thus an underestimated pattern can corrupt retained
-entries as well as omit missing ones. A greedy algorithm processes vertices in an ordering and assigns each
-the smallest admissible color; ordering affects the resulting count.
-For star coloring, admissibility also enforces the four-vertex-path rule.
-Greedy coloring need not find the minimum possible number of colors to
-give correct recovery; extra colors cost work \cite{asdexcoloring}.
+Dense Hessian recovery needs $3N$ such products. Appendix~\ref{sec:graph-coloring}
+develops the sparse reconstruction used here, including graph coloring and
+the SADMOF implementation. Cutoff smoothness and neighbor-selection
+conventions still control which function is differentiated.
 
 \section{Methods}
 
@@ -2245,8 +1890,8 @@ not retrain. Composition baselines have zero Cartesian derivatives; energy
 scales must carry through forces and Hessians.
 
 Compare energies and forces across export and conversion, including
-adaptive-cutoff derivative conventions. The sparse path stops those
-derivatives (Section~\ref{sec:asd-method}). NPT additionally requires
+adaptive-cutoff derivative conventions (Appendix~\ref{sec:asd-method}).
+NPT additionally requires
 validated stress output on representative loaded-MOF structures; matching
 filenames or capability flags alone are insufficient \cite{petmad}.
 
@@ -2308,75 +1953,12 @@ Continuations restore the latest restart, skip minimization and velocity
 assignment, and advance to the original final-step target. They extend one
 trajectory rather than create independent replicas.
 
-\subsection{Sparse Hessian evaluation with SADMOF}
-\label{sec:asd-method}
-
-SADMOF constructs an atom-pair pattern from PET's selected-neighbor graph,
-then expands each pair into a Cartesian $3\times3$ block \cite{sadMof}.
-For $L$ message-passing layers, the maximum Hessian reach is $K=2L$ for
-node readout and $K=2L+1$ for PET edge readout. Boolean adjacency gives
-\begin{equation}
-  \bm P^{(k)}=\bm I\lor\bm A\lor\bm A^2\lor\cdots\lor\bm A^k,
-  \label{eq:hop-pattern}
-\end{equation}
-At $k=K$ the pattern contains all couplings under the chosen derivative
-convention; $k<K$ truncates it. Additional nonlocal terms need separate analysis.
-Structural sparsity requires
-\begin{equation}
-  S_{pq}=0\quad\Longrightarrow\quad H_{pq}=0
-  \label{eq:hessian-sparsity-pattern}
-\end{equation}
-An overestimate costs entries and colors. An underestimate can both discard
-curvature and contaminate retained entries. Mixed second derivatives depend
-on nonlinear readout, not just direct interaction edges.
-
-ASDEX applies the star-coloring recovery described in
-Section~\ref{sec:graph-coloring}. With $n_c$ colors, the numerical stage
-requires $n_c$ Hessian-vector products instead of $3N$ coordinate products.
-Setup, compilation, decompression, and GPU utilization determine the actual
-wall-time saving. The pattern and coloring are reused for LLPR members at
-the same geometry.
-
-The sparse Hessian is densified and padding is removed before
-eigendecomposition; only the AD stage exploits sparsity.
-
-\texttt{no\_\allowbreak{}shadow=True} stops adaptive-neighbor-selection derivatives and
-uses the selected graph. Shadow derivatives introduce extra couplings;
-\texttt{shadow=true} is rejected in this sparse path. Check consistency
-with MD forces. With three PET blocks, the paper derives $K=7$, so the
-configured \texttt{hops=3} is an approximation requiring convergence.
-
-Truncation can both discard distant Hessian entries and contaminate retained
-entries when omitted couplings share a seed color. Enforcing the acoustic
-sum rule does not remove these errors. The chosen hop count therefore needs
-comparison with an exact-pattern or feasible dense Hessian, checking signed
-frequencies and the heat-capacity correction across temperatures.
-Convergence can be nonmonotonic near mode thresholds; periodic image folding
-also requires cell/supercell convergence.
-
-\begin{table}[htbp]
-  \centering
-  \small
-  \caption{Numerical controls for Hessian evaluation. Template settings are
-  not established convergence values; archived results use float64.}
-  \label{tab:hessian-controls}
-  \begin{tabular}{@{}lp{0.54\textwidth}l@{}}
-    \toprule
-    Control & Effect & Template \\
-    \midrule
-    \texttt{hops} & Changes the assumed sparsity approximation & 3 \\
-    \texttt{chunk\_\allowbreak{}size} & Batches colored directions; affects memory/throughput & 1 \\
-    \texttt{remat} & Recomputes intermediates to reduce memory & true \\
-    \texttt{dtype} & Sets floating-point precision & float32 \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-Keep separately tagged convergence outputs, including higher precision and
-less truncated references, especially for low-frequency modes.
-
 \subsection{Normal modes and quantum harmonic heat capacity}
 \label{sec:normal-modes}
+
+Fixed-cell reference Hessians are evaluated with PET-JAX/SADMOF. The full
+sparse differentiation procedure, its numerical settings, and its
+convergence requirements are collected in Appendix~\ref{sec:graph-coloring}.
 
 Symmetrize the Hessian, enforce the acoustic sum rule, and mass weight:
 \begin{equation}
@@ -3037,6 +2619,775 @@ retaining anharmonic MD. Broad agreement with digitized reference trends
 does not establish quantitative accuracy. Stable spectra, independent
 trajectory/minimum sampling, and validated paired uncertainty propagation
 are needed before interpreting these curves as converged predictions.
+
+\appendix
+\section{Transformers and their use in PET}
+\label{sec:transformers}
+
+This appendix develops the transformer operations used within the PET
+message-passing blocks of Section~\ref{sec:pet-architecture}. The general
+construction follows Ref.~\cite{vaswani2017}; PET's token encoding and
+smooth-cutoff modification follow Section~6 and Appendix~A of
+Ref.~\cite{pet}. The equations below explain the computation and its
+shapes. They do not fix every implementation choice of a later checkpoint.
+
+Transformers were introduced for sequence modeling and became widely known
+through language models such as GPT-3 \cite{brown2020}. Whereas recurrent
+networks pass a hidden state sequentially between positions, self-attention
+lets token representations exchange information directly and be evaluated
+in parallel during training. Autoregressive language generation still
+produces tokens sequentially. PET uses local self-attention on atomic
+geometry, without a language decoder or next-token prediction task.
+
+\subsection{Tokens and the input matrix}
+
+A token is a vector of learned features. At message-passing block $k$, PET
+constructs one token for the center and one for each of its $m$ neighbors,
+using the embeddings and incoming messages in
+Eqs.~\eqref{eq:pet-position-embedding}--\eqref{eq:pet-token}.
+The transformer receives all $n=m+1$ tokens together, rather than treating
+them as independent examples. Write their current representations as rows
+of $\bm X\in\mathbb R^{n\times d}$, where $d=d_{\mathrm{PET}}$ for the
+original architecture. Subsequent transformer layers receive updated
+matrices with the same number of rows and the same width.
+
+The central token introduces the central species, while each neighbor token
+contains its species, relative geometry, and, after the first block, an
+incoming message. Its token index identifies a neighbor entry; it is not a
+sequence position with physical meaning. Unlike text transformers, PET
+does not add a positional encoding based on the arbitrary neighbor-list
+order. Geometric information has already entered through
+$E_r^{(k)}(\bm r_{ij})$.
+
+Different environments can have different numbers of neighbors. A batched
+implementation may pad their token matrices to a common size, but padded
+slots must be masked. Batching environments is a computational convenience;
+attention acts within each environment. Message passing supplies the
+communication between environments.
+
+\subsection{Queries, keys, and values}
+
+For one attention head, three learned projections act on the same input
+matrix:
+\begin{equation}
+  \bm Q=\bm X\bm W_Q,\qquad
+  \bm K=\bm X\bm W_K,\qquad
+  \bm V=\bm X\bm W_V,
+  \label{eq:transformer-qkv}
+\end{equation}
+with $\bm W_Q,\bm W_K\in\mathbb R^{d\times d_k}$ and
+$\bm W_V\in\mathbb R^{d\times d_v}$. Thus $\bm Q$ and $\bm K$ have
+shape $n\times d_k$, while $\bm V$ has shape $n\times d_v$.
+Here $d_k$ is a query/key dimension, not the message-passing index $k$.
+These equations omit optional projection biases for clarity.
+
+The query $\bm q_a$ of token $a$ specifies which information it seeks, a key
+$\bm k_b$ determines compatibility with token $b$, and the value $\bm v_b$
+supplies the features to combine. These descriptions express computational
+roles, rather than predetermined meanings of individual feature components.
+Although all three vectors originate from the same token representation,
+the separate learned maps allow different comparisons and information
+content. Using the same token set for queries, keys, and values is what
+makes the operation \emph{self}-attention.
+
+\subsection{Scores, masks, and row-wise normalization}
+
+The dot product of a query and key gives a compatibility score. With $a,b,c$
+indexing tokens in the same environment, one head computes
+\begin{equation}
+  \begin{aligned}
+    s_{ab}&=\frac{\bm q_a^{\mathrm T}\bm k_b}{\sqrt{d_k}}+M_{ab},\\
+    A_{ab}&=\frac{\exp(s_{ab})}{\sum_{c=1}^{n}\exp(s_{ac})},
+    \qquad \bm y_a=\sum_{b=1}^{n}A_{ab}\bm v_b.
+  \end{aligned}
+  \label{eq:transformer-attention-weights}
+\end{equation}
+Here the vectors are column-vector forms of the corresponding matrix rows.
+Rows of $\bm A$ identify receiving queries; columns identify the keys and
+values being used. Each row sums to one, provided at least one token in that
+row is allowed. The output is therefore a weighted combination of value
+vectors. The projection weights are trainable parameters, while $A_{ab}$
+is recomputed for each input configuration and transformer layer.
+
+Dividing by $\sqrt{d_k}$ moderates the growth of dot-product magnitudes
+with feature dimension. Without this scaling, large scores can make the
+softmax sharply concentrated and its gradients small
+\cite{vaswani2017}. In matrix form, the same operation is
+\begin{equation}
+  \bm Y=\operatorname{softmax}_{\mathrm{row}}\!\left(
+    \frac{\bm Q\bm K^{\mathrm T}}{\sqrt{d_k}}+\bm M\right)\bm V,
+  \label{eq:transformer-attention-matrix}
+\end{equation}
+where $\bm Q\bm K^{\mathrm T}$ and $\bm A$ have shape $n\times n$ and
+$\bm Y$ has shape $n\times d_v$.
+
+The additive mask $\bm M$ restricts which values may be used. An allowed
+entry can have $M_{ab}=0$; setting an entry to $-\infty$ makes its softmax
+weight zero. In an autoregressive language model, a causal mask excludes
+future sequence positions. PET's atomic neighborhoods have no such causal
+order: every physical token may attend to every other physical token in
+the same environment. Padding is excluded, and radial cutoff weights
+supply a further modification. A mask based on arbitrary atom indices
+would introduce an artificial dependence on labeling.
+
+\subsection{PET's smooth cutoff inside attention}
+\label{sec:transformer-cutoff-detail}
+
+Section~6 of Ref.~\cite{pet} multiplies the ordinary attention coefficients
+by a radial cutoff and renormalizes them. The main text denotes the ordinary
+coefficients by $\alpha_{ab}$; these are the entries $A_{ab}$ in
+Eq.~\eqref{eq:transformer-attention-weights}. For environment $A_i$, let
+$c_b=f_c(r_{ib}\mid R_c,\Delta_{R_c})$ for a neighbor and $c_b=1$ for the
+central token. Combining the softmax with the paper's cutoff rule gives
+\begin{equation}
+  \alpha_{ab}^{\mathrm{cut}}
+   =\frac{\exp(s_{ab})c_b}{\sum_c\exp(s_{ac})c_c}
+   =\frac{\alpha_{ab}c_b}{\sum_c\alpha_{ac}c_c}.
+  \label{eq:transformer-cutoff-expanded}
+\end{equation}
+The ordinary softmax denominator cancels when the weights are renormalized.
+Each head uses these modified weights to combine its values, as in
+Eq.~\eqref{eq:self-attention}. In particular, the radial factor depends on
+the distance of the \emph{source neighbor} from center $i$, rather than on
+the distance between the query token and that neighbor.
+
+For $c_b>0$, the same normalized weights can be obtained by adding
+$\log c_b$ to every score in column $b$. A zero cutoff corresponds to an
+excluded column, understood as the $\log c_b\to-\infty$ limit. This is a
+mathematical equivalence; numerical implementations must handle zero weights
+without evaluating an undefined logarithm. Padded source columns likewise
+have zero weight, and padded query outputs must be ignored downstream.
+Retaining the central token with unit weight ensures at least one active
+source for each physical query.
+
+The purpose is smooth disappearance at the neighbor boundary. Multiplying
+only the final weighted sum by a cutoff would not remove the departing
+token from the attention normalization. Conversely, suppressing its role
+as a source does not force its own output token to zero: that token can
+still attend to the surviving ones. This is why the separate edge-energy
+readout cutoff in Eq.~\eqref{eq:pet-bond-sum} is also needed. Learned
+attention coefficients are not physical pair potentials and need not
+be monotonic functions of distance.
+
+\subsection{Multiple attention heads and output projection}
+
+A multi-head layer repeats the query/key/value projections with independent
+parameters for $H$ heads. Each head produces $\bm Y_h\in\mathbb R^{n\times d_v}$,
+and their feature columns are concatenated and projected back to width $d$:
+\begin{equation}
+  \operatorname{MHA}(\bm X)
+    =\operatorname{Concat}(\bm Y_1,\ldots,\bm Y_H)\bm W_O,
+  \qquad \bm W_O\in\mathbb R^{Hd_v\times d}.
+  \label{eq:transformer-multihead}
+\end{equation}
+Concatenation joins the different heads' features for the \emph{same} token;
+it does not merge all neighbors into one token. Separate heads can learn
+different ways of comparing local features. A common choice is
+$d_k=d_v=d/H$: for $d=256$ and eight heads this gives 32 components per
+head. These dimensions describe attention projections, rather than the
+width of a later energy readout head.
+
+Attention heads and PET's readout heads serve different purposes. Attention
+heads mix information within an environment. The learned maps $H_c^{(k)}$
+and $H_n^{(k)}$ subsequently turn output features into scalar contributions.
+Neighbor contributions are summed or cutoff-weighted averaged according
+to the selected edge readout, then combined with central contributions in
+the total-energy sum. This scalar assembly differs from the feature
+concatenation in Eq.~\eqref{eq:transformer-multihead}.
+
+\subsection{Feedforward operations, residual paths, and normalization}
+
+Attention exchanges information across token rows. A feedforward network
+then applies the same nonlinear map to each row independently. With row
+vectors and an intermediate width $d_{\mathrm{ff}}$, it can be written as
+\begin{equation}
+  \operatorname{FFN}(\bm X)
+   =\sigma\!\left(\bm X\bm W_1+\bm 1\bm b_1^{\mathrm T}\right)
+      \bm W_2+\bm 1\bm b_2^{\mathrm T},
+  \label{eq:transformer-ffn}
+\end{equation}
+where $\bm W_1\in\mathbb R^{d\times d_{\mathrm{ff}}}$,
+$\bm W_2\in\mathbb R^{d_{\mathrm{ff}}\times d}$,
+$\bm b_1\in\mathbb R^{d_{\mathrm{ff}}}$, and
+$\bm b_2\in\mathbb R^d$. The vector $\bm 1\in\mathbb R^n$ broadcasts
+the same biases over rows, and $\sigma$ acts componentwise. The expanded
+intermediate features and nonlinearity let the layer transform the
+information collected by attention. PET uses smooth activations; the
+original paper reports SiLU in its experiments \cite{pet}.
+
+Residual connections add a sublayer's output to its input, preserving a
+direct path for features and gradients. Their addition requires matching
+feature widths, explaining the final projection in
+Eq.~\eqref{eq:transformer-multihead}. Layer normalization controls feature
+scales within each token. For a row $\bm x_a$ with components $x_{ap}$, a
+standard form is
+\begin{equation}
+  \begin{aligned}
+    \mu_a&=\frac1d\sum_{p=1}^d x_{ap},
+    &v_a&=\frac1d\sum_{p=1}^d(x_{ap}-\mu_a)^2,\\
+    \operatorname{LN}(\bm x_a)_p
+      &=\gamma_p\frac{x_{ap}-\mu_a}{\sqrt{v_a+\epsilon}}+\beta_p,
+    &\epsilon&>0.
+  \end{aligned}
+  \label{eq:transformer-layernorm}
+\end{equation}
+The learned scales $\gamma_p$ and shifts $\beta_p$ are shared across token
+rows. The mean and variance are over feature components of one token,
+rather than over its neighbors. Here $v_a$ is a scalar variance, distinct
+from the attention value vector $\bm v_a$.
+
+For example, the original transformer's post-normalization arrangement is
+\begin{equation}
+  \begin{aligned}
+    \bm X'&=\operatorname{LN}\!\left(\bm X+\operatorname{MHA}(\bm X)\right),\\
+    \bm X''&=\operatorname{LN}\!\left(\bm X'+\operatorname{FFN}(\bm X')\right).
+  \end{aligned}
+  \label{eq:transformer-block}
+\end{equation}
+A pre-normalization variant instead normalizes the input to each sublayer
+before adding its output to the residual stream. These are different
+architectural choices. Equation~\eqref{eq:transformer-block} illustrates
+the components, not a guarantee that every PET checkpoint uses that
+normalization order. The PET paper refers to a classical transformer;
+checkpoint implementations determine the exact order and projection details.
+
+\subsection{Permutation symmetry and geometric information}
+
+The same projections, feedforward maps, and normalization parameters are
+used at every neighbor slot. If $\bm P$ permutes tokens, the score matrix
+is transformed by $\bm S\mapsto\bm P\bm S\bm P^{\mathrm T}$.
+Permuting the masks and cutoff weights consistently gives
+\begin{equation}
+  \bm A' =\bm P\bm A\bm P^{\mathrm T},
+  \qquad \bm Y'=\bm A'\bm P\bm V=\bm P\bm Y.
+  \label{eq:transformer-permutation}
+\end{equation}
+Thus permuting neighbor inputs permutes their outputs, while the distinguished
+central token can remain fixed. Residual and token-wise operations preserve
+this property. It retains the association needed for directed messages;
+a symmetric energy readout then gives invariance to neighbor ordering.
+
+Cartesian position embeddings allow the representation of one neighbor
+to depend on relative directions as well as distances. For example, the
+geometric relation $\bm r_{ij}^{\mathrm T}\bm r_{il}
+=r_{ij}r_{il}\cos\theta_{jil}$ shows that their Cartesian vectors contain
+angular information. Attention and nonlinear feature transformations can
+learn functions of joint neighbor geometry without receiving a prescribed
+list of bond angles. This flexibility does not make the Cartesian network
+exactly rotationally invariant. Rotational augmentation and the separate
+ECSE construction address a different symmetry requirement from neighbor
+permutation equivariance \cite{pet}. The current project evaluates the
+pretrained PET models without ECSE.
+
+\subsection{From a transformer stack to PET predictions and derivatives}
+
+Within one PET message-passing block, the computation is therefore:
+construct the token matrix; project queries, keys, and values; compute
+cutoff-weighted attention in each head; concatenate and project the heads;
+apply the residual, normalization, and feedforward operations; and repeat
+for $n_{\mathrm{TL}}$ transformer layers. This list identifies the operations;
+the chosen normalization order determines their exact placement.
+The stack returns one output representation per input token. Appendix~A of
+Ref.~\cite{pet} denotes them by $x_i^{(k)}$ for the center and $x_{ji}^{(k)}$
+for neighbor $j$ in the environment centered on $i$.
+
+The central and neighbor outputs feed the readout heads, and the neighbor
+outputs also construct outgoing messages with the residual update described
+in the paper. Those messages are routed to the receiving environments
+before the next message-passing block. Increasing $n_{\mathrm{TL}}$ adds
+processing inside each fixed neighborhood; increasing $n_{\mathrm{GNN}}$
+adds communication rounds between environments. The final scalar energy
+collects readout contributions over centers and message-passing blocks,
+with the fitted atomic self-contributions restored, as in
+Eq.~\eqref{eq:pet-readout}.
+
+For $n$ local tokens, each attention head forms an $n\times n$ score matrix.
+This gives quadratic local token-pair work, while overall work grows
+approximately linearly with the number of atoms at bounded neighbor counts
+and fixed architecture. Enlarging local transformer depth and enlarging
+the message-passing receptive field therefore have different computational
+consequences. Neither finite local attention nor additional message-passing
+blocks by themselves supply a physically specified long-range interaction.
+
+All these operations form part of the computational graph introduced in
+Section~\ref{sec:backpropagation}. Backpropagation accumulates parameter
+gradients across every token and environment that uses a shared map.
+For forces, the parameters are fixed and the graph is differentiated with
+respect to coordinates instead. The derivatives include position embeddings,
+cutoff weights, softmax normalization, and every subsequent message and
+readout that depends on them. Hessians differentiate this coordinate
+gradient again, so sufficient smoothness and the precise implemented
+neighbor-selection conventions matter throughout the graph.
+
+\section{Sparse automatic differentiation and graph coloring}
+\label{sec:graph-coloring}
+
+This appendix explains how the Cartesian Hessian needed in
+Section~\ref{sec:normal-modes} is reconstructed from a small set of
+directional derivatives. The general compression and coloring arguments
+follow Refs.~\cite{hill2025asd,gebremedhin2009hessian}; their application to
+PET follows Section~4 and Appendices C, D, and H of the supplied SADMOF
+preprint~\cite{sadMof}. General AD and backpropagation remain in
+Sections~\ref{sec:automatic-differentiation} and~\ref{sec:backpropagation}.
+
+\subsection{What is being computed, and why use sparsity?}
+For fixed model parameters and cell, write the $3N$ Cartesian coordinates
+as $\bm x$ and set $\bm g(\bm x)=\nabla U_\theta(\bm x)$.
+Its Jacobian is the Hessian, $\bm J_g=\bm H$; differentiating forces
+instead would give $-\bm H$. Forward AD through the reverse-mode gradient
+program gives $\bm H\bm v$ without forming $\bm H$ first. The direction
+$\bm v$ is called a \emph{seed}. It specifies a tangent to propagate through
+the computational graph, not a finite displacement used to approximate a
+derivative.
+
+With coordinate seeds $\bm e_q$, each product $\bm H\bm e_q$ is one
+column, so dense reconstruction uses $3N$ directions. If we know which
+entries can be nonzero, several columns can share a seed. The task is to
+choose groups whose summed entries can still be separated. Coloring solves
+this grouping problem; it does not change the differentiation rules.
+In the project, the recovered matrix is eventually materialized for the
+normal-mode calculation, so using matrix-free products during AD does not
+make the full workflow matrix-free.
+
+ASD separates structural preparation from numerical differentiation
+\cite{hill2025asd}:
+\begin{equation}
+  \underbrace{\text{detect pattern}\ \longrightarrow\ \text{color}}
+    _{\text{preparation}}
+  \ \longrightarrow\
+  \underbrace{\text{evaluate colored products}\ \longrightarrow\ \text{decompress}}
+    _{\text{numerical evaluation}}.
+  \label{eq:asd-preparation-pipeline}
+\end{equation}
+Preparation can be reused while the pattern remains valid.
+
+\subsection{Step 1: establish a structural sparsity pattern}
+For a function $\bm f:\mathbb R^n\to\mathbb R^m$, let
+$J_{pq}=\partial f_p/\partial x_q$. A structural sparsity pattern
+$\bm S\in\{0,1\}^{m\times n}$ satisfies
+\begin{equation}
+  S_{pq}=0\ \Longrightarrow\ J_{pq}=0,
+  \qquad \mathcal R_q=\{p:S_{pq}=1\}.
+\end{equation}
+Thus $\mathcal R_q$ lists the output rows that column $q$ may affect.
+A numerical zero at one configuration does not necessarily imply a
+structural zero. The pattern is a conservative description: $S_{pq}=1$
+allows an entry to be nonzero but does not require it. A dense pattern is
+always safe, though it offers no compression benefit.
+
+The pattern can be inferred by propagating input-dependency sets through
+the computation graph, without evaluating every derivative. For addition,
+for example, the dependency set of $z=u+v$ is the union of those of $u$
+and $v$. A global pattern covers the input domain; a local pattern may
+exploit the active branches at one input but requires revalidation
+\cite{hill2025asd}.
+
+\subsection{Step 2: build and color the conflict graph}
+Two columns conflict when their supports overlap, so the
+\emph{column-intersection graph} has one vertex per input coordinate and
+edges
+\begin{equation}
+  \{q,r\}\in\mathcal E_{\mathrm{col}}
+    \quad\Longleftrightarrow\quad
+    q\ne r\ \text{and}\ \mathcal R_q\cap\mathcal R_r\ne\varnothing.
+\end{equation}
+A proper coloring assigns an integer $c(q)\in\{1,\ldots,n_c\}$ to each
+vertex, with different colors at the ends of every edge. Proper coloring
+of this graph ensures that columns of the same color
+have disjoint supports, also called structural orthogonality
+\cite{hill2025asd}.
+
+A simple greedy algorithm visits vertices in an ordering and assigns each
+the smallest color absent from its already colored neighbors. The ordering
+affects the color count. Finding the minimum count is unnecessary for
+correct recovery; extra colors only increase the number of derivative
+directions. Star coloring, introduced below for symmetric Hessians,
+requires an additional admissibility check \cite{asdexcoloring}.
+
+It is useful to distinguish three graphs. The computational graph has
+operations and intermediate values as vertices. PET's neighbor graph has
+atoms as vertices and selected neighbor pairs as edges. The derivative
+conflict graph has input coordinates as vertices and edges determined by
+overlapping derivative supports. Coloring the neighbor graph directly
+would generally miss conflicts created by message passing and nonlinear
+readouts.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{minipage}{0.34\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/sparse-autodiff/sparsity_pattern.pdf}\\
+    (a) Sparsity pattern
+  \end{minipage}\hspace{0.06\textwidth}
+  \begin{minipage}{0.34\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/sparse-autodiff/coloring.pdf}\\
+    (b) Column groups
+  \end{minipage}
+  \caption{Structural preparation: permitted entries determine two groups
+  of nonoverlapping columns. Reproduced from Hill, Dalle, and Montoison,
+  Figure 12 \cite{hill2025asd}.}
+  \label{fig:asd-pattern-coloring}
+\end{figure}
+
+\subsection{Steps 3--4: evaluate colored seeds and recover entries}
+Forward AD evaluates a Jacobian-vector product without first forming
+$\bm J$. The ordinary seed $\bm e_q$ yields column $q$; using all $n$
+coordinate seeds would therefore require $n$ directional evaluations.
+For a composition $\bm f=\bm h\circ\bm g$, the chain rule acts on a seed as
+\begin{equation}
+  \bm J_f(\bm x)\bm v
+    =\bm J_h(\bm g(\bm x))\bigl[\bm J_g(\bm x)\bm v\bigr].
+  \label{eq:matrix-free-chain-rule}
+\end{equation}
+AD propagates the direction through these operations without storing the
+intermediate Jacobian matrices \cite{baydin2018}.
+Construct one seed per color:
+\begin{equation}
+  \bm v_a=\sum_{q:c(q)=a}\bm e_q,
+  \qquad V_{qa}=\begin{cases}1,&c(q)=a,\\0,&\text{otherwise},\end{cases}
+  \qquad \bm Y=\bm J\bm V.
+  \label{eq:graph-colored-seeds}
+\end{equation}
+Here $\bm V\in\mathbb R^{n\times n_c}$ and
+$\bm Y\in\mathbb R^{m\times n_c}$. The multiplication is notation for
+$n_c$ JVPs; no dense Jacobian needs to be constructed to evaluate it.
+Each compressed entry is a sum,
+$Y_{pa}=\sum_{q:c(q)=a}J_{pq}$. Structural orthogonality guarantees that
+at most one term is permitted to be nonzero in a given row. Consequently,
+\begin{equation}
+  J_{pq}=Y_{p,c(q)}\quad\text{for }S_{pq}=1.
+  \label{eq:graph-jacobian-recovery}
+\end{equation}
+The pattern identifies which column supplied each value. Sparse automatic
+differentiation (ASD) combines this graph-based preparation with ordinary
+AD and subsequent decompression; the AD still differentiates the original
+function. The number of directions falls from $n$ to $n_c$, rather than
+computing a dense derivative and discarding its zeros afterward.
+Recovery consists of copying the appropriate compressed value into each
+permitted matrix position; it requires neither another AD pass nor a
+linear-system solve. For a general Jacobian, an analogous row coloring
+can group reverse-mode VJPs. The Hessian workflow below uses
+forward-over-reverse products throughout.
+
+Figure~\ref{fig:asd-compression-recovery} illustrates both numerical steps.
+\begin{figure}[htbp]
+  \centering
+  \begin{minipage}{0.43\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/sparse-autodiff/sparse_ad_forward_full.pdf}\\
+    (a) Two colored JVPs
+  \end{minipage}\hfill
+  \begin{minipage}{0.43\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/sparse-autodiff/sparse_ad_forward_decompression.pdf}\\
+    (b) Decompression
+  \end{minipage}
+  \caption{Five columns recovered from two directional evaluations using
+  their known supports. Reproduced from Hill, Dalle, and Montoison,
+  Figure 10 \cite{hill2025asd}.}
+  \label{fig:asd-compression-recovery}
+\end{figure}
+
+For the MOF Hessian, take $\bm f=\nabla U$ and $n=m=3N$.
+Then $\bm J_f=\bm H$, and a forward derivative of the reverse-mode
+energy gradient gives $\bm H\bm v_a$ (Eq.~\eqref{eq:hessian-vector-product}).
+Coloring therefore groups Cartesian coordinates whose Hessian columns
+can be recovered from the same Hessian-vector product.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.75\textwidth]{figures/sparse-autodiff/colored_graph.pdf}\\[0.6em]
+  \includegraphics[width=0.75\textwidth]{figures/sparse-autodiff/colored_graph_infeasible.pdf}
+  \caption{Valid coloring (top) and conflicting same-color columns (bottom).
+  Reproduced from Hill, Dalle, and Montoison, Figures 17 and 19
+  \cite{hill2025asd}.}
+  \label{fig:asd-valid-invalid-coloring}
+\end{figure}
+Figure~\ref{fig:asd-valid-invalid-coloring} connects graph edges to conflicts
+between derivative columns.
+
+\subsection{A worked example: why an ordinary neighbor coloring fails}
+Consider the symmetric tridiagonal Hessian
+\begin{equation}
+  \bm M=\begin{pmatrix}
+    a&b&0&0\\ b&c&d&0\\ 0&d&e&f\\ 0&0&f&g
+  \end{pmatrix}.
+  \label{eq:graph-coloring-example}
+\end{equation}
+Its off-diagonal sparsity graph is the chain $1-2-3-4$.
+Coloring that chain with $(1,2,1,2)$ is proper, but does not permit direct
+column recovery: columns 1 and 3 both affect row 2, yielding the
+inseparable sum $b+d$. The column-intersection graph also connects
+vertices at distance two along the chain. A valid coloring of this larger
+conflict graph is $(1,2,3,1)$, giving
+\begin{equation}
+  \bm V=\begin{pmatrix}
+    1&0&0\\0&1&0\\0&0&1\\1&0&0
+  \end{pmatrix},
+  \qquad
+  \bm M\bm V=\begin{pmatrix}
+    a&b&0\\b&c&d\\f&d&e\\g&0&f
+  \end{pmatrix}.
+  \label{eq:graph-direct-compression}
+\end{equation}
+The first product combines columns 1 and 4, whose supports are disjoint:
+rows 1--2 supply column 1 and rows 3--4 supply column 4. Three products
+recover every entry, whereas dense recovery would use four. For a longer
+tridiagonal matrix, repeating three colors still suffices, so the benefit
+grows with matrix size.
+
+\subsection{Using Hessian symmetry: star coloring and direct recovery}
+For a symmetric Hessian, $H_{pq}=H_{qp}$ supplies two possible compressed
+locations for each off-diagonal value: $Y_{p,c(q)}$ and $Y_{q,c(p)}$.
+It is sufficient that one of these is uncontaminated. This permits a less
+restrictive coloring than requiring every pair of column supports to be
+disjoint \cite{gebremedhin2009hessian}.
+
+A \emph{star coloring} is a proper coloring of the off-diagonal Hessian
+sparsity graph in which every path on four distinct vertices uses at least
+three colors. Equivalently, the subgraph formed by any two colors is a
+collection of stars. A greedy star-coloring algorithm must reject assignments
+that create a two-colored path on four distinct vertices, in addition to
+rejecting equal colors on adjacent vertices. In each star, the center is the hub and its neighbors
+are spokes. A spoke has only one neighbor with the hub's color, so the
+hub--spoke entry can be extracted from that spoke's row; symmetry supplies
+the transposed entry. Proper coloring also keeps diagonal entries separate
+from off-diagonal contributions \cite{asdexcoloring}.
+
+For the same chain, $(1,2,1,3)$ is a star coloring. Its compression is
+\begin{equation}
+  \bm W=\begin{pmatrix}
+    1&0&0\\0&1&0\\1&0&0\\0&0&1
+  \end{pmatrix},
+  \qquad
+  \bm B=\bm M\bm W=\begin{pmatrix}
+    a&b&0\\b+d&c&0\\e&d&f\\f&0&g
+  \end{pmatrix}.
+  \label{eq:graph-star-compression}
+\end{equation}
+Although $B_{21}=b+d$ cannot be separated directly, $b=B_{12}$ and
+$d=B_{32}$ are individually available from the opposite orientations.
+More generally, let $\mathcal N(p)=\{q\ne p:S_{pq}=1\}$ for a
+symmetric Hessian pattern. For an off-diagonal entry, define
+\begin{equation}
+  m_p(a)=\bigl|\{r\in\mathcal N(p):c(r)=a\}\bigr|.
+\end{equation}
+If $m_p(c(q))=1$, recover $H_{pq}$ from $Y_{p,c(q)}$; otherwise star
+coloring guarantees $m_q(c(p))=1$, and recover it from $Y_{q,c(p)}$.
+Then copy the value to the transposed position. Diagonal entries are
+$H_{pp}=Y_{p,c(p)}$, since proper coloring excludes same-color neighbors.
+If both orientations were ambiguous, another neighbor of $p$ with color
+$c(q)$ and another neighbor of $q$ with color $c(p)$ would form a
+forbidden two-colored path on four distinct vertices. This explains why
+the star condition is precisely what direct symmetric recovery needs.
+
+Returning to Eq.~\eqref{eq:graph-star-compression}, the remaining values are $a=B_{11}$, $c=B_{22}$, $e=B_{31}$,
+$f=B_{33}=B_{41}$, and $g=B_{43}$.
+This example uses three colors with either strategy; star coloring can
+reduce the count further for other symmetric sparsity patterns.
+
+\subsection{From PET neighborhoods to a Hessian pattern}
+\label{sec:asd-pet-pattern}
+
+SADMOF constructs an atom-pair pattern from PET's selected-neighbor graph,
+then expands each pair into a Cartesian $3\times3$ block \cite{sadMof}.
+The reasoning starts from the energy decomposition $U=\sum_t\varepsilon_t$:
+\begin{equation}
+  H_{i\alpha,j\beta}
+  =\sum_t\frac{\partial^2\varepsilon_t}
+    {\partial R_{i\alpha}\partial R_{j\beta}}.
+  \label{eq:asd-shared-energy-term}
+\end{equation}
+A contribution is possible only if both atoms influence the same energy
+term. Two atoms therefore need not be direct neighbors to have a nonzero
+Hessian block. For a node readout with $L$ rounds of message passing,
+both can lie up to $L$ hops from the center, giving a separation of at
+most $K=2L$ hops. For the PET edge readout analyzed in Ref.~\cite{sadMof},
+the term spans the $L$-hop neighborhoods of two adjacent endpoints;
+joining the two paths adds one edge and gives $K=2L+1$.
+These are architectural reach bounds under the paper's derivative
+convention, not statements that every permitted entry is numerically
+nonzero.
+
+Let $\bm A$ be the undirected selected-neighbor adjacency. Boolean adjacency gives
+\begin{equation}
+  \bm P^{(k)}=\bm I\lor\bm A\lor\bm A^2\lor\cdots\lor\bm A^k,
+  \label{eq:hop-pattern}
+\end{equation}
+Boolean multiplication tests whether a path exists, and $\lor$ means
+logical OR. Thus $P^{(k)}_{ij}=1$ when atoms $i,j$ are connected by at most
+$k$ edges, including $i=j$ through the identity. A hop is a graph step,
+not a fixed Cartesian distance. With $p=3(i-1)+\alpha$ and
+$q=3(j-1)+\beta$, where $\alpha,\beta\in\{1,2,3\}$, the Cartesian pattern is
+\begin{equation}
+  S_{pq}=P^{(k)}_{ij},\qquad
+  \bm S=\bm P^{(k)}\otimes\bm 1_{3\times3}.
+  \label{eq:asd-cartesian-pattern}
+\end{equation}
+Here $\bm 1_{3\times3}$ is the all-ones matrix; every permitted atom pair
+contributes a full Cartesian block. At $k=K$ the pattern contains all
+couplings under the chosen derivative convention; $k<K$ truncates it.
+Additional nonlocal terms need separate analysis.
+Structural sparsity requires
+\begin{equation}
+  S_{pq}=0\quad\Longrightarrow\quad H_{pq}=0.
+  \label{eq:hessian-sparsity-pattern}
+\end{equation}
+An overestimate costs entries and colors. An underestimate can both discard
+curvature and contaminate retained entries. Mixed second derivatives depend
+on nonlinear readout, not just direct interaction edges.
+
+\paragraph{An optional reduction in coloring work.}
+Appendix D of Ref.~\cite{sadMof} uses this block structure to color the
+$N$-vertex atom-pair pattern first. For one-based atom colors
+$c_i\in\{1,\ldots,n_{\mathrm{atom}}\}$, assign Cartesian colors
+\begin{equation}
+  c\bigl(3(i-1)+\alpha\bigr)=3(c_i-1)+\alpha,
+  \qquad \alpha\in\{1,2,3\}.
+  \label{eq:asd-block-coloring}
+\end{equation}
+A valid star coloring of the atom-pair pattern then gives a valid star
+coloring of the Cartesian pattern, with $3n_{\mathrm{atom}}$ coordinate
+colors. The three directions of an atom must receive distinct colors
+because its on-site block is generally dense. This reduces the graph size
+used in preparation. The current project delegates coloring to ASDEX;
+this block optimization is described in the paper and is not a separate
+atom-coloring step implemented by the project wrapper.
+
+\subsection{The complete SADMOF procedure in this project}
+\label{sec:asd-method}
+The implementation in
+\texttt{mof\_\allowbreak{}heat\_\allowbreak{}capacity.\allowbreak{}analysis.\allowbreak{}harmonic}
+separates preparation from evaluation as follows.
+\begin{enumerate}
+  \item \textbf{Prepare the reference and energy function.}
+  Use a fixed-cell optimized structure, fixed species, and fixed model
+  parameters. Convert the structure to PET-JAX positions, cell, and graph
+  arrays, retaining any padding required by the implementation.
+  The energy function uses \texttt{no\_\allowbreak{}shadow=True}:
+  derivatives through the adaptive neighbor-selection cutoff are stopped,
+  and the selected graph defines the locality assumed by the pattern.
+  Ordinary position-dependent PET operations still differentiate according
+  to that implemented convention. The sparse path rejects
+  \texttt{shadow=true}; comparisons to MD forces or a dense Hessian must
+  use matching derivative conventions.
+  \item \textbf{Build the assumed pattern.}
+  Take the selected center--neighbor pairs and call SADMOF's
+  \texttt{sparsity\_\allowbreak{}pattern} with the requested
+  \texttt{hops}. This implements the locality-based preparation described
+  above; the code does not estimate structural zeros by thresholding a
+  previously evaluated Hessian.
+  \item \textbf{Prepare colors and recovery indices.}
+  Pass the pattern to ASDEX's
+  \texttt{hessian\_\allowbreak{}coloring\_\allowbreak{}from\_\allowbreak{}sparsity}
+  with \texttt{mode="fwd\_over\_rev"}. Star coloring determines the seed
+  groups and which compressed orientation supplies each Hessian entry.
+  These decisions depend on the pattern, not the numerical derivative
+  values at the current point.
+  \item \textbf{Compile and evaluate the directional derivatives.}
+  Construct SADMOF's Hessian function and compile it with JAX. For each
+  color $a$, evaluate $\bm y_a=\bm H\bm v_a$ by forward AD through the
+  reverse-mode gradient. \texttt{chunk\_\allowbreak{}size} controls how
+  many directions are batched; \texttt{remat} trades recomputation of
+  intermediates for lower memory use. Neither changes the mathematical
+  sparsity pattern.
+  \item \textbf{Decompress the Hessian.}
+  Use the stored pattern and recovery indices to extract entries from the
+  compressed products and return a sparse matrix. For a conservative
+  pattern this recovers the implemented Hessian up to floating-point
+  error; a truncated pattern introduces the errors discussed below.
+  \item \textbf{Prepare normal modes.}
+  Convert the result to a dense array, remove padded atoms, and reshape
+  to $3N\times3N$. The subsequent analysis symmetrizes the matrix, applies
+  the configured acoustic-sum-rule treatment, mass-weights it, and
+  diagonalizes it as described in Section~\ref{sec:normal-modes}.
+  These postprocessing steps are distinct from sparse AD recovery.
+\end{enumerate}
+
+For LLPR members evaluated at the same geometry and with the same
+architecture and neighbor selection, the pattern, coloring, and compiled
+function can be reused while changing the parameter values. New numerical
+products are still needed for every member. Changing the geometry or
+selection can introduce new couplings; preparation must then be rebuilt
+or its pattern shown to remain a conservative superset.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Numerical controls for Hessian evaluation. Template settings are
+  not established convergence values; archived results use float64.}
+  \label{tab:hessian-controls}
+  \begin{tabular}{@{}lp{0.54\textwidth}l@{}}
+    \toprule
+    Control & Effect & Template \\
+    \midrule
+    \texttt{hops} & Changes the assumed sparsity approximation & 3 \\
+    \texttt{chunk\_\allowbreak{}size} & Batches colored directions; affects memory/throughput & 1 \\
+    \texttt{remat} & Recomputes intermediates to reduce memory & true \\
+    \texttt{dtype} & Sets floating-point precision & float32 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+
+\subsection{Accuracy, truncation, and computational cost}
+The pattern must include every actual coupling for exact recovery.
+For example, if the matrix in Eq.~\eqref{eq:graph-coloring-example} also had
+$M_{24}=M_{42}=\delta$ but the pattern omitted this pair, the direct
+coloring would still combine columns 1 and 4 and incorrectly recover
+$M_{21}$ as $b+\delta$. Thus an underestimated pattern can corrupt retained
+entries as well as omit missing ones.
+
+
+For the three-block PET models used here, the paper's bound is $K=7$.
+The configured \texttt{hops=3} therefore defines a truncated approximation,
+not an established exact pattern. The energy function used for each HVP
+still contains the full message-passing computation: reducing the assumed
+pattern does not remove the omitted couplings from those products.
+Consequently, truncated reconstruction is not equivalent to calculating a
+dense Hessian and simply setting distant blocks to zero.
+
+Let $\widehat{\bm H}_k$ be the recovered Hessian before sum-rule
+postprocessing and let $\bm S_k$ be its Cartesian binary mask. Writing
+$\odot$ for entrywise multiplication separates the error into
+\begin{equation}
+  \begin{aligned}
+    \Delta\bm H_{\mathrm{disc}}&=-(\bm 1-\bm S_k)\odot\bm H,\\
+    \Delta\bm H_{\mathrm{cont}}&=\bm S_k\odot
+      (\widehat{\bm H}_k-\bm H),\\
+    \|\widehat{\bm H}_k-\bm H\|_F^2
+      &=\|\Delta\bm H_{\mathrm{disc}}\|_F^2
+       +\|\Delta\bm H_{\mathrm{cont}}\|_F^2.
+  \end{aligned}
+  \label{eq:asd-truncation-error}
+\end{equation}
+Here $\bm 1$ is the all-ones matrix of the same shape. The first term
+contains discarded entries, and the second contains contamination of
+retained entries. Their supports are disjoint, which gives the squared
+Frobenius-norm identity \cite{sadMof}. Neither symmetrization nor enforcing
+the acoustic sum rule generally removes these errors.
+
+Validation should compare with a feasible dense Hessian or an
+exact-pattern result under the same derivative convention, and increase
+\texttt{hops} while monitoring signed frequencies and the heat-capacity
+correction across the temperature range. Precision must be checked
+separately, especially for low-frequency modes. Convergence can be
+nonmonotonic near mode thresholds; periodic image folding also requires
+cell/supercell convergence. Keep separately tagged outputs for these
+comparisons. Rapid decay observed in the preprint's benchmarks does not
+establish convergence for loaded MOF-5.
+
+If one energy evaluation costs $\mathcal O(N)$ at fixed neighbor count
+and architecture, the differentiated work scales roughly as
+$\mathcal O(Nn_c)$ instead of $\mathcal O(N^2)$ for dense coordinate
+seeding. This estimate assumes a bounded cost factor for each HVP and
+excludes preparation, compilation, and reconstruction. Fewer colors need
+not translate into the same factor of wall-time saving: batching, device
+utilization, and memory matter. Finally, this project densifies the
+Hessian and computes the full spectrum, retaining quadratic matrix
+storage and cubic dense eigendecomposition cost. Sparse AD accelerates
+the derivative stage, not every later part of the calculation.
 
 \begin{thebibliography}{99}
 
