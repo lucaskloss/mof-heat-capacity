@@ -1002,65 +1002,6 @@ provide the classical heat-capacity derivative. The numerical settings,
 continuation procedure, and output selection are given in
 Section~\ref{sec:md-method}.
 
-\subsection{Metal--organic frameworks}
-
-Metal--organic frameworks (MOFs) are porous crystals whose metal-containing
-nodes are connected by organic linkers. Their pore geometry and chemical
-functionalities determine where guest molecules bind and how they move.
-The simulations will compare MOF-5, MOF-303, and ZIF-8, illustrated using
-the empty project structures in Figure~\ref{fig:frameworks}.
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}[t]{0.32\textwidth}
-    \centering
-    \includegraphics[width=\linewidth,trim=200bp 200bp 200bp 200bp,clip]{figures/frameworks/mof5-empty.png}\\
-    (a) MOF-5
-  \end{minipage}\hfill
-  \begin{minipage}[t]{0.32\textwidth}
-    \centering
-    \includegraphics[width=\linewidth,trim=400bp 400bp 400bp 400bp,clip]{figures/frameworks/mof303-empty.png}\\
-    (b) MOF-303
-  \end{minipage}\hfill
-  \begin{minipage}[t]{0.32\textwidth}
-    \centering
-    \includegraphics[width=\linewidth,trim=400bp 400bp 400bp 400bp,clip]{figures/frameworks/zif8-empty.png}\\
-    (c) ZIF-8
-  \end{minipage}
-  \caption{Empty framework starting structures rendered with Chemiscope
-  from the project's structure dataset.
-  MOF-5 contains 424 atoms; the MOF-303 and ZIF-8 $2\times2\times2$
-  supercells contain 1024 and 2208 atoms, respectively. Cell outlines
-  indicate the periodic simulation boxes. Views are independently scaled
-  to reveal the pore geometry.}
-  \label{fig:frameworks}
-\end{figure}
-
-\textbf{MOF-5} consists of $\mathrm{Zn}_4\mathrm O$ nodes joined by
-benzene-1,4-dicarboxylate linkers, forming a three-dimensional network of
-pores. It provides the reference system for the methane-loading comparison
-with Kapil \emph{et al.}\ \cite{kapil2019}.
-
-\textbf{MOF-303}, $\mathrm{Al(OH)(PZDC)}$, contains aluminium--oxygen rods
-connected by 1H-pyrazole-3,5-dicarboxylate (PZDC) linkers. Its
-one-dimensional channels contain polar pyrazole and hydroxyl groups that
-provide hydrogen-bonding sites for water \cite{hanikel2021}.
-It therefore introduces a hydrophilic adsorption environment into the
-framework comparison.
-
-\textbf{ZIF-8}, $\mathrm{Zn(mIm)}_2$ with mIm denoting
-2-methylimidazolate, consists of tetrahedrally coordinated zinc centres
-connected into a sodalite-type network. Its cages are connected by narrow
-windows; linker rotations can change their effective opening and couple
-guest adsorption to framework motion \cite{hobday2018}.
-
-Across these frameworks, the heat capacity combines framework vibrations,
-guest internal modes, and redistribution among adsorption environments.
-Classical MD samples the anharmonic host--guest motion; normal modes of
-the optimized loaded structures provide the harmonic quantum correction.
-Differences in pore chemistry and flexibility motivate comparing all three
-hosts using the same thermodynamic workflow.
-
 \subsection{Machine learning and deep learning}
 \label{sec:deep-learning}
 
@@ -1215,211 +1156,24 @@ successful training or generalization.
 \end{figure}
 
 \subsubsection{Backpropagation and parameter updates}
-\label{sec:backpropagation}
+\label{sec:backpropagation-overview}
 
-Backpropagation computes the loss gradients required by an optimizer such
-as gradient descent. It applies the chain rule backward through the
-operations recorded during the forward pass, reusing intermediate values.
-It therefore complements gradient descent: backpropagation calculates the
-gradients, and the optimizer uses them to update the parameters.
+Training alternates between evaluating predictions and a loss, computing
+its parameter gradients, and applying an optimizer update.
+Backpropagation computes those gradients by applying the chain rule in
+reverse through the network's operations. Intermediate values from the
+forward pass are retained or recomputed so that a single reverse pass
+can accumulate the derivatives with respect to all trainable parameters.
+Gradient descent then uses these derivatives in
+Eq.~\eqref{eq:gradient-descent}.
 
-\paragraph{Computational graphs.}
-In practice, backpropagation is implemented using reverse-mode automatic
-differentiation (AD). A computational graph decomposes the network and loss
-into elementary operations, such as multiplication, addition, and activation.
-Its nodes represent input values or the results of operations, and directed
-edges record which values an operation depends on. The graph for a fixed
-forward evaluation is directed and acyclic: a value must be available before
-an operation that uses it can be evaluated. Repeating a network layer creates
-further operations in this graph rather than a circular dependency.
-
-Input data and trainable parameters are both inputs to the computation;
-these input nodes are called leaves.
-During training, the data and reference targets are held fixed while the
-optimizer adjusts the parameters. The forward pass evaluates the graph in
-dependency order to obtain the prediction and loss. It also retains the
-intermediate values required for differentiation; some can instead be
-recomputed during the backward pass to reduce memory use. For example, the
-local derivatives of $u=wx$ are $\partial u/\partial w=x$ and
-$\partial u/\partial x=w$, so the backward calculation needs the forward
-values of $x$ and $w$.
-
-Each elementary operation has a derivative rule supplied by the AD system.
-The backward pass applies these rules to the recorded dependencies,
-automatically composing them through the chain rule. The complete derivative
-therefore need not be derived or programmed separately for each architecture.
-A computational graph records how the calculation is performed; it is
-different from the atomic neighbor graph used to describe a material.
-
-\paragraph{The reverse pass.}
-For scalar intermediate values $v_i$, define the adjoint
-$\bar v_i=\partial\mathcal L/\partial v_i$. After the forward evaluation,
-the reverse pass starts with $\bar{\mathcal L}=1$ and all other adjoints
-initialized to zero. It visits operations in reverse dependency order.
-For every input $v_i$ of an operation producing $v_j$, it accumulates
-
-\begin{equation}
-  \bar v_i\mathrel{+}=\bar v_j\frac{\partial v_j}{\partial v_i}.
-  \label{eq:ad-adjoint-accumulation}
-\end{equation}
-
-The accumulation matters when one value contributes to the loss through
-several paths: all contributions must be added. For vector operations,
-the corresponding rule multiplies an incoming adjoint by a transposed
-local Jacobian, usually without constructing that Jacobian explicitly.
-The activations retained or recomputed from the forward pass supply the
-values needed to evaluate these local derivatives.
-
-A single reverse pass computes the gradient of a scalar loss with respect
-to all model parameters, making reverse-mode AD well suited to training
-networks with many weights. It applies the chain rule to the implemented
-operations rather than approximating derivatives by finite differences
-or constructing a global symbolic expression. The resulting derivatives
-are subject to floating-point error \cite{baydin2018}. The reverse sweep
-computes derivatives at the current parameter values; it does not change
-those values. Updating parameters is a subsequent optimizer step.
-
-\paragraph{A worked computational graph.}
-Consider an illustrative network consisting of one scalar neuron with a
-$\tanh$ output and a half-squared-error loss:
-\begin{equation}
-  \begin{aligned}
-    u&=wx, & z&=u+b,\\
-    \hat y&=\tanh z, & r&=\hat y-y,\\
-    l&=\tfrac12 r^2.
-  \end{aligned}
-  \label{eq:ad-scalar-forward}
-\end{equation}
-Here $x$ is the input, $w$ and $b$ are trainable parameters, and $y$ is the
-reference target. This small example illustrates the differentiation rules;
-it is not the full network architecture of
-Figure~\ref{fig:simple-neural-network}. For $x=2$, $w=0.5$, $b=-1$, and
-$y=1$, the forward pass gives $u=1$, $z=0$, $\hat y=0$, $r=-1$, and $l=0.5$.
-Figure~\ref{fig:computational-graph-backpropagation} shows the computation
-and its reverse pass.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=\textwidth]{figures/computational-graph-backpropagation.pdf}
-  \caption{Computational graph for the scalar-neuron example in
-  Eq.~\eqref{eq:ad-scalar-forward}. (a) The forward pass follows dependencies
-  to evaluate the prediction and loss; boxes show operations and their
-  numerical values. Green boxes identify trainable parameters. (b) The
-  reverse pass starts with $\bar l=1$ and propagates adjoints
-  $\bar v=\partial l/\partial v$. Arrow labels give local derivatives at
-  the forward values; multiplying them by incoming adjoints gives the
-  sensitivities in the boxes. Input and target adjoints are shown for
-  completeness, but only $w$ and $b$ are updated during training.}
-  \label{fig:computational-graph-backpropagation}
-\end{figure}
-
-Starting with $\bar l=1$, the reverse rules for this graph give
-\begin{equation}
-  \begin{aligned}
-    \bar r&=\bar l\,r, &
-    \overline{\hat y}&=\bar r,\\
-    \bar z&=\overline{\hat y}\,(1-\hat y^2), &
-    \bar u&=\bar z,\\
-    \bar w&=\bar u\,x, &
-    \bar b&=\bar z.
-  \end{aligned}
-  \label{eq:ad-scalar-reverse}
-\end{equation}
-The activation derivative $1-\hat y^2$ uses the output retained from the
-forward pass. At the chosen values, $\bar r=\overline{\hat y}=\bar z=\bar u=-1$,
-so $\partial l/\partial w=-2$ and $\partial l/\partial b=-1$.
-The other input derivatives are $\bar x=\bar u\,w=-0.5$ and
-$\bar y=-\bar r=1$. With learning rate $\eta$, gradient descent would update
-$w\leftarrow0.5+2\eta$ and $b\leftarrow-1+\eta$; it leaves $x$ and $y$ fixed.
-Thus backpropagation supplies the sensitivities used by the optimizer.
-
-If a parameter is reused in several operations, its graph has several
-outgoing dependency edges. Its final adjoint is the sum of the contributions
-arriving along all reverse paths, as specified by
-Eq.~\eqref{eq:ad-adjoint-accumulation}. This is relevant to shared weights
-in GNNs and transformers: using one learned map for many atoms or tokens
-means that all those uses contribute to the same parameter gradient.
-
-\paragraph{Backpropagation through network layers.}
-The layer formulas below are the vector form of the same procedure.
-
-For a single scalar-output training example, consider the unregularized
-loss $l=\tfrac12(\hat y-y)^2$. The factor $\tfrac12$ simplifies the
-derivatives. The derivative at the output is the signed residual,
-$r=\partial l/\partial\hat y=\hat y-y$. Consequently,
-$\partial l/\partial\bm w_{\mathrm{out}}=r\bm h^{(L)}$ and
-$\partial l/\partial b_{\mathrm{out}}=r$.
-
-To propagate this information into the hidden layers, define
-$\bm\delta^{(\ell)}=\partial l/\partial\bm z^{(\ell)}$.
-For the final hidden layer and the preceding layers, the chain rule gives
-\begin{equation}
-  \begin{aligned}
-    \bm\delta^{(L)}
-      &=r\bm w_{\mathrm{out}}\odot\sigma'\!\left(\bm z^{(L)}\right),\\
-    \bm\delta^{(\ell)}
-      &=\left[(\bm W^{(\ell)})^{\mathrm T}\bm\delta^{(\ell+1)}\right]
-        \odot\sigma'\!\left(\bm z^{(\ell)}\right),
-        \quad \ell=L-1,\ldots,1.
-  \end{aligned}
-  \label{eq:backpropagation}
-\end{equation}
-The symbol $\odot$ denotes componentwise multiplication. The transposed
-weight matrix combines the sensitivities from the next layer, and the
-activation derivative accounts for how each neuron responds to its input.
-The parameter gradients then follow directly:
-\begin{equation}
-  \frac{\partial l}{\partial\bm W^{(\ell)}}
-    =\bm\delta^{(\ell+1)}(\bm h^{(\ell)})^{\mathrm T},
-  \qquad
-  \frac{\partial l}{\partial\bm b^{(\ell)}}=\bm\delta^{(\ell+1)},
-  \quad \ell=0,\ldots,L-1.
-  \label{eq:network-parameter-gradients}
-\end{equation}
-Each weight gradient is the product of the incoming feature and the
-sensitivity of the receiving neuron. Thus, the backward pass assigns a
-loss derivative to every trainable connection and bias.
-
-For a batch, these per-example gradients are averaged. The mean squared
-error in Eq.~\eqref{eq:ml-training-loss} contributes an additional factor
-of two relative to the illustrative half-squared loss, and regularization
-adds $\lambda_{\mathrm{reg}}\nabla_\theta\mathcal R$.
-After the backward pass, gradient descent updates all weights and biases:
-\begin{equation}
-  \begin{aligned}
-    \bm W^{(\ell)}&\leftarrow\bm W^{(\ell)}
-      -\eta\nabla_{\bm W^{(\ell)}}\mathcal L,\\
-    \bm b^{(\ell)}&\leftarrow\bm b^{(\ell)}
-      -\eta\nabla_{\bm b^{(\ell)}}\mathcal L.
-  \end{aligned}
-  \label{eq:weight-update}
-\end{equation}
-The forward pass, backward pass, and parameter update are repeated during
-training. Once training is complete, inference evaluates the network with
-fixed parameters.
-
-The same AD machinery also computes physical derivatives of an MLIP.
-During training, the independent variables are the model parameters and
-the differentiated scalar is the loss. For force evaluation, the parameters
-are held fixed and the atomic coordinates are differentiated instead:
-$\bm F=-\nabla_{\bm R}U_\theta$. A reverse pass through the energy
-calculation therefore returns all force components.
-
-Provided the operations support second derivatives, the energy-gradient
-calculation can itself be differentiated to obtain Hessian information.
-For example, forward-mode AD applied to the reverse-mode energy gradient
-computes a Hessian--vector product $\bm H\bm v$. Recovering the full
-Hessian requires multiple such products; one energy backward pass alone
-gives only the gradient.
-Section~\ref{sec:automatic-differentiation} develops this construction for
-the vibrational calculations. Training on forces also differentiates
-through an energy derivative, in that case producing mixed derivatives
-with respect to coordinates and parameters.
-
-Smooth activations and appropriate physical symmetries are therefore
-important for these models. Graph neural networks adapt the layer
-construction to interacting atoms by exchanging information between
-neighbors, as described next.
+Appendix~\ref{sec:backpropagation} develops the computational-graph view,
+a worked example, and the layer-by-layer derivation. For interatomic
+potentials, the same AD machinery differentiates the energy with respect
+to coordinates to obtain forces, and differentiates again for Hessian
+information (Section~\ref{sec:automatic-differentiation}). This makes
+smooth activations and cutoff functions relevant to physical derivatives
+as well as training.
 
 \subsection{Machine-learned interatomic potentials}
 \label{sec:mlip-theory}
@@ -1757,7 +1511,7 @@ enthalpy $H$.
 \subsubsection{Automatic differentiation}
 \label{sec:automatic-differentiation}
 
-Section~\ref{sec:backpropagation} introduced reverse-mode AD for parameter
+Appendix~\ref{sec:backpropagation} develops reverse-mode AD for parameter
 gradients during training. Here the parameters are fixed, and the same
 chain-rule machinery differentiates the energy with respect to atomic
 coordinates. A neural-network energy composes differentiable operations:
@@ -1795,7 +1549,114 @@ conventions still control which function is differentiated.
 
 \section{Methods}
 
+\subsection{Framework selection and use in the simulations}
+\label{sec:framework-method}
+
+Metal--organic frameworks (MOFs) are porous crystals whose metal-containing
+nodes are connected by organic linkers. In this project, they provide the
+hosts in which guest molecules are confined. We will use MOF-5, MOF-303,
+and ZIF-8 to examine how pore chemistry, geometry, and framework motion
+affect the heat capacity of a loaded material. Figure~\ref{fig:frameworks}
+shows the empty starting structures used to prepare these systems.
+The results reported here concern methane-loaded MOF-5; MOF-303 and ZIF-8
+extend the comparison to different adsorption environments. Their starting
+structures establish the intended systems, while their heat-capacity
+curves still require the sampling and validation described below.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{minipage}[t]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\linewidth,trim=200bp 200bp 200bp 200bp,clip]{figures/frameworks/mof5-empty.png}\\
+    (a) MOF-5
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\linewidth,trim=400bp 400bp 400bp 400bp,clip]{figures/frameworks/mof303-empty.png}\\
+    (b) MOF-303
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\linewidth,trim=400bp 400bp 400bp 400bp,clip]{figures/frameworks/zif8-empty.png}\\
+    (c) ZIF-8
+  \end{minipage}
+  \caption{Empty framework starting structures rendered with Chemiscope
+  from the project's structure dataset.
+  MOF-5 contains 424 atoms; the MOF-303 and ZIF-8 $2\times2\times2$
+  supercells contain 1024 and 2208 atoms, respectively. Cell outlines
+  indicate the periodic simulation boxes. Views are independently scaled
+  to reveal the pore geometry.}
+  \label{fig:frameworks}
+\end{figure}
+
+\textbf{MOF-5} consists of $\mathrm{Zn}_4\mathrm O$ nodes joined by
+benzene-1,4-dicarboxylate linkers, forming a three-dimensional network of
+pores. It provides the reference system for the methane-loading comparison
+with Kapil \emph{et al.}\ \cite{kapil2019}. We use the conventional
+424-atom host cell and 50, 100, or 150 methane molecules to test the
+loading dependence with PET-MAD and PET-SOL before extending the protocol
+to other hosts and guests.
+
+\textbf{MOF-303}, $\mathrm{Al(OH)(PZDC)}$, contains aluminium--oxygen rods
+connected by 1H-pyrazole-3,5-dicarboxylate (PZDC) linkers. Its
+one-dimensional channels contain polar pyrazole and hydroxyl groups that
+provide hydrogen-bonding sites for water \cite{hanikel2021}.
+We will use it to investigate how this hydrophilic environment and
+water--framework interactions modify the vibrational correction and the
+anharmonic contribution sampled by MD. The illustrated starting host is
+a $2\times2\times2$ supercell containing 1024 atoms.
+
+\textbf{ZIF-8}, $\mathrm{Zn(mIm)}_2$ with mIm denoting
+2-methylimidazolate, consists of tetrahedrally coordinated zinc centres
+connected into a sodalite-type network. Its cages are connected by narrow
+windows; linker rotations can change their effective opening and couple
+guest adsorption to framework motion \cite{hobday2018}. It will provide
+a complementary test of coupling between guest motion and flexible pore
+windows. The illustrated $2\times2\times2$ host supercell contains
+2208 atoms.
+
+\paragraph{Guest loading and comparable state points.}
+The workflow accepts $\mathrm{CH_4}$, $\mathrm{CO_2}$, or
+$\mathrm{H_2O}$ as the selected guest. For each host--guest pair, we specify
+a fixed number of molecules in the periodic cell, prepare independent
+placements, and vary temperature at the prescribed pressure. This defines
+a heat capacity at fixed composition; the calculation does not determine
+an adsorption isotherm or exchange molecules with an external reservoir.
+Because the three cells have different sizes and compositions, the same
+number of guest molecules does not represent equivalent loading across
+hosts. Comparisons will therefore state the cell composition and guest
+content per unit host mass, and normalize the heat capacity by the total
+mass of the loaded cell.
+
+\paragraph{Common calculation for each loaded framework.}
+Each prepared structure first undergoes fixed-cell relaxation to remove
+unfavorable contacts, followed by flexible-cell NPT molecular dynamics.
+The framework and guests both move under the selected PET potential.
+After equilibration, mean enthalpies at neighboring temperatures give the
+classical heat-capacity contribution, including the sampled anharmonic
+host--guest motion. The insertion procedure and MD settings are described
+in Sections~\ref{sec:structure-preparation} and~\ref{sec:md-method}.
+
+Representative loaded configurations are then relaxed at fixed cell and
+used to compute Hessians and normal modes with the matching PET-JAX
+potential. Their quantum-minus-classical harmonic contribution corrects
+the classical MD estimate using the hybrid approximation in
+Section~\ref{sec:hybrid-method}. The correction uses the complete loaded
+system, including guest vibrations and host--guest coupling. A separately
+relaxed empty framework supplies a harmonic reference; it is not an empty
+NPT campaign. Section~\ref{sec:normal-modes} gives the mode treatment and
+mass normalization.
+
+Applying the same sequence to each host makes it possible to relate
+changes in heat capacity to pore chemistry and flexibility. Each new
+host--guest combination still requires checks of structural stability,
+guest equilibration, model suitability, and numerical convergence before
+comparing its curve with the MOF-5 results. Supercell choices in
+Figure~\ref{fig:frameworks} specify the starting calculations and must be
+tested for finite-size effects.
+
 \subsection{Hybrid approximation}
+\label{sec:hybrid-method}
 
 Kapil \emph{et al.}\ tested empty MOF-5 and 50-, 100-, and 150-methane cells
 \cite{kapil2019}. Their hybrid strategy motivates this project; its accuracy
@@ -1830,16 +1691,22 @@ in their 100-methane test. A loaded-system spectrum is essential: the empty
 Hessian omits guest modes and host--guest coupling. The PET estimator uses
 the same combination in Eq.~\eqref{eq:quantum-correction}.
 
-\subsection{Structure preparation and methane insertion}
+\subsection{Structure preparation and guest insertion}
+\label{sec:structure-preparation}
 
-The conventional host has 424 atoms and cell parameter
-\SI{25.866}{\angstrom}. The campaign module
-\texttt{mof\_\allowbreak{}heat\_\allowbreak{}capacity.\allowbreak{}protocols.\allowbreak{}loaded} inserts centered methane
-molecules with uniform quaternion rotations and fractional positions,
-rejecting periodic atom--atom overlaps. Independent insertion and velocity
-seeds define replicas. Random placement prevents severe contacts but is not
-an equilibrium adsorption distribution; subsequent equilibration must be
-validated.
+For the reported MOF-5/methane calculations, the conventional host has
+424 atoms and cell parameter \SI{25.866}{\angstrom}. The campaign module
+\texttt{mof\_\allowbreak{}heat\_\allowbreak{}capacity.\allowbreak{}protocols.\allowbreak{}loaded}
+reads the selected periodic host and a single-molecule guest template.
+It places randomly oriented copies at fractional positions in the cell,
+rejecting periodic atom--atom overlaps; automatic repacking is used when
+sequential insertion jams. The same procedure prepares the additional
+frameworks and guest species introduced in Section~\ref{sec:framework-method}.
+Structure files preserve the input cell geometry, while the campaign
+metadata records the source structure and host atom count. Independent insertion and velocity seeds define replicas.
+Random placement removes severe initial contacts, but subsequent
+relaxation and MD equilibration are needed to sample adsorption
+environments at the target temperature and pressure.
 
 \subsection{PET model and implementation}
 \label{sec:pet-implementation}
@@ -2624,6 +2491,17 @@ are needed before interpreting these curves as converged predictions.
 \section{Transformers and their use in PET}
 \label{sec:transformers}
 
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.5\textwidth]{figures/transformer/ModalNet-21.png}
+  \caption{Transformer architecture developed in Ref.~\cite{pet}.
+  The input matrix $\bm X$ contains the center and neighbor tokens.
+  The query, key, and value matrices $\bm Q$, $\bm K$, and $\bm V$ are computed by learned linear projections.
+  The attention weights $\bm A$ are computed from the scaled dot product of queries and keys, followed by a softmax normalization.
+  The output $\bm Y$ is a weighted sum of the values, which is then passed through a feedforward network and residual connections.}
+  \label{fig:transformer}
+\end{figure}
+
 This appendix develops the transformer operations used within the PET
 message-passing blocks of Section~\ref{sec:pet-architecture}. The general
 construction follows Ref.~\cite{vaswani2017}; PET's token encoding and
@@ -2910,7 +2788,7 @@ consequences. Neither finite local attention nor additional message-passing
 blocks by themselves supply a physically specified long-range interaction.
 
 All these operations form part of the computational graph introduced in
-Section~\ref{sec:backpropagation}. Backpropagation accumulates parameter
+Appendix~\ref{sec:backpropagation}. Backpropagation accumulates parameter
 gradients across every token and environment that uses a shared map.
 For forces, the parameters are fixed and the graph is differentiated with
 respect to coordinates instead. The derivatives include position embeddings,
@@ -2919,273 +2797,318 @@ readout that depends on them. Hessians differentiate this coordinate
 gradient again, so sufficient smoothness and the precise implemented
 neighbor-selection conventions matter throughout the graph.
 
-\section{Sparse automatic differentiation and graph coloring}
+\section{Sparse automatic differentiation}
 \label{sec:graph-coloring}
 
-This appendix explains how the Cartesian Hessian needed in
-Section~\ref{sec:normal-modes} is reconstructed from a small set of
-directional derivatives. The general compression and coloring arguments
-follow Refs.~\cite{hill2025asd,gebremedhin2009hessian}; their application to
-PET follows Section~4 and Appendices C, D, and H of the supplied SADMOF
-preprint~\cite{sadMof}. General AD and backpropagation remain in
-Sections~\ref{sec:automatic-differentiation} and~\ref{sec:backpropagation}.
+This appendix explains how to recover a large derivative matrix with fewer
+automatic differentiation (AD) evaluations. The presentation takes
+inspiration from the progression in Hill, Dalle, and Montoison's
+illustrated guide~\cite{hill2025asd}: understand derivative products,
+identify possible nonzero entries, group columns, and recover their
+values. We develop an explicit small example before treating symmetric
+Hessians and the PET/SADMOF workflow. General AD and backpropagation are
+introduced in Section~\ref{sec:automatic-differentiation} and
+Appendix~\ref{sec:backpropagation}.
 
-\subsection{What is being computed, and why use sparsity?}
-For fixed model parameters and cell, write the $3N$ Cartesian coordinates
-as $\bm x$ and set $\bm g(\bm x)=\nabla U_\theta(\bm x)$.
-Its Jacobian is the Hessian, $\bm J_g=\bm H$; differentiating forces
-instead would give $-\bm H$. Forward AD through the reverse-mode gradient
-program gives $\bm H\bm v$ without forming $\bm H$ first. The direction
-$\bm v$ is called a \emph{seed}. It specifies a tangent to propagate through
-the computational graph, not a finite displacement used to approximate a
-derivative.
+\subsection{The Jacobian, JVPs, and VJPs}
 
-With coordinate seeds $\bm e_q$, each product $\bm H\bm e_q$ is one
-column, so dense reconstruction uses $3N$ directions. If we know which
-entries can be nonzero, several columns can share a seed. The task is to
-choose groups whose summed entries can still be separated. Coloring solves
-this grouping problem; it does not change the differentiation rules.
-In the project, the recovered matrix is eventually materialized for the
-normal-mode calculation, so using matrix-free products during AD does not
-make the full workflow matrix-free.
+For a function $\bm f:\mathbb R^m\to\mathbb R^n$, the Jacobian matrix is defined as
 
-ASD separates structural preparation from numerical differentiation
-\cite{hill2025asd}:
 \begin{equation}
-  \underbrace{\text{detect pattern}\ \longrightarrow\ \text{color}}
-    _{\text{preparation}}
-  \ \longrightarrow\
-  \underbrace{\text{evaluate colored products}\ \longrightarrow\ \text{decompress}}
-    _{\text{numerical evaluation}}.
-  \label{eq:asd-preparation-pipeline}
+  \bm J(\bm x)=\frac{\partial\bm f}{\partial\bm x}(\bm x)
+  =\begin{pmatrix}
+    \frac{\partial f_1}{\partial x_1}&\cdots&\frac{\partial f_1}{\partial x_m}\\
+    \vdots&\ddots&\vdots\\
+    \frac{\partial f_n}{\partial x_m}&\cdots&\frac{\partial f_n}{\partial x_m}
+  \end{pmatrix}
+  \in\mathbb R^{n\times m}
+  \label{eq:asd-jacobian-definition}
 \end{equation}
-Preparation can be reused while the pattern remains valid.
 
-\subsection{Step 1: establish a structural sparsity pattern}
-For a function $\bm f:\mathbb R^n\to\mathbb R^m$, let
-$J_{pq}=\partial f_p/\partial x_q$. A structural sparsity pattern
-$\bm S\in\{0,1\}^{m\times n}$ satisfies
+We can compute the directional derivative of $\bm f$ at $\bm x$ along a vector $\bm v\in\mathbb R^m$ as
+
 \begin{equation}
-  S_{pq}=0\ \Longrightarrow\ J_{pq}=0,
-  \qquad \mathcal R_q=\{p:S_{pq}=1\}.
+  \left.\frac{\mathrm d}{\mathrm d\epsilon}\bm f(\bm x+\epsilon\bm v)\right|_{\epsilon=0}
+  =\bm J(\bm x)\bm v.
+  \label{eq:asd-directional-derivative}
 \end{equation}
-Thus $\mathcal R_q$ lists the output rows that column $q$ may affect.
-A numerical zero at one configuration does not necessarily imply a
-structural zero. The pattern is a conservative description: $S_{pq}=1$
-allows an entry to be nonzero but does not require it. A dense pattern is
-always safe, though it offers no compression benefit.
 
-The pattern can be inferred by propagating input-dependency sets through
-the computation graph, without evaluating every derivative. For addition,
-for example, the dependency set of $z=u+v$ is the union of those of $u$
-and $v$. A global pattern covers the input domain; a local pattern may
-exploit the active branches at one input but requires revalidation
-\cite{hill2025asd}.
+This is what we call a \emph{Jacobian--vector product} (JVP). It is the instantaneous rate of change of $\bm f$ along the direction $\bm v$.
+Since the Jacobian at a point $\bm x$ is a linear map, the directional derivative is linear in $\bm v$.
+This means that we can recover all the columns of the Jacobian by evaluating the JVPs
+along the standard basis vectors of $\mathbb R^m$: ${\bm e_1,\ldots,\bm e_m}$.
 
-\subsection{Step 2: build and color the conflict graph}
-Two columns conflict when their supports overlap, so the
-\emph{column-intersection graph} has one vertex per input coordinate and
-edges
 \begin{equation}
-  \{q,r\}\in\mathcal E_{\mathrm{col}}
-    \quad\Longleftrightarrow\quad
-    q\ne r\ \text{and}\ \mathcal R_q\cap\mathcal R_r\ne\varnothing.
+  \bm J(\bm x)_{:,i} = \bm J(\bm x)\bm e_i
+  \label{eq:asd-column-recovery}
 \end{equation}
-A proper coloring assigns an integer $c(q)\in\{1,\ldots,n_c\}$ to each
-vertex, with different colors at the ends of every edge. Proper coloring
-of this graph ensures that columns of the same color
-have disjoint supports, also called structural orthogonality
-\cite{hill2025asd}.
 
-A simple greedy algorithm visits vertices in an ordering and assigns each
-the smallest color absent from its already colored neighbors. The ordering
-affects the color count. Finding the minimum count is unnecessary for
-correct recovery; extra colors only increase the number of derivative
-directions. Star coloring, introduced below for symmetric Hessians,
-requires an additional admissibility check \cite{asdexcoloring}.
+Let's illustrate this with a simple example. Consider the function $\bm f: \mathbb{R}^4 \to \mathbb{R}^3$
 
-It is useful to distinguish three graphs. The computational graph has
-operations and intermediate values as vertices. PET's neighbor graph has
-atoms as vertices and selected neighbor pairs as edges. The derivative
-conflict graph has input coordinates as vertices and edges determined by
-overlapping derivative supports. Coloring the neighbor graph directly
-would generally miss conflicts created by message passing and nonlinear
-readouts.
+\begin{equation}
+  \bm f(\bm x)=\begin{pmatrix}
+    x_1^2+x_2\\ \sin(x_2)+x_3^2\\  e^{x_4}
+  \end{pmatrix},
+  \label{eq:asd-intro-function}
+\end{equation}
+
+The Jacobian is
+
+\begin{equation}
+  \bm J(\bm x)=\begin{pmatrix}
+    2x_1&1&0&0\\0&\cos(x_2)&2x_3&0\\0&0&0&e^{x_4}
+  \end{pmatrix}.
+  \label{eq:asd-intro-jacobian}
+\end{equation}
+
+If we try evaluating the JVPs along the standard basis vectors, we get
+
+\begin{equation}
+  \bm J(\bm x)\bm e_1 = \begin{pmatrix}2x_1\\0\\0\end{pmatrix}, \quad
+  \bm J(\bm x)\bm e_2 = \begin{pmatrix}1\\\cos(x_2)\\0\end{pmatrix}, \quad
+  \bm J(\bm x)\bm e_3 = \begin{pmatrix}0\\2x_3\\0\end{pmatrix}, \quad
+  \bm J(\bm x)\bm e_4 = \begin{pmatrix}0\\0\\e^{x_4}\end{pmatrix}.
+\end{equation}
+
+Which exactly recovers the columns of the Jacobian in Eq.~\eqref{eq:asd-intro-jacobian}.
+However, the same result could have been obtained if instead of evaluating the JVPs along the standard basis vectors of $\mathbb R^m$,
+we had used the standard basis vectors of $\mathbb R^n$ and evaluated the vector-Jacobian products (VJP)
+along the standard basis vectors of $\mathbb R^n$.
+
+\begin{equation}
+  \bm e_1^{\mathrm T}\bm J(\bm x) = \begin{pmatrix}2x_1&1&0&0\end{pmatrix}, \quad
+  \bm e_2^{\mathrm T}\bm J(\bm x) = \begin{pmatrix}0&\cos(x_2)&2x_3&0\end{pmatrix}, \quad
+  \bm e_3^{\mathrm T}\bm J(\bm x) = \begin{pmatrix}0&0&0&e^{x_4}\end{pmatrix}.
+  \label{eq:asd-intro-vjp}
+\end{equation}
+
+This time, we recover the rows of the Jacobian instead of the columns.
+The advantage of using VJPs here instead of JVPs is that if $n\ll m$, which means we can recover the Jacobian with fewer evaluations.
+This is particularly useful when dealing with neural networks, where the number of outputs is usually much smaller than the number of inputs.
+In particular, in the case MLIPs, the number of outputs is only one, the energy of the system,
+while the number of inputs depends on the number of atoms in the system and can be much larger.
+For a composition of functions $\bm f=\bm h\circ\bm g$, the chain rule gives the Jacobian as
+
+\begin{equation}
+  \bm J_f(\bm x)\bm v
+  =\bm J_h(\bm g(\bm x))\bigl[\bm J_g(\bm x)\bm v\bigr].
+  \label{eq:matrix-free-chain-rule}
+\end{equation}
+
+\subsection{Recovering multiple columns with a single evaluation}
+
+In some cases, we can recover multiple columns of the Jacobian with a single VJP evaluation.
+For instance, if we evaluate the VJP along the vector $\bm v = \bm e_1+\bm e_3+\bm e_4$, we get
+
+\begin{equation}
+  \bm J(\bm x)\bm v
+   =\begin{pmatrix}2x_1\\2x_3\\e^{x_4}\end{pmatrix}.
+  \label{eq:asd-grouped-example}
+\end{equation}
+
+The elements of this vector are the only nonzero entries in the first, third, and fourth columns of the Jacobian.
+By exploiting the sparsity of the Jacobian, we can recover multiple columns with a single evaluation.
+This is possible because column 1 has zeros in rows 2 and 3, column 3 has zeros in rows 1 and 3, and column 4 has zeros in rows 1 and 2.
+In other words, the nonzero entries of these columns do not overlap in any row.
+The nonoverlapping property is what allows us to recover multiple columns with a single evaluation.
+The last remaining column can be recovered with a second evaluation along $\bm e_2$.
+Thus, we can recover the entire Jacobian with only two evaluations instead of four as previously done.
+
+\subsection{Sparsity patterns}
+
+To exploit the sparsity of the Jacobian, we need to know which entries can be nonzero.
+One way to represent this information is with a \emph{sparsity pattern} matrix $\bm S\in\{0,1\}^{n\times m}$.
+Each element in this matrix is equal to 1 if the corresponding entry in the Jacobian can be nonzero, and 0 otherwise.
+For instance, using the Jacobian in Eq.~\eqref{eq:asd-intro-jacobian}, we can define the following sparsity pattern
+
+\begin{equation}
+  \bm S=\begin{pmatrix}1&1&0&0\\0&1&1&0\\0&0&0&1\end{pmatrix},
+  \qquad S_{pq}=0\ \Longrightarrow\ J_{pq}=0.
+  \label{eq:asd-example-pattern}
+\end{equation}
+
+The zero coefficients in $\bm J$ are \emph{structural zeros}, which are guaranteed to be zero for all $\bm x$.
+In $\bm S$, they are also marked as zeros. The other entries in $\bm J$ are \emph{possible nonzeros}, which can be nonzero for some $\bm x$,
+but aren't guaranteed to be nonzero for all $\bm x$. In $\bm S$, they are marked as ones.
+For instance, $J_{11}=2x_1$ happens to vanish at $x_1=0$, but it still
+receives a 1 in this pattern because it is nonzero for other values of $x_1$.
+
+\subsection{Graph coloring}
+
+To better understand which columns can be grouped together, we can represent the sparsity pattern as a graph.
+Each column in $\bm S$ corresponds to a vertex in the graph and an edge connects two vertices
+if they have one or more nonzero entries in the same row of $\bm S$.
+In our example, columns 1 and 2 have a nonzero entry in row 1, so they are connected by an edge.
+Same for columns 2 and 3, which have a nonzero entry in row 2.
+The set of vertices and edges forms a graph $G=(V,E)$,
+where $V=\{1,2,3,4\}$ is the set of vertices (columns of $\bm S$) and $E=\{\{1,2\},\{2,3\}\}$ is the set of edges (connections between columns).
+We can represent a graph with a diagram, where vertices are drawn as circles and edges as lines connecting them.
 
 \begin{figure}[htbp]
   \centering
-  \begin{minipage}{0.34\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{figures/sparse-autodiff/sparsity_pattern.pdf}\\
-    (a) Sparsity pattern
-  \end{minipage}\hspace{0.06\textwidth}
-  \begin{minipage}{0.34\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{figures/sparse-autodiff/coloring.pdf}\\
-    (b) Column groups
-  \end{minipage}
-  \caption{Structural preparation: permitted entries determine two groups
-  of nonoverlapping columns. Reproduced from Hill, Dalle, and Montoison,
-  Figure 12 \cite{hill2025asd}.}
+  \includegraphics[width=0.8\textwidth]{figures/sparse-autodiff/intro-coloring.pdf}
+  \caption{The same four-input example viewed as a pattern and as a graph.
+  Filled cells mark possible nonzero entries. Graph edges record conflicts
+  between columns, with the responsible row written beside each edge.
+  Blue columns 1, 3, and 4 have no mutual conflicts and share one seed;
+  orange column 2 uses another. A color denotes a group of columns.}
   \label{fig:asd-pattern-coloring}
 \end{figure}
 
-\subsection{Steps 3--4: evaluate colored seeds and recover entries}
-Forward AD evaluates a Jacobian-vector product without first forming
-$\bm J$. The ordinary seed $\bm e_q$ yields column $q$; using all $n$
-coordinate seeds would therefore require $n$ directional evaluations.
-For a composition $\bm f=\bm h\circ\bm g$, the chain rule acts on a seed as
+The next step is to assign a color to each vertex in the graph such that no two adjacent vertices share the same color.
+This process is called \emph{graph coloring}.
+The goal is to find a coloring that uses the smallest number of colors possible $\chi(G)$, which is called the \emph{chromatic number} of the graph.,
+The number of colors in the graph corresponds to the number of JVP evaluations needed to recover all columns of $\bm J$.
+The columns of the same color have no conflicts and can be computed together in a single JVP evaluation.
+In our example, $\chi(G)=2$, as shown in Fig.~\ref{fig:asd-pattern-coloring}.
+Columns 1, 3, and 4 can be assigned the same color (blue), while column 2 can be assigned another color (orange).
+As we saw previously, we could recover columns 1, 3, and 4 with a single JVP evaluation along $\bm e_1+\bm e_3+\bm e_4$,
+and column 2 with another JVP evaluation along $\bm e_2$. Which is consistent with the coloring we found.
+For this simple example, the chromatic number is easy to find by inspection.
+But in general, finding the chromatic number of a graph is an NP-hard problem.
+Therefore, we need to use certain algorithms to find a coloring that uses a small number of colors, even if it is not the minimum possible.
+
+\subsection{Decompression}
+
+After finding a coloring, we can evaluate the JVPs along the vectors belonging to each color
+and concatenate the results into a compressed matrix $\bm Y$.
+In our example, we have the following
+
 \begin{equation}
-  \bm J_f(\bm x)\bm v
-    =\bm J_h(\bm g(\bm x))\bigl[\bm J_g(\bm x)\bm v\bigr].
-  \label{eq:matrix-free-chain-rule}
+  \bm v_1=\begin{pmatrix}1\\0\\1\\1\end{pmatrix},
+  \qquad \bm v_2=\begin{pmatrix}0\\1\\0\\0\end{pmatrix},
+  \qquad
+  \bm Y(\bm x)=\begin{bmatrix}\bm J(\bm x)\bm v_1&\bm J(\bm x)\bm v_2\end{bmatrix}
+       =\begin{pmatrix}2x_1&1\\2x_3&cos(x_2)\\e^{x_4}&0\end{pmatrix}.
+  \label{eq:asd-numeric-compression}
 \end{equation}
-AD propagates the direction through these operations without storing the
-intermediate Jacobian matrices \cite{baydin2018}.
-Construct one seed per color:
+
+This compressed matrix contains all the information needed to recover the original Jacobian.
+Instead of storing a full $3\times 4$ Jacobian, we only need to store a $3\times 2$ compressed matrix.
+To recover the original $\bm J$, we can use the coloring information to unpack $\bm Y$.
+In the first column of $\bm Y$, we have $J_{11}=2x_1$, $J_{23}=2x_3$, and $J_{34}=e^{x_4}$,
+and in the second column of $\bm Y$, we have $J_{12}=1$, $J_{22}=cos(x_2)$ and $J_{32}=0$.
+The other entries in $\bm J$ are structural zeros.
+Recovering $\bm J$ from $\bm Y$ is called \emph{decompression}.
+
+\subsection{The Hessian and HVPs}
+
+For a function $f:\mathbb R^m\to\mathbb R$, the Hessian matrix is defined as
+
 \begin{equation}
-  \bm v_a=\sum_{q:c(q)=a}\bm e_q,
-  \qquad V_{qa}=\begin{cases}1,&c(q)=a,\\0,&\text{otherwise},\end{cases}
-  \qquad \bm Y=\bm J\bm V.
-  \label{eq:graph-colored-seeds}
+  \bm H(\bm x)=\frac{\partial^2 f}{\partial\bm x^2}(\bm x)
+  =\begin{pmatrix}
+    \frac{\partial^2 f}{\partial x_1^2}&\cdots&\frac{\partial^2 f}{\partial x_1\partial x_m}\\
+    \vdots&\ddots&\vdots\\
+    \frac{\partial^2 f}{\partial x_m\partial x_1}&\cdots&\frac{\partial^2 f}{\partial x_m^2}
+  \end{pmatrix}
+  \in\mathbb R^{m\times m}.
+  \label{eq:asd-hessian-definition}
 \end{equation}
-Here $\bm V\in\mathbb R^{n\times n_c}$ and
-$\bm Y\in\mathbb R^{m\times n_c}$. The multiplication is notation for
-$n_c$ JVPs; no dense Jacobian needs to be constructed to evaluate it.
-Each compressed entry is a sum,
-$Y_{pa}=\sum_{q:c(q)=a}J_{pq}$. Structural orthogonality guarantees that
-at most one term is permitted to be nonzero in a given row. Consequently,
-\begin{equation}
-  J_{pq}=Y_{p,c(q)}\quad\text{for }S_{pq}=1.
-  \label{eq:graph-jacobian-recovery}
-\end{equation}
-The pattern identifies which column supplied each value. Sparse automatic
-differentiation (ASD) combines this graph-based preparation with ordinary
-AD and subsequent decompression; the AD still differentiates the original
-function. The number of directions falls from $n$ to $n_c$, rather than
-computing a dense derivative and discarding its zeros afterward.
-Recovery consists of copying the appropriate compressed value into each
-permitted matrix position; it requires neither another AD pass nor a
-linear-system solve. For a general Jacobian, an analogous row coloring
-can group reverse-mode VJPs. The Hessian workflow below uses
-forward-over-reverse products throughout.
 
-Figure~\ref{fig:asd-compression-recovery} illustrates both numerical steps.
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}{0.43\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{figures/sparse-autodiff/sparse_ad_forward_full.pdf}\\
-    (a) Two colored JVPs
-  \end{minipage}\hfill
-  \begin{minipage}{0.43\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{figures/sparse-autodiff/sparse_ad_forward_decompression.pdf}\\
-    (b) Decompression
-  \end{minipage}
-  \caption{Five columns recovered from two directional evaluations using
-  their known supports. Reproduced from Hill, Dalle, and Montoison,
-  Figure 10 \cite{hill2025asd}.}
-  \label{fig:asd-compression-recovery}
-\end{figure}
+The methods we have discussed for the Jacobian can also be applied to the Hessian.
+In fact, it can be applied to any sparse matrix, regardless of whether it is a Jacobian or Hessian.
+Therefore, the same coloring and decompression techniques can be used to recover the Hessian with fewer evaluations.
 
-For the MOF Hessian, take $\bm f=\nabla U$ and $n=m=3N$.
-Then $\bm J_f=\bm H$, and a forward derivative of the reverse-mode
-energy gradient gives $\bm H\bm v_a$ (Eq.~\eqref{eq:hessian-vector-product}).
-Coloring therefore groups Cartesian coordinates whose Hessian columns
-can be recovered from the same Hessian-vector product.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.75\textwidth]{figures/sparse-autodiff/colored_graph.pdf}\\[0.6em]
-  \includegraphics[width=0.75\textwidth]{figures/sparse-autodiff/colored_graph_infeasible.pdf}
-  \caption{Valid coloring (top) and conflicting same-color columns (bottom).
-  Reproduced from Hill, Dalle, and Montoison, Figures 17 and 19
-  \cite{hill2025asd}.}
-  \label{fig:asd-valid-invalid-coloring}
-\end{figure}
-Figure~\ref{fig:asd-valid-invalid-coloring} connects graph edges to conflicts
-between derivative columns.
-
-\subsection{A worked example: why an ordinary neighbor coloring fails}
-Consider the symmetric tridiagonal Hessian
+\paragraph{Why the physical neighbor graph is insufficient.}
+Consider a symmetric matrix with entries only on its diagonal and the two
+adjacent diagonals, called a \emph{tridiagonal} matrix:
 \begin{equation}
   \bm M=\begin{pmatrix}
-    a&b&0&0\\ b&c&d&0\\ 0&d&e&f\\ 0&0&f&g
+    a&b&0&0\\b&c&d&0\\0&d&e&f\\0&0&f&g
   \end{pmatrix}.
   \label{eq:graph-coloring-example}
 \end{equation}
-Its off-diagonal sparsity graph is the chain $1-2-3-4$.
-Coloring that chain with $(1,2,1,2)$ is proper, but does not permit direct
-column recovery: columns 1 and 3 both affect row 2, yielding the
-inseparable sum $b+d$. The column-intersection graph also connects
-vertices at distance two along the chain. A valid coloring of this larger
-conflict graph is $(1,2,3,1)$, giving
+Its off-diagonal pattern forms a chain $1-2-3-4$: an edge means that the
+corresponding off-diagonal matrix entry may be nonzero. Coloring this
+chain alternately with $(1,2,1,2)$ separates immediate neighbors. But
+columns 1 and 3 both contribute to row 2, so adding them mixes $b$ and
+$d$. The chain is the matrix's \emph{sparsity graph}; direct column
+recovery needs the \emph{conflict graph}, which must also connect 1 to
+3 and 2 to 4. Those pairs are two edges apart in the chain but overlap
+in a matrix row.
+
+A valid coloring of the conflict graph is $(1,2,3,1)$. Its seeds and
+products are
 \begin{equation}
-  \bm V=\begin{pmatrix}
-    1&0&0\\0&1&0\\0&0&1\\1&0&0
-  \end{pmatrix},
+  \bm V=\begin{pmatrix}1&0&0\\0&1&0\\0&0&1\\1&0&0\end{pmatrix},
   \qquad
-  \bm M\bm V=\begin{pmatrix}
-    a&b&0\\b&c&d\\f&d&e\\g&0&f
-  \end{pmatrix}.
+  \bm M\bm V=\begin{pmatrix}a&b&0\\b&c&d\\f&d&e\\g&0&f\end{pmatrix}.
   \label{eq:graph-direct-compression}
 \end{equation}
-The first product combines columns 1 and 4, whose supports are disjoint:
-rows 1--2 supply column 1 and rows 3--4 supply column 4. Three products
-recover every entry, whereas dense recovery would use four. For a longer
-tridiagonal matrix, repeating three colors still suffices, so the benefit
-grows with matrix size.
+Only columns 1 and 4 share a seed. Their entries occupy rows 1--2 and
+3--4, respectively, so they can be unpacked without ambiguity. Three
+products recover the matrix rather than four. On a longer tridiagonal
+chain, repeating three colors still separates all column conflicts.
 
-\subsection{Using Hessian symmetry: star coloring and direct recovery}
-For a symmetric Hessian, $H_{pq}=H_{qp}$ supplies two possible compressed
-locations for each off-diagonal value: $Y_{p,c(q)}$ and $Y_{q,c(p)}$.
-It is sufficient that one of these is uncontaminated. This permits a less
-restrictive coloring than requiring every pair of column supports to be
-disjoint \cite{gebremedhin2009hessian}.
+\subsection{Star coloring: using symmetry to recover an entry from either side}
+A Hessian is symmetric when the scalar energy has continuous second
+derivatives: $H_{pq}=H_{qp}$. This duplicates each off-diagonal value
+across the diagonal. Suppose one compressed sum mixes $H_{pq}$ with
+other entries. If its counterpart $H_{qp}$ can be read separately from
+another row, we can recover both positions from that one value. Direct
+symmetric recovery therefore needs only \emph{one unambiguous orientation}
+per off-diagonal entry \cite{gebremedhin2009hessian}.
 
-A \emph{star coloring} is a proper coloring of the off-diagonal Hessian
-sparsity graph in which every path on four distinct vertices uses at least
-three colors. Equivalently, the subgraph formed by any two colors is a
-collection of stars. A greedy star-coloring algorithm must reject assignments
-that create a two-colored path on four distinct vertices, in addition to
-rejecting equal colors on adjacent vertices. In each star, the center is the hub and its neighbors
-are spokes. A spoke has only one neighbor with the hub's color, so the
-hub--spoke entry can be extracted from that spoke's row; symmetry supplies
-the transposed entry. Proper coloring also keeps diagonal entries separate
-from off-diagonal contributions \cite{asdexcoloring}.
+\paragraph{The additional coloring rule.}
+Star coloring acts on the symmetric matrix's off-diagonal sparsity graph,
+not on the larger column-intersection graph. It imposes two conditions:
+\begin{enumerate}
+  \item Adjacent vertices have different colors, as in a proper coloring.
+  \item Every path through four distinct vertices uses at least three colors.
+\end{enumerate}
+A \emph{path} is a sequence of vertices connected by successive edges.
+Four vertices make three edges. Thus a blue--orange--blue--orange path
+is forbidden, whereas blue--orange--blue--green is allowed. These rules
+ensure that at least one orientation of every off-diagonal entry is
+unambiguous \cite{asdexcoloring}.
 
-For the same chain, $(1,2,1,3)$ is a star coloring. Its compression is
+The name comes from looking at the edges between any two chosen colors.
+Every connected piece must form a \emph{star}: one central vertex, or
+hub, connected to outer vertices, or spokes, with no edges between the
+spokes. An isolated edge or vertex also satisfies the condition. A spoke
+has only one neighbor of the hub's color. Its compressed row therefore
+isolates the spoke--hub entry, even if the hub's row sums several spokes.
+
+\paragraph{Recovering the chain example.}
+The alternating coloring $(1,2,1,2)$ fails the four-vertex rule. For its
+middle entry $d=M_{23}=M_{32}$, the two candidate compressed values are
+$M_{21}+M_{23}=b+d$ and $M_{32}+M_{34}=d+f$. Neither directly isolates
+$d$. A star coloring avoids the need to disentangle such sums.
+
+Change the last color to obtain $(1,2,1,3)$. The products now become
 \begin{equation}
-  \bm W=\begin{pmatrix}
-    1&0&0\\0&1&0\\1&0&0\\0&0&1
-  \end{pmatrix},
+  \bm W=\begin{pmatrix}1&0&0\\0&1&0\\1&0&0\\0&0&1\end{pmatrix},
   \qquad
   \bm B=\bm M\bm W=\begin{pmatrix}
     a&b&0\\b+d&c&0\\e&d&f\\f&0&g
   \end{pmatrix}.
   \label{eq:graph-star-compression}
 \end{equation}
-Although $B_{21}=b+d$ cannot be separated directly, $b=B_{12}$ and
-$d=B_{32}$ are individually available from the opposite orientations.
-More generally, let $\mathcal N(p)=\{q\ne p:S_{pq}=1\}$ for a
-symmetric Hessian pattern. For an off-diagonal entry, define
-\begin{equation}
-  m_p(a)=\bigl|\{r\in\mathcal N(p):c(r)=a\}\bigr|.
-\end{equation}
-If $m_p(c(q))=1$, recover $H_{pq}$ from $Y_{p,c(q)}$; otherwise star
-coloring guarantees $m_q(c(p))=1$, and recover it from $Y_{q,c(p)}$.
-Then copy the value to the transposed position. Diagonal entries are
-$H_{pp}=Y_{p,c(p)}$, since proper coloring excludes same-color neighbors.
-If both orientations were ambiguous, another neighbor of $p$ with color
-$c(q)$ and another neighbor of $q$ with color $c(p)$ would form a
-forbidden two-colored path on four distinct vertices. This explains why
-the star condition is precisely what direct symmetric recovery needs.
+Columns 1 and 3 still share a seed, so $B_{21}=b+d$ is still mixed.
+We simply do not use that entry for recovery. Instead, $b=B_{12}$ and
+$d=B_{32}$ give the two values separately; symmetry fills their
+transposed positions. The other entries follow as $a=B_{11}$,
+$c=B_{22}$, $e=B_{31}$, $f=B_{33}=B_{41}$, and $g=B_{43}$.
+This example uses three colors with either recovery strategy. On other
+patterns, symmetry can reduce the number of required colors.
 
-Returning to Eq.~\eqref{eq:graph-star-compression}, the remaining values are $a=B_{11}$, $c=B_{22}$, $e=B_{31}$,
-$f=B_{33}=B_{41}$, and $g=B_{43}$.
-This example uses three colors with either strategy; star coloring can
-reduce the count further for other symmetric sparsity patterns.
+\paragraph{Why the rule works.}
+For an allowed pair $p,q$, inspect all neighbors of $p$ with the same
+color as $q$. If $q$ is the only one, $Y_{p,c(q)}$ contains $H_{pq}$
+alone. Otherwise, inspect the reverse orientation. If both orientations
+were mixed, there would be another neighbor $r$ of $p$ colored like
+$q$, and another neighbor $s$ of $q$ colored like $p$. The path
+$r-p-q-s$ would then alternate between two colors, violating the star
+rule. Proper coloring ensures that these are four distinct vertices.
+For a diagonal entry, no adjacent vertex shares its color, so
+$H_{pp}=Y_{p,c(p)}$ directly.
+
+A greedy star-coloring algorithm must check both conditions before
+accepting a color. Checking only the colors of immediate neighbors
+would produce an ordinary proper coloring, which is insufficient for
+this recovery scheme. Sparsity, the coloring rule, and the decompression
+rule must therefore be chosen consistently.
 
 \subsection{From PET neighborhoods to a Hessian pattern}
 \label{sec:asd-pet-pattern}
@@ -3210,14 +3133,22 @@ These are architectural reach bounds under the paper's derivative
 convention, not statements that every permitted entry is numerically
 nonzero.
 
-Let $\bm A$ be the undirected selected-neighbor adjacency. Boolean adjacency gives
+The \emph{adjacency matrix} $\bm A$ records the selected-neighbor graph:
+$A_{ij}=1$ if atoms $i$ and $j$ are connected, and 0 otherwise. Use an
+undirected graph, so each connection can be followed in either direction.
+A \emph{hop} means following one edge. To include all atom pairs separated
+by at most $k$ hops, build
 \begin{equation}
   \bm P^{(k)}=\bm I\lor\bm A\lor\bm A^2\lor\cdots\lor\bm A^k,
   \label{eq:hop-pattern}
 \end{equation}
-Boolean multiplication tests whether a path exists, and $\lor$ means
-logical OR. Thus $P^{(k)}_{ij}=1$ when atoms $i,j$ are connected by at most
-$k$ edges, including $i=j$ through the identity. A hop is a graph step,
+The powers here use \emph{Boolean arithmetic}: multiplication means AND,
+and addition means OR. Thus $(\bm A^2)_{ij}=1$ if there is at least one
+intermediate atom connecting $i$ to $j$ in two steps. We care whether a
+path exists, rather than how many such paths exist. The symbol $\lor$
+combines the possibilities from different path lengths. Thus $P^{(k)}_{ij}=1$ when atoms $i,j$ are connected by at most
+$k$ edges, including $i=j$ through the identity matrix $\bm I$, whose diagonal
+entries are 1 and other entries are 0. A hop is a graph step,
 not a fixed Cartesian distance. With $p=3(i-1)+\alpha$ and
 $q=3(j-1)+\beta$, where $\alpha,\beta\in\{1,2,3\}$, the Cartesian pattern is
 \begin{equation}
@@ -3225,8 +3156,11 @@ $q=3(j-1)+\beta$, where $\alpha,\beta\in\{1,2,3\}$, the Cartesian pattern is
   \bm S=\bm P^{(k)}\otimes\bm 1_{3\times3}.
   \label{eq:asd-cartesian-pattern}
 \end{equation}
-Here $\bm 1_{3\times3}$ is the all-ones matrix; every permitted atom pair
-contributes a full Cartesian block. At $k=K$ the pattern contains all
+Here $\bm 1_{3\times3}$ is the all-ones matrix, and $\otimes$ denotes
+the Kronecker product: replace every 1 in the atom-pair pattern by a
+$3\times3$ block of ones and every 0 by a block of zeros. Each block
+allows all nine combinations of the two atoms' $x$, $y$, and $z$
+coordinates. At $k=K$ the pattern contains all
 couplings under the chosen derivative convention; $k<K$ truncates it.
 Additional nonlocal terms need separate analysis.
 Structural sparsity requires
@@ -3249,7 +3183,9 @@ $c_i\in\{1,\ldots,n_{\mathrm{atom}}\}$, assign Cartesian colors
 \end{equation}
 A valid star coloring of the atom-pair pattern then gives a valid star
 coloring of the Cartesian pattern, with $3n_{\mathrm{atom}}$ coordinate
-colors. The three directions of an atom must receive distinct colors
+colors. For example, atom color 1 becomes coordinate colors 1, 2, and 3,
+while atom color 2 becomes colors 4, 5, and 6. The three directions of an
+atom must receive distinct colors
 because its on-site block is generally dense. This reduces the graph size
 used in preparation. The current project delegates coloring to ASDEX;
 this block optimization is described in the paper and is not a separate
@@ -3264,7 +3200,8 @@ separates preparation from evaluation as follows.
   \item \textbf{Prepare the reference and energy function.}
   Use a fixed-cell optimized structure, fixed species, and fixed model
   parameters. Convert the structure to PET-JAX positions, cell, and graph
-  arrays, retaining any padding required by the implementation.
+  arrays, retaining any padding required by the implementation (extra
+  placeholder entries that keep array sizes consistent).
   The energy function uses \texttt{no\_\allowbreak{}shadow=True}:
   derivatives through the adaptive neighbor-selection cutoff are stopped,
   and the selected graph defines the locality assumed by the pattern.
@@ -3283,8 +3220,10 @@ separates preparation from evaluation as follows.
   \texttt{hessian\_\allowbreak{}coloring\_\allowbreak{}from\_\allowbreak{}sparsity}
   with \texttt{mode="fwd\_over\_rev"}. Star coloring determines the seed
   groups and which compressed orientation supplies each Hessian entry.
-  These decisions depend on the pattern, not the numerical derivative
-  values at the current point.
+  The recovery indices are a stored lookup table telling decompression
+  which row and color column to read for each allowed Hessian entry.
+  They depend on the pattern, not the numerical derivative values at the
+  current point.
   \item \textbf{Compile and evaluate the directional derivatives.}
   Construct SADMOF's Hessian function and compile it with JAX. For each
   color $a$, evaluate $\bm y_a=\bm H\bm v_a$ by forward AD through the
@@ -3362,10 +3301,12 @@ $\odot$ for entrywise multiplication separates the error into
   \end{aligned}
   \label{eq:asd-truncation-error}
 \end{equation}
-Here $\bm 1$ is the all-ones matrix of the same shape. The first term
+Here $\bm 1$ is the all-ones matrix of the same shape, and
+$\|\bm A\|_F^2=\sum_{pq}A_{pq}^2$ is the squared Frobenius norm,
+a measure of the total squared size of all matrix entries. The first term
 contains discarded entries, and the second contains contamination of
-retained entries. Their supports are disjoint, which gives the squared
-Frobenius-norm identity \cite{sadMof}. Neither symmetrization nor enforcing
+retained entries. They occupy different matrix positions, so their squared entries add
+without cross terms, giving the norm identity \cite{sadMof}. Neither symmetrization nor enforcing
 the acoustic sum rule generally removes these errors.
 
 Validation should compare with a feasible dense Hessian or an
@@ -3388,6 +3329,367 @@ utilization, and memory matter. Finally, this project densifies the
 Hessian and computes the full spectrum, retaining quadratic matrix
 storage and cubic dense eigendecomposition cost. Sparse AD accelerates
 the derivative stage, not every later part of the calculation.
+
+\section{Computational graphs, backpropagation, and parameter updates}
+\label{sec:backpropagation}
+
+This appendix expands the training overview in
+Section~\ref{sec:backpropagation-overview}. It follows the calculation in
+order: construct and evaluate the computational graph, propagate
+sensitivities backward, collect parameter gradients, and apply an
+optimizer update. The scalar example and the multilayer equations are
+illustrations of the same chain-rule procedure. The connection to PET
+then explains how shared parameters, forces, and second derivatives enter.
+
+\subsection{Step 1: construct and evaluate the computational graph}
+
+Backpropagation computes the loss gradients required by an optimizer such
+as gradient descent. It applies the chain rule backward through the
+operations recorded during the forward pass, reusing intermediate values.
+It therefore complements gradient descent: backpropagation calculates the
+gradients, and the optimizer uses them to update the parameters.
+
+\paragraph{Representing dependencies.}
+In practice, backpropagation is implemented using reverse-mode automatic
+differentiation (AD). A computational graph decomposes the network and loss
+into elementary operations, such as multiplication, addition, and activation.
+Its nodes represent input values or the results of operations, and directed
+edges record which values an operation depends on. The graph for a fixed
+forward evaluation is directed and acyclic: a value must be available before
+an operation that uses it can be evaluated. Repeating a network layer creates
+further operations in this graph rather than a circular dependency.
+
+Input data and trainable parameters are both inputs to the computation;
+these input nodes are called leaves.
+During training, the data and reference targets are held fixed while the
+optimizer adjusts the parameters. The forward pass evaluates the graph in
+dependency order to obtain the prediction and loss. It also retains the
+intermediate values required for differentiation; some can instead be
+recomputed during the backward pass to reduce memory use. For example, the
+local derivatives of $u=wx$ are $\partial u/\partial w=x$ and
+$\partial u/\partial x=w$, so the backward calculation needs the forward
+values of $x$ and $w$.
+
+Each elementary operation has a derivative rule supplied by the AD system.
+The backward pass applies these rules to the recorded dependencies,
+automatically composing them through the chain rule. The complete derivative
+therefore need not be derived or programmed separately for each architecture.
+A computational graph records how the calculation is performed; it is
+different from the atomic neighbor graph used to describe a material.
+
+\subsection{Step 2: propagate sensitivities in reverse order}
+For scalar intermediate values $v_i$, define the adjoint
+$\bar v_i=\partial\mathcal L/\partial v_i$. After the forward evaluation,
+the reverse pass starts with $\bar{\mathcal L}=1$ and all other adjoints
+initialized to zero. It visits operations in reverse dependency order.
+For every input $v_i$ of an operation producing $v_j$, it accumulates
+
+\begin{equation}
+  \bar v_i\mathrel{+}=\bar v_j\frac{\partial v_j}{\partial v_i}.
+  \label{eq:ad-adjoint-accumulation}
+\end{equation}
+
+The accumulation matters when one value contributes to the loss through
+several paths: all contributions must be added. For vector operations,
+the corresponding rule multiplies an incoming adjoint by a transposed
+local Jacobian, usually without constructing that Jacobian explicitly.
+The activations retained or recomputed from the forward pass supply the
+values needed to evaluate these local derivatives.
+
+For a vector-valued operation $\bm v_j=\phi(\bm v_i)$ and column-vector
+adjoints, this rule is
+\begin{equation}
+  \bar{\bm v}_i\mathrel{+}=
+  \left(\frac{\partial\bm v_j}{\partial\bm v_i}\right)^{\!\mathrm T}
+  \bar{\bm v}_j.
+  \label{eq:backprop-local-vjp}
+\end{equation}
+The incoming adjoint describes how the final loss responds to the
+operation's output. The local derivative converts that sensitivity into
+sensitivities to its inputs. This is a vector--Jacobian product written
+with column vectors. If $\bm v_i$ has $n$ components and $\bm v_j$ has
+$m$, the local Jacobian is $m\times n$ and the resulting adjoint has $n$
+components.
+
+For scalar operations, some elementary rules are shown in
+Table~\ref{tab:backprop-local-rules}. Each contribution is added to the
+input's current adjoint, because the same input can be used elsewhere.
+\begin{table}[htbp]
+  \centering
+  \caption{Local reverse-mode rules. The forward values of the inputs or
+  outputs supply the factors used in the reverse pass.}
+  \label{tab:backprop-local-rules}
+  \begin{tabular}{lll}
+    \toprule
+    Forward operation & Contribution to $\bar u$ & Contribution to $\bar v$ \\
+    \midrule
+    $z=u+v$ & $\bar z$ & $\bar z$ \\
+    $z=uv$ & $\bar z\,v$ & $\bar z\,u$ \\
+    $z=\tanh u$ & $\bar z(1-z^2)$ & --- \\
+    $z=\tfrac12u^2$ & $\bar z\,u$ & --- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Reverse dependency order is necessary: before processing an operation,
+all later operations that consume its output must have contributed to
+that output's adjoint. A gradient can therefore be wrong even when every
+local derivative is correct if contributions along different paths are
+overwritten instead of accumulated.
+
+A single reverse pass computes the gradient of a scalar loss with respect
+to all model parameters, making reverse-mode AD well suited to training
+networks with many weights. It applies the chain rule to the implemented
+operations rather than approximating derivatives by finite differences
+or constructing a global symbolic expression. The resulting derivatives
+are subject to floating-point error \cite{baydin2018}. The reverse sweep
+computes derivatives at the current parameter values; it does not change
+those values. Updating parameters is a subsequent optimizer step.
+
+\subsection{A worked example: from forward values to parameter gradients}
+Consider an illustrative network consisting of one scalar neuron with a
+$\tanh$ output and a half-squared-error loss:
+\begin{equation}
+  \begin{aligned}
+    u&=wx, & z&=u+b,\\
+    \hat y&=\tanh z, & r&=\hat y-y,\\
+    l&=\tfrac12 r^2.
+  \end{aligned}
+  \label{eq:ad-scalar-forward}
+\end{equation}
+Here $x$ is the input, $w$ and $b$ are trainable parameters, and $y$ is the
+reference target. This small example illustrates the differentiation rules;
+it is not the full network architecture of
+Figure~\ref{fig:simple-neural-network}. For $x=2$, $w=0.5$, $b=-1$, and
+$y=1$, the forward pass gives $u=1$, $z=0$, $\hat y=0$, $r=-1$, and $l=0.5$.
+Figure~\ref{fig:computational-graph-backpropagation} shows the computation
+and its reverse pass.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/computational-graph-backpropagation.pdf}
+  \caption{Computational graph for the scalar-neuron example in
+  Eq.~\eqref{eq:ad-scalar-forward}. (a) The forward pass follows dependencies
+  to evaluate the prediction and loss; boxes show operations and their
+  numerical values. Green boxes identify trainable parameters. (b) The
+  reverse pass starts with $\bar l=1$ and propagates adjoints
+  $\bar v=\partial l/\partial v$. Arrow labels give local derivatives at
+  the forward values; multiplying them by incoming adjoints gives the
+  sensitivities in the boxes. Input and target adjoints are shown for
+  completeness, but only $w$ and $b$ are updated during training.}
+  \label{fig:computational-graph-backpropagation}
+\end{figure}
+
+Starting with $\bar l=1$, the reverse rules for this graph give
+\begin{equation}
+  \begin{aligned}
+    \bar r&=\bar l\,r, &
+    \overline{\hat y}&=\bar r,\\
+    \bar z&=\overline{\hat y}\,(1-\hat y^2), &
+    \bar u&=\bar z,\\
+    \bar w&=\bar u\,x, &
+    \bar b&=\bar z.
+  \end{aligned}
+  \label{eq:ad-scalar-reverse}
+\end{equation}
+The activation derivative $1-\hat y^2$ uses the output retained from the
+forward pass. At the chosen values, $\bar r=\overline{\hat y}=\bar z=\bar u=-1$,
+so $\partial l/\partial w=-2$ and $\partial l/\partial b=-1$.
+The other input derivatives are $\bar x=\bar u\,w=-0.5$ and
+$\bar y=-\bar r=1$. With learning rate $\eta$, gradient descent would update
+$w\leftarrow0.5+2\eta$ and $b\leftarrow-1+\eta$; it leaves $x$ and $y$ fixed.
+Thus backpropagation supplies the sensitivities used by the optimizer.
+
+If a parameter is reused in several operations, its graph has several
+outgoing dependency edges. Its final adjoint is the sum of the contributions
+arriving along all reverse paths, as specified by
+Eq.~\eqref{eq:ad-adjoint-accumulation}. This is relevant to shared weights
+in GNNs and transformers: using one learned map for many atoms or tokens
+means that all those uses contribute to the same parameter gradient.
+
+\subsection{Step 3: collect gradients through network layers}
+The layer formulas below are the vector form of the same procedure.
+
+For a single scalar-output training example, consider the unregularized
+loss $l=\tfrac12(\hat y-y)^2$. The factor $\tfrac12$ simplifies the
+derivatives. The derivative at the output is the signed residual,
+$r=\partial l/\partial\hat y=\hat y-y$. Consequently,
+$\partial l/\partial\bm w_{\mathrm{out}}=r\bm h^{(L)}$ and
+$\partial l/\partial b_{\mathrm{out}}=r$.
+
+To propagate this information into the hidden layers, define
+$\bm\delta^{(\ell)}=\partial l/\partial\bm z^{(\ell)}$.
+For the final hidden layer and the preceding layers, the chain rule gives
+\begin{equation}
+  \begin{aligned}
+    \bm\delta^{(L)}
+      &=r\bm w_{\mathrm{out}}\odot\sigma'\!\left(\bm z^{(L)}\right),\\
+    \bm\delta^{(\ell)}
+      &=\left[(\bm W^{(\ell)})^{\mathrm T}\bm\delta^{(\ell+1)}\right]
+        \odot\sigma'\!\left(\bm z^{(\ell)}\right),
+        \quad \ell=L-1,\ldots,1.
+  \end{aligned}
+  \label{eq:backpropagation}
+\end{equation}
+The symbol $\odot$ denotes componentwise multiplication. The transposed
+weight matrix combines the sensitivities from the next layer, and the
+activation derivative accounts for how each neuron responds to its input.
+To check the dimensions, let layer $\ell$ have width $d_\ell$.
+Then $\bm W^{(\ell)}\in\mathbb R^{d_{\ell+1}\times d_\ell}$,
+$\bm h^{(\ell)}\in\mathbb R^{d_\ell}$, and
+$\bm\delta^{(\ell+1)}\in\mathbb R^{d_{\ell+1}}$.
+The parameter gradients then follow directly:
+\begin{equation}
+  \frac{\partial l}{\partial\bm W^{(\ell)}}
+    =\bm\delta^{(\ell+1)}(\bm h^{(\ell)})^{\mathrm T},
+  \qquad
+  \frac{\partial l}{\partial\bm b^{(\ell)}}=\bm\delta^{(\ell+1)},
+  \quad \ell=0,\ldots,L-1.
+  \label{eq:network-parameter-gradients}
+\end{equation}
+Each weight gradient is the product of the incoming feature and the
+sensitivity of the receiving neuron. Thus, the backward pass assigns a
+loss derivative to every trainable connection and bias.
+
+The outer product has the same $d_{\ell+1}\times d_\ell$ shape as
+the weight matrix. In particular, the entry for a connection from feature
+$j$ to neuron $i$ is
+$\partial l/\partial W^{(\ell)}_{ij}
+=\delta^{(\ell+1)}_i h^{(\ell)}_j$.
+The bias gradient has the same shape as the receiving layer's bias.
+This is how the graph's local sensitivities become derivatives for every
+trainable array.
+
+\subsection{Step 4: combine examples and update parameters}
+For a batch of $B$ examples with the illustrative half-squared losses
+$l_n=\tfrac12(\hat y_n-y_n)^2$, define
+\begin{equation}
+  \mathcal L_B=\frac{1}{B}\sum_{n=1}^B l_n+\lambda\mathcal R(\theta),
+  \qquad
+  \nabla_\theta\mathcal L_B
+  =\frac{1}{B}\sum_{n=1}^B\nabla_\theta l_n
+    +\lambda\nabla_\theta\mathcal R.
+  \label{eq:backprop-batch-gradient}
+\end{equation}
+The averaging factor scales each example's contribution. A batch can be
+evaluated using batched array operations; the expression does not require
+running a separate optimizer update for every example. The mean squared
+error in Eq.~\eqref{eq:ml-training-loss} omits the factor $\tfrac12$,
+so its data gradient is twice the averaged half-squared-error gradient
+above, with the same regularization term.
+
+After the backward pass, gradient descent updates all weights and biases:
+\begin{equation}
+  \begin{aligned}
+    \bm W^{(\ell)}&\leftarrow\bm W^{(\ell)}
+      -\eta\nabla_{\bm W^{(\ell)}}\mathcal L,\\
+    \bm b^{(\ell)}&\leftarrow\bm b^{(\ell)}
+      -\eta\nabla_{\bm b^{(\ell)}}\mathcal L.
+  \end{aligned}
+  \label{eq:weight-update}
+\end{equation}
+The forward pass, backward pass, and parameter update are repeated during
+training. Once training is complete, inference evaluates the network with
+fixed parameters.
+
+For a single update, the forward and reverse passes use the same
+parameter values; only after the gradient is available does the optimizer
+change them. An implementation that accumulates gradients in persistent
+buffers must clear those buffers before starting a new independent
+update, unless accumulation across batches is intentional. Adam and
+related optimizers use the same loss gradients but also maintain update
+statistics. Their parameter step therefore differs from the simple
+gradient-descent rule above.
+
+\subsection{Shared weights, residual paths, and the PET computational graph}
+PET applies learned maps repeatedly across atoms, neighbors, and tokens.
+Each application has its own intermediate activations, while references
+to a shared parameter accumulate into one gradient. For example, if
+$u_1=wx_1$, $u_2=wx_2$, and a loss depends on both $u_1$ and $u_2$, then
+\begin{equation}
+  \frac{\partial\mathcal L}{\partial w}
+  =\bar u_1 x_1+\bar u_2 x_2.
+  \label{eq:backprop-shared-parameter}
+\end{equation}
+The same principle applies when the shared map is a species embedding,
+attention projection, feedforward layer, or readout head. Parameter
+sharing changes where contributions are added, rather than requiring a
+new differentiation rule.
+
+Residual connections create another kind of branching. For
+$\bm z=\bm h+F_\theta(\bm h)$, the input receives contributions through
+both the identity path and the learned map:
+\begin{equation}
+  \bar{\bm h}=\bar{\bm z}
+    +\bm J_{F_\theta}(\bm h)^{\mathrm T}\bar{\bm z}.
+  \label{eq:backprop-residual}
+\end{equation}
+This expression gives the contribution from this residual block; other
+uses of $\bm h$ contribute in addition. The residual route provides a
+direct sensitivity path through the stack, although it alone does not
+guarantee successful optimization. Attention creates dependencies between
+tokens, so its backward calculation must also differentiate the query,
+key, value, normalization, and cutoff operations described in
+Appendix~\ref{sec:transformers}.
+
+The reverse pass needs suitable forward values, so memory use grows with
+the stored intermediates. Recomputing selected forward operations during
+backpropagation, often called checkpointing or rematerialization, trades
+additional work for lower memory use. This is the same general tradeoff
+used by the Hessian evaluation controls in
+Appendix~\ref{sec:asd-method}.
+
+\subsection{From loss gradients to forces and second derivatives}
+The same AD machinery also computes physical derivatives of an MLIP.
+During training, the independent variables are the model parameters and
+the differentiated scalar is the loss. For force evaluation, the parameters
+are held fixed and the atomic coordinates are differentiated instead:
+$\bm F=-\nabla_{\bm R}U_\theta$. A reverse pass through the energy
+calculation therefore returns all force components.
+
+Provided the operations support second derivatives, the energy-gradient
+calculation can itself be differentiated to obtain Hessian information.
+For example, forward-mode AD applied to the reverse-mode energy gradient
+computes a Hessian--vector product $\bm H\bm v$. Recovering the full
+Hessian requires multiple such products; one energy backward pass alone
+gives only the gradient.
+Section~\ref{sec:automatic-differentiation} develops this construction for
+the vibrational calculations. Training on forces also differentiates
+through an energy derivative, in that case producing mixed derivatives
+with respect to coordinates and parameters.
+
+
+For example, for one configuration with $M=3N$ force components, consider
+the illustrative force-only loss
+\begin{equation}
+  \mathcal L_F=\frac{w_F}{2M}\sum_{q=1}^{M}
+    (\hat F_q-F_q^{\mathrm{ref}})^2,
+  \qquad \hat F_q=-\frac{\partial U_\theta}{\partial R_q}.
+\end{equation}
+Here $w_F$ is a fixed loss weight and $F_q^{\mathrm{ref}}$ a reference
+component. Differentiating with respect to a parameter $\theta_a$ gives
+\begin{equation}
+  \frac{\partial\mathcal L_F}{\partial\theta_a}
+  =-\frac{w_F}{M}\sum_{q=1}^{M}
+    (\hat F_q-F_q^{\mathrm{ref}})
+    \frac{\partial^2 U_\theta}{\partial\theta_a\partial R_q}.
+  \label{eq:backprop-force-training}
+\end{equation}
+This example explains why a force-training graph must preserve the
+coordinate-gradient calculation for further differentiation. It is a
+generic loss illustration; PET's reported training normalization is given
+in Section~\ref{sec:pet-architecture}.
+
+For a coordinate Hessian, the second derivative is instead
+$\partial^2 U_\theta/\partial R_p\partial R_q$, with parameters fixed.
+An AD system can differentiate a gradient program if the participating
+operations supply the required higher derivatives. Smoothness and any
+stopped derivatives or discrete neighbor-selection decisions therefore
+remain properties of the implemented energy graph. This project uses
+pretrained parameters; the derivative calculations during harmonic
+analysis evaluate coordinate curvature rather than optimizer updates.
+Appendix~\ref{sec:graph-coloring} explains how many such directional
+second derivatives are combined to recover the Hessian efficiently.
 
 \begin{thebibliography}{99}
 
