@@ -60,45 +60,40 @@ Hessian provides a separate reference.
 
 \section{Scientific motivation and scope}
 
-MOF-5 combines high-frequency bond vibrations with soft framework motion;
-methane adds internal vibrations and anharmonic motion within the pores.
-Classical MD samples the latter, while normal modes correct the excessive
-classical occupation of high-frequency vibrations. The conventional host
-cell contains 424 atoms,
-$\mathrm{C}_{192}\mathrm{H}_{96}\mathrm{O}_{104}\mathrm{Zn}_{32}$;
-50, 100, and 150 methane molecules increase the totals to 674, 924, and 1174.
+Metal--organic frameworks (MOFs) are porous crystalline materials built
+from metal nodes and organic linkers. Their pore geometry and chemical
+composition can be varied to accommodate different guest molecules, making
+them attractive for gas storage, molecular separation, and water harvesting.
+These applications involve both the uptake of molecules and the exchange of
+heat: adsorption releases energy, while regeneration generally requires
+energy to remove the adsorbed guests. The heat capacity of the loaded
+material determines how much its temperature changes for a given heat input
+at fixed loading and contributes to the energy required to heat it during a
+working cycle. Calculating this property is therefore useful for connecting
+molecular structure to the thermal response of an adsorbent.
 
-Figure~\ref{fig:workflow} summarizes the calculation. All loaded terms use
-the same PET checkpoint, composition, and mass normalization. The aim is to
-test the hybrid approximation of Kapil \emph{et al.}\ \cite{kapil2019}
-on PET through convergence and validation, rather than matching their
-force-field results.
+Guest adsorption also makes heat capacity a sensitive probe of microscopic
+motion. A loaded MOF combines framework vibrations, internal guest
+vibrations, and motion of molecules within the pores. Their contributions
+depend on temperature, loading, and interactions between the host and guests.
+High-frequency vibrations require quantum statistics, whereas soft framework
+motion and guest rearrangements can be strongly anharmonic. Capturing both
+effects at an affordable computational cost is the central challenge of this
+work \cite{kapil2019}.
 
-\begin{figure}[htbp]
-  \centering
-  \begin{tabular}{@{}c@{\hspace{0.04\textwidth}}c@{}}
-    \fbox{\parbox[c]{0.39\textwidth}{\centering
-      Loaded classical NPT trajectories\\
-      $H=K+U+PV$}}
-    & \fbox{\parbox[c]{0.39\textwidth}{\centering
-      Representative loaded structures\\Fixed-cell relaxation}} \\
-    $\downarrow$ & $\downarrow$ \\
-    \fbox{\parbox[c]{0.39\textwidth}{\centering
-      Equilibrated mean enthalpy\\$C_{P,\mathrm{cl}}^{\mathrm{anh}}=\mathrm d\langle H\rangle/\mathrm dT$}}
-    & \fbox{\parbox[c]{0.39\textwidth}{\centering
-      Sparse AD Hessians and normal modes\\
-      $\Delta C^{\mathrm{har}}=C_{\mathrm{qn}}^{\mathrm{har}}-C_{\mathrm{cl}}^{\mathrm{har}}$}} \\
-    $\searrow$ & $\swarrow$ \\
-    \multicolumn{2}{c}{\fbox{\parbox[c]{0.75\textwidth}{\centering
-      $c_P^{\mathrm{approx}}=(C_{P,\mathrm{cl}}^{\mathrm{anh}}+
-      \overline{\Delta C^{\mathrm{har}}})/M_{\mathrm{cell}}$\\
-      Pair LLPR members; report sampling and model uncertainties}}}
-  \end{tabular}
-  \caption{Loaded-system workflow. Accept harmonic references only after
-  force and signed-spectrum checks. The empty-MOF Hessian is evaluated
-  separately, without an empty-MOF MD campaign.}
-  \label{fig:workflow}
-\end{figure}
+This study evaluates a hybrid approach that combines classical molecular
+dynamics with a harmonic quantum correction, using the machine-learned
+potentials PET-MAD and PET-SOL for both contributions. Methane-loaded MOF-5
+provides the initial test system and a connection to the study of Kapil
+\emph{et al.}\ \cite{kapil2019}. The objective is to assess the temperature
+and loading dependence of its heat capacity and establish the convergence
+and validity of the approach with PET. Extensions to carbon dioxide and
+water, and to MOF-303 and ZIF-8, will test how pore chemistry and framework
+flexibility affect the thermal response. In particular, MOF-303 offers
+polar water-binding sites \cite{hanikel2021}, while ZIF-8 provides flexible
+pore windows \cite{hobday2018}. The results presented here concern the
+MOF-5/methane comparison; the additional systems define the broader scope
+of the project.
 
 \section{Theory}
 \label{sec:theory}
@@ -687,6 +682,22 @@ Differentiating the thermal occupation gives
        \frac{x_k^2e^{x_k}}{(e^{x_k}-1)^2}.
   \label{eq:harmonic-quantum-derivation}
 \end{equation}
+Equivalently, the contribution of one mode and the mass-specific sum are
+\begin{align}
+  C_{V,k}(T)&=k_{\mathrm B}
+    \left[\frac{x_k/2}{\sinh(x_k/2)}\right]^2,
+    &x_k&=\frac{\hbar\omega_k}{k_{\mathrm B}T}
+         =\frac{h_{\mathrm P}c\widetilde\nu_k}{k_{\mathrm B}T},
+    \label{eq:quantum-harmonic-cv}\\
+  c_V^{\mathrm{har}}(T)&=\frac{1}{M_{\mathrm{cell}}}
+    \sum_{k\in\mathcal V}C_{V,k}(T).
+    \label{eq:harmonic-cv}
+\end{align}
+Here $\widetilde\nu_k$ is the mode wavenumber, $h_{\mathrm P}$ is Planck's
+constant, and $c$ is the speed of light. Dividing a cell heat capacity in
+\si{J\per K} by its mass in grams gives \si{J\per g\per K}; equivalently,
+one can multiply by $N_{\mathrm A}/M_{\mathrm{molar}}$. For a loaded system,
+the mass includes both the framework and all guest molecules.
 Modes with $\hbar\omega_k\gg k_{\mathrm B}T$ are thermally suppressed,
 whereas low-frequency modes approach their classical contribution.
 
@@ -709,16 +720,47 @@ has $3N-3$ vibrational modes before any additional mode filtering.
 For the loaded MOF, $N$ includes both framework and guest atoms; the
 mass-specific limit is $|\mathcal V|k_{\mathrm B}/M_{\mathrm{cell}}$.
 
-The project uses these results to replace the classical harmonic
-contribution by its quantum value:
+\subsubsection{Hybrid quantum--classical approximation}
+\label{sec:hybrid-method}
+
+The hybrid approximation of Kapil \emph{et al.}\ \cite{kapil2019} replaces
+the classical harmonic contribution by its quantum counterpart while
+retaining the anharmonic contribution sampled by classical MD:
 \begin{equation}
-  C_P^{\mathrm{hyb}}(T)\simeq C_{P,\mathrm{cl}}^{\mathrm{anh}}(T)
-    +\sum_{k\in\mathcal V}k_{\mathrm B}
+  C_P^{\mathrm{hyb}}(T)\simeq
+    C_{P,\mathrm{cl}}^{\mathrm{anh}}(T)
+    +C_{V,\mathrm{qn}}^{\mathrm{har}}(T)
+    -C_{V,\mathrm{cl}}^{\mathrm{har}}(T).
+  \label{eq:quantum-correction}
+\end{equation}
+Here $C_{P,\mathrm{cl}}^{\mathrm{anh}}$ denotes the full classical heat
+capacity obtained from MD on the anharmonic potential. The harmonic
+quantum and classical terms use the same retained mode set $\mathcal V$,
+so their difference is
+\begin{equation}
+  \Delta C^{\mathrm{har}}(T)
+    =\sum_{k\in\mathcal V}k_{\mathrm B}
       \left[\frac{x_k^2e^{x_k}}{(e^{x_k}-1)^2}-1\right].
 \end{equation}
-The correction vanishes in the classical high-temperature limit.
-Adding this fixed-cell $C_V$ correction to the MD $C_P$ assumes that the
-quantum change in $C_P-C_V$ is small.
+This correction tends to zero in the classical high-temperature limit.
+For an adsorbate-loaded framework, it must be evaluated from the complete
+loaded-system Hessian: an empty-framework spectrum omits guest vibrations
+and their coupling to the host.
+
+The approximation treats the quantum correction harmonically and the
+remaining anharmonicity classically. Adding a fixed-cell $C_V$ correction
+to the MD $C_P$ further assumes that the quantum change in $C_P-C_V$ is
+small. Reusing one reference spectrum over a temperature interval also
+neglects changes in its force constants and the distribution of occupied
+minima. These assumptions require validation for each host, guest, loading,
+and potential.
+
+Kapil \emph{et al.}\ used a DFT-derived QuickFF force field
+\cite{quickff} and found the hybrid estimate useful above approximately
+\SI{200}{K} in their 100-methane MOF-5 test. It qualitatively reproduced
+a loading-dependent heat-capacity minimum associated with changes in
+host--guest interactions. This result motivates the temperature range of
+the present study, but does not establish the same validity range for PET.
 
 \subsubsection{Classical MD and quantum nuclear statistics}
 
@@ -1495,6 +1537,9 @@ with Cartesian Hessian
   =-\frac{\partial F_{i\alpha}}{\partial R_{j\beta}}.
   \label{eq:hessian}
 \end{equation}
+\subsubsection{Normal modes and translational invariance}
+\label{sec:normal-modes}
+
 For $N$ atoms, $\bm H$ has dimensions $3N\times3N$. Mass weighting
 connects its curvature to the normal-mode frequencies used in
 Section~\ref{sec:quantum-statistical-mechanics}:
@@ -1507,6 +1552,20 @@ Positive eigenvalues describe stable vibrations; negative eigenvalues
 indicate unstable directions and give imaginary frequencies.
 The Hessian symbol $\bm H$ denotes a matrix, distinct from the scalar
 enthalpy $H$.
+
+Translational invariance requires a uniform displacement of all atoms to
+leave the energy unchanged. The corresponding acoustic sum rule is
+\begin{equation}
+  \sum_j H_{i\alpha,j\beta}=0.
+\end{equation}
+The three uniform translations therefore have zero frequency. At a stable
+minimum, the remaining eigenvalues should be positive. Numerical
+symmetrization and an acoustic-sum-rule correction can reduce violations
+of Hessian symmetry and translational invariance, but they do not turn an
+unstable stationary structure into a minimum. Negative eigenvalues must
+remain identifiable when assessing a reference spectrum. The positive
+frequencies enter the oscillator heat capacities derived in
+Section~\ref{sec:quantum-statistical-mechanics}.
 
 \subsubsection{Automatic differentiation}
 \label{sec:automatic-differentiation}
@@ -1549,19 +1608,64 @@ conventions still control which function is differentiated.
 
 \section{Methods}
 
-\subsection{Framework selection and use in the simulations}
+The calculation follows the sequence in Figure~\ref{fig:workflow}:
+prepare a loaded periodic structure, sample its classical NPT enthalpy,
+and evaluate a harmonic correction from a relaxed loaded configuration.
+The two contributions use the same PET model and composition and are
+combined according to Eq.~\eqref{eq:quantum-correction}. This section
+specifies the systems, numerical settings, and analysis choices used for
+the reported calculations.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tabular}{@{}c@{\hspace{0.04\textwidth}}c@{}}
+    \fbox{\parbox[c]{0.39\textwidth}{\centering
+      Loaded classical NPT trajectories\\
+      $H=K+U+PV$}}
+    & \fbox{\parbox[c]{0.39\textwidth}{\centering
+      Representative loaded structures\\Fixed-cell relaxation}} \\
+    $\downarrow$ & $\downarrow$ \\
+    \fbox{\parbox[c]{0.39\textwidth}{\centering
+      Equilibrated mean enthalpy\\$C_{P,\mathrm{cl}}^{\mathrm{anh}}=\mathrm d\langle H\rangle/\mathrm dT$}}
+    & \fbox{\parbox[c]{0.39\textwidth}{\centering
+      Sparse AD Hessians and normal modes\\
+      $\Delta C^{\mathrm{har}}=C_{\mathrm{qn}}^{\mathrm{har}}-C_{\mathrm{cl}}^{\mathrm{har}}$}} \\
+    $\searrow$ & $\swarrow$ \\
+    \multicolumn{2}{c}{\fbox{\parbox[c]{0.75\textwidth}{\centering
+      $c_P^{\mathrm{approx}}=(C_{P,\mathrm{cl}}^{\mathrm{anh}}+
+      \overline{\Delta C^{\mathrm{har}}})/M_{\mathrm{cell}}$\\
+      Pair LLPR members; report sampling and model uncertainties}}}
+  \end{tabular}
+  \caption{Loaded-system workflow. Accept harmonic references only after
+  force and signed-spectrum checks. The empty-MOF Hessian is evaluated
+  separately, without an empty-MOF MD campaign.}
+  \label{fig:workflow}
+\end{figure}
+
+\subsection{Frameworks and simulation systems}
 \label{sec:framework-method}
 
-Metal--organic frameworks (MOFs) are porous crystals whose metal-containing
-nodes are connected by organic linkers. In this project, they provide the
-hosts in which guest molecules are confined. We will use MOF-5, MOF-303,
-and ZIF-8 to examine how pore chemistry, geometry, and framework motion
-affect the heat capacity of a loaded material. Figure~\ref{fig:frameworks}
-shows the empty starting structures used to prepare these systems.
-The results reported here concern methane-loaded MOF-5; MOF-303 and ZIF-8
-extend the comparison to different adsorption environments. Their starting
-structures establish the intended systems, while their heat-capacity
-curves still require the sampling and validation described below.
+The reported campaign uses the conventional cubic MOF-5 cell, with initial
+lattice parameter \SI{25.866}{\angstrom} and composition
+$\mathrm{C}_{192}\mathrm{H}_{96}\mathrm{O}_{104}\mathrm{Zn}_{32}$
+(424 host atoms). Its $\mathrm{Zn}_4\mathrm O$ nodes are connected by
+benzene-1,4-dicarboxylate linkers. Adding 50, 100, or 150 methane molecules
+gives 674, 924, or 1174 atoms, respectively. Each loading is simulated with
+PET-MAD and PET-SOL at eleven temperatures, with one trajectory per model,
+loading, and temperature, giving 66 trajectories in total. Periodic boundary
+conditions apply in all three directions. All host and guest atoms move
+freely; no rigid-molecule or fixed-framework constraints are imposed.
+
+The additional starting structures in Figure~\ref{fig:frameworks} are
+prepared for extensions of this comparison. MOF-303,
+$\mathrm{Al(OH)(PZDC)}$, contains aluminium--oxygen rods connected by
+1H-pyrazole-3,5-dicarboxylate linkers \cite{hanikel2021}; its
+$2\times2\times2$ host supercell contains 1024 atoms. ZIF-8,
+$\mathrm{Zn(mIm)}_2$, contains zinc centres joined by 2-methylimidazolate
+linkers in a sodalite-type network \cite{hobday2018}; its
+$2\times2\times2$ host supercell contains 2208 atoms. These structures
+specify the proposed host cells, while the numerical results and
+run-specific settings below refer to MOF-5/methane.
 
 \begin{figure}[htbp]
   \centering
@@ -1589,150 +1693,68 @@ curves still require the sampling and validation described below.
   \label{fig:frameworks}
 \end{figure}
 
-\textbf{MOF-5} consists of $\mathrm{Zn}_4\mathrm O$ nodes joined by
-benzene-1,4-dicarboxylate linkers, forming a three-dimensional network of
-pores. It provides the reference system for the methane-loading comparison
-with Kapil \emph{et al.}\ \cite{kapil2019}. We use the conventional
-424-atom host cell and 50, 100, or 150 methane molecules to test the
-loading dependence with PET-MAD and PET-SOL before extending the protocol
-to other hosts and guests.
-
-\textbf{MOF-303}, $\mathrm{Al(OH)(PZDC)}$, contains aluminium--oxygen rods
-connected by 1H-pyrazole-3,5-dicarboxylate (PZDC) linkers. Its
-one-dimensional channels contain polar pyrazole and hydroxyl groups that
-provide hydrogen-bonding sites for water \cite{hanikel2021}.
-We will use it to investigate how this hydrophilic environment and
-water--framework interactions modify the vibrational correction and the
-anharmonic contribution sampled by MD. The illustrated starting host is
-a $2\times2\times2$ supercell containing 1024 atoms.
-
-\textbf{ZIF-8}, $\mathrm{Zn(mIm)}_2$ with mIm denoting
-2-methylimidazolate, consists of tetrahedrally coordinated zinc centres
-connected into a sodalite-type network. Its cages are connected by narrow
-windows; linker rotations can change their effective opening and couple
-guest adsorption to framework motion \cite{hobday2018}. It will provide
-a complementary test of coupling between guest motion and flexible pore
-windows. The illustrated $2\times2\times2$ host supercell contains
-2208 atoms.
-
-\paragraph{Guest loading and comparable state points.}
-The workflow accepts $\mathrm{CH_4}$, $\mathrm{CO_2}$, or
-$\mathrm{H_2O}$ as the selected guest. For each host--guest pair, we specify
-a fixed number of molecules in the periodic cell, prepare independent
-placements, and vary temperature at the prescribed pressure. This defines
-a heat capacity at fixed composition; the calculation does not determine
-an adsorption isotherm or exchange molecules with an external reservoir.
-Because the three cells have different sizes and compositions, the same
-number of guest molecules does not represent equivalent loading across
-hosts. Comparisons will therefore state the cell composition and guest
-content per unit host mass, and normalize the heat capacity by the total
-mass of the loaded cell.
-
-\paragraph{Common calculation for each loaded framework.}
-Each prepared structure first undergoes fixed-cell relaxation to remove
-unfavorable contacts, followed by flexible-cell NPT molecular dynamics.
-The framework and guests both move under the selected PET potential.
-After equilibration, mean enthalpies at neighboring temperatures give the
-classical heat-capacity contribution, including the sampled anharmonic
-host--guest motion. The insertion procedure and MD settings are described
-in Sections~\ref{sec:structure-preparation} and~\ref{sec:md-method}.
-
-Representative loaded configurations are then relaxed at fixed cell and
-used to compute Hessians and normal modes with the matching PET-JAX
-potential. Their quantum-minus-classical harmonic contribution corrects
-the classical MD estimate using the hybrid approximation in
-Section~\ref{sec:hybrid-method}. The correction uses the complete loaded
-system, including guest vibrations and host--guest coupling. A separately
-relaxed empty framework supplies a harmonic reference; it is not an empty
-NPT campaign. Section~\ref{sec:normal-modes} gives the mode treatment and
-mass normalization.
-
-Applying the same sequence to each host makes it possible to relate
-changes in heat capacity to pore chemistry and flexibility. Each new
-host--guest combination still requires checks of structural stability,
-guest equilibration, model suitability, and numerical convergence before
-comparing its curve with the MOF-5 results. Supercell choices in
-Figure~\ref{fig:frameworks} specify the starting calculations and must be
-tested for finite-size effects.
-
-\subsection{Hybrid approximation}
-\label{sec:hybrid-method}
-
-Kapil \emph{et al.}\ tested empty MOF-5 and 50-, 100-, and 150-methane cells
-\cite{kapil2019}. Their hybrid strategy motivates this project; its accuracy
-on PET remains to be established.
-
-The reference used QuickFF \cite{quickff}: B3LYP cluster-based bonded terms,
-MBIS charges from periodic PBE, Gaussian electrostatics, and MM3 Buckingham
-interactions with a \SI{15}{\angstrom} cutoff and tail corrections.
-RASPA insertion and canonical Monte Carlo preceded MD. Here PET supplies all
-energies, forces, and Hessians after independent random guest placement.
-
-Both workflows differentiate neighboring equilibrium enthalpies using
-Eq.~\eqref{eq:finite-difference-cp}, with $\Delta T=\SI{25}{K}$.
-The reference used optimized Yaff Hessians and TAMkin modes, compared QuickFF
-and UFF4MOF for the empty host, and optimized five Monte Carlo configurations
-for the 100-methane harmonic calculation.
-
-The reference found nearly harmonic, quantum-mechanical empty MOF-5
-(roughly \SI{0.7}{J\per g\per K} near room temperature). Classical
-occupations overestimate its heat capacity. Methane introduces anharmonic
-host--guest motion and a loading-dependent minimum near \SI{200}{K},
-associated with changing attractive interactions as guests become mobile.
-The combination
-\begin{equation}
-          C \approx C_{\mathrm{qn}}^{\mathrm{har}}
-          - C_{\mathrm{cl}}^{\mathrm{har}}
-          + C_{\mathrm{cl}}^{\mathrm{anh}}
-          \label{eq:quantum-correction}
-        \end{equation}
-reproduced the minimum qualitatively and was useful above about \SI{200}{K}
-in their 100-methane test. A loaded-system spectrum is essential: the empty
-Hessian omits guest modes and host--guest coupling. The PET estimator uses
-the same combination in Eq.~\eqref{eq:quantum-correction}.
-
-\subsection{Structure preparation and guest insertion}
+\subsection{Structure preparation and initialization}
 \label{sec:structure-preparation}
 
-For the reported MOF-5/methane calculations, the conventional host has
-424 atoms and cell parameter \SI{25.866}{\angstrom}. The campaign module
-\texttt{mof\_\allowbreak{}heat\_\allowbreak{}capacity.\allowbreak{}protocols.\allowbreak{}loaded}
-reads the selected periodic host and a single-molecule guest template.
-It places randomly oriented copies at fractional positions in the cell,
-rejecting periodic atom--atom overlaps; automatic repacking is used when
-sequential insertion jams. The same procedure prepares the additional
-frameworks and guest species introduced in Section~\ref{sec:framework-method}.
-Structure files preserve the input cell geometry, while the campaign
-metadata records the source structure and host atom count. Independent insertion and velocity seeds define replicas.
-Random placement removes severe initial contacts, but subsequent
-relaxation and MD equilibration are needed to sample adsorption
-environments at the target temperature and pressure.
+The MOF-5 calculations use \texttt{input/mof5.pdb} for the host and
+\texttt{input/ch4.gro} for the methane template. The preparation routine
+reads the periodic host and single-molecule template. Randomly oriented guest molecules are
+placed at fractional positions in the cell, rejecting overlaps with the
+host or previously placed guests under periodic boundary conditions. The
+current routine uses a minimum intermolecular atom--atom separation of
+\SI{1.5}{\angstrom} and up to 20000 placement attempts per molecule. If
+sequential insertion stalls, automatic repacking allows up to 20 rounds,
+removing a random quarter of the inserted molecules between rounds and
+restarting the full packing every fourth round. Guest geometry is held
+fixed only during insertion. The original MOF-5/methane structure archives
+do not retain the insertion-budget metadata, so these current preparation
+settings cannot be verified retrospectively for those structures.
 
-\subsection{PET model and implementation}
+The campaign seed convention is $20250000+100T+r$, where $T$ is the
+numerical temperature in kelvin and $r$ is the replica index. The reported
+runs use $r=1$, giving velocity seeds from 20267501 at \SI{175}{K} to
+20292501 at \SI{425}{K}. Prepared structures are shared between PET-MAD
+and PET-SOL at each loading and temperature. Velocities are drawn from a
+Gaussian distribution at the target temperature, with initial total linear
+and angular momentum removed. Each temperature is initialized separately.
+
+The archived inputs for the 66 reported MD trajectories contain no
+pre-MD minimization command. The current preparation workflow adds a
+fixed-cell LAMMPS FIRE relaxation before assigning velocities, with a
+maximum Cartesian force-component tolerance of
+\SI{0.05}{eV\per\angstrom}, zero energy-change tolerance, limits of 2000
+iterations and 20000 force evaluations, and maximum displacement
+\SI{0.05}{\angstrom}. Failure to meet the force criterion stops a fresh
+run; the MD timestep is restored after minimization. These settings describe
+the updated initialization procedure, distinct from the archived MD inputs
+and from the post-MD relaxations used to obtain Hessians.
+
+\subsection{Interatomic potentials and implementations}
 \label{sec:pet-implementation}
 
-The supplied PET-MAD and PET-SOL conversions share the architecture in
-Table~\ref{tab:pet-settings}; identical settings do not imply identical
-weights or training data. The original PET default used three attention
-layers per block, rather than one here.
+Two pretrained potentials are used: PET-MAD
+(\texttt{pet-mad-1.\allowbreak{}5-s-40nn}) and PET-SOL
+(\texttt{pet-sol-s-best}). Their local PET-JAX metadata records the common
+architecture in Table~\ref{tab:pet-settings}; their weights differ.
+The architecture and its operations are described in
+Section~\ref{sec:pet-architecture}.
 
 \begin{table}[htbp]
 \centering
 \small
 \caption{Architecture settings recorded in the local PET-MAD and PET-SOL
-PET-JAX metadata. The species count is embedding capacity, not a measure of
-training coverage.}
+PET-JAX metadata.}
 \label{tab:pet-settings}
 \begin{tabular}{lr}
 \toprule
 Setting & Value \\
 \midrule
-Outer cutoff & \SI{8.0}{\angstrom} \\
-Cutoff switching width & \SI{0.5}{\angstrom} \\
+$R_{\mathrm{c}}$ & \SI{8.0}{\angstrom} \\
+$\Delta R_{\mathrm{c}}$ & \SI{0.5}{\angstrom} \\
 Adaptive neighbor-selection setting & 40 \\
-Message-passing blocks & 3 \\
-Attention layers per block & 1 \\
-Token width, $d_{\mathrm{PET}}$ & 256 \\
+$n_{GNN}$ & 3 \\
+$n_{TL}$ & 1 \\
+$d_{\mathrm{PET}}$ & 256 \\
 Attention heads & 8 \\
 Transformer feed-forward width & 512 \\
 Node feature width, \texttt{d\_\allowbreak{}node} & 1024 \\
@@ -1742,124 +1764,180 @@ Species-embedding capacity & 102 \\
 \end{tabular}
 \end{table}
 
-The installed PyTorch implementation (\texttt{metatrain} 2026.3.1) embeds
-$(x_{ij},y_{ij},z_{ij},r_{ij})$ and initializes edge messages with species
-embeddings. Central features contract to token width for attention and expand
-afterward. Attention-head width is $256/8=32$;
-\texttt{d\_\allowbreak{}head=256} denotes readout width. Neighbor masking and log-cutoff
-logits implement Eq.~\eqref{eq:self-attention}. Reverse-neighbor routing
-and averaging with old messages update edge states.
+LAMMPS evaluates the exported metatomic model on a GPU for MD, while
+PET-JAX/SADMOF evaluates the corresponding coordinate Hessians. The PET-MAD
+checkpoint and export have basename
+\texttt{pet-mad-1.\allowbreak{}5-s\_\allowbreak{}40nn\_\allowbreak{}nostress}, with the PET-JAX
+conversion \texttt{pet-mad-1.\allowbreak{}5-s\_\allowbreak{}40nn\_\allowbreak{}jax}; the PET-SOL
+basename is \texttt{pet\_\allowbreak{}sol-s-best\_\allowbreak{}nostress}, with
+\texttt{\_jax} appended for the conversion. The exports are generated with
+\texttt{upet.\allowbreak{}save\_\allowbreak{}upet}; conversion preserves the pretrained weights and
+does not retrain the model. The local PyTorch implementation uses
+\texttt{metatrain} 2026.3.1, and setup pins PET-JAX to commit
+\texttt{ed0add4}.
 
-The repository exports checkpoints with \texttt{upet.\allowbreak{}save\_\allowbreak{}upet} for
-LAMMPS/metatomic MD, and converts matching weights to PET-JAX for SADMOF
-Hessians. Setup pins PET-JAX to commit \texttt{ed0add4}; conversion does
-not retrain. Composition baselines have zero Cartesian derivatives; energy
-scales must carry through forces and Hessians.
+The generated configurations mark the models as stress-validated.
+Quantitative use nevertheless requires energy, force, and stress checks on
+representative loaded structures, together with consistent energy scaling
+and adaptive-cutoff derivative conventions across the two implementations
+(Appendix~\ref{sec:asd-method}). A configuration flag alone does not
+establish agreement. All terms of each hybrid curve use its selected model;
+the two potentials are analyzed separately.
 
-Compare energies and forces across export and conversion, including
-adaptive-cutoff derivative conventions (Appendix~\ref{sec:asd-method}).
-NPT additionally requires
-validated stress output on representative loaded-MOF structures; matching
-filenames or capability flags alone are insufficient \cite{petmad}.
-
-\subsection{Classical NPT molecular dynamics}
+\subsection{Classical NPT simulations and enthalpy analysis}
 \label{sec:md-method}
 
-Fresh loaded-system runs first use fixed-cell FIRE relaxation, with the
-force tolerance and optimization budgets recorded in the generated input.
-The maximum Cartesian force component must meet the tolerance before
-thermal velocities are assigned; failed convergence stops the run.
-The configured MD timestep is restored after FIRE's adaptive optimization.
-This initialization precedes equilibration and is distinct from the later
-Hessian quench \cite{lammps-fire}.
-
-
-The reported methane campaigns propagate loaded MOF-5. LAMMPS/metatomic uses a flexible triclinic
-cell with isotropic \SI{1}{bar} target pressure and a
-Nos\'e--Hoover-chain/MTTK NPT fix. The campaign settings are
+The archived LAMMPS inputs use \texttt{units metal} and
+\texttt{atom\_style atomic}. A Nos\'e--Hoover-chain thermostat and MTTK
+barostat propagate a fully flexible triclinic cell. The
+\texttt{tri} pressure setting targets \SI{1}{bar} for each normal
+component and zero shear stress, allowing both cell lengths and tilts to
+vary. Table~\ref{tab:md-settings} lists the common parameters for all
+66 trajectories.
 
 \begin{table}[htbp]
   \centering
   \small
-  \caption{Configured NPT campaign. Equilibration and convergence are assessed
-  from observables, not assumed from these durations.}
+  \caption{Parameters shared by the reported MOF-5/methane NPT runs.
+  The discarded interval is an analysis choice, not proof of equilibration.}
   \label{tab:md-settings}
   \begin{tabular}{@{}ll@{}}
     \toprule
     Parameter & Value \\
     \midrule
+    Models & PET-MAD and PET-SOL \\
+    Methane molecules per cell & 50, 100, 150 \\
+    Temperatures & 175--\SI{425}{K}, in \SI{25}{K} increments \\
+    Replicas per model, loading, and temperature & 1 \\
+    Normal pressure / shear stress targets & \SI{1}{bar} / 0 \\
     Particle / barostat thermostat chain lengths & 3 / 3 \\
-    Thermostat / barostat damping & 100 / \SI{1000}{fs} \\
+    Thermostat / barostat damping times & 100 / \SI{1000}{fs} \\
+    Martyna--Tobias--Klein correction & Enabled (\texttt{mtk yes}) \\
     Timestep / total steps & \SI{0.5}{fs} / $10^6$ \\
-    Trajectory / discarded interval & 500 / \SI{100}{ps} \\
-    Save interval & 100 steps (\SI{0.05}{ps}) \\
-    Models / methane loadings & PET-MAD, PET-SOL / 50, 100, 150 \\
-    MD grid & 175--\SI{425}{K}, every \SI{25}{K} \\
-    Hybrid reporting grid & 200--\SI{400}{K}, every \SI{25}{K} \\
-    Available replicas & One per state point \\
+    Total / discarded / retained duration & 500 / 100 / \SI{400}{ps} \\
+    Thermodynamic and trajectory output interval & 100 steps (\SI{0.05}{ps}) \\
+    Restart interval & $10^5$ steps (\SI{50}{ps}) \\
+    Neighbor-list skin & \SI{2}{\angstrom} \\
+    Neighbor rebuild checks & Every step, no delay \\
+    Neighbor allocation (\texttt{one} / \texttt{page}) & 10000 / 1000000 \\
+    Atomic masses: C, H, O, Zn & 12.011, 1.008, 15.999, 65.38 u \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-Production means use physical enthalpy,
-\begin{equation}
-  \langle H\rangle_T
-  =\left\langle E+PV\right\rangle_T,
-\end{equation}
-then replica averaging, where available, and centered differentiation with
-neighbors separated by \SI{50}{K}. This term retains sampled anharmonic
-motion. Independent replicas, longer production, and temperature-spacing
-convergence remain outstanding (Section~\ref{sec:results-md}).
+Thermodynamic logs contain potential and kinetic energies, temperature,
+volume, the pressure tensor, and cell dimensions. Trajectory records
+contain atom identities, unwrapped positions, velocities, and forces.
+Analysis retains steps 200000--1000000, inclusive, corresponding to
+8001 samples at the recorded output interval. Logs and configurations are
+matched by timestep. Restart continuations restore the saved state and run
+to the original final-step target without assigning new velocities; they
+form part of the same trajectory.
 
-Thermodynamic output includes potential and kinetic energies, cell volume,
-temperature, and the pressure tensor. Production trajectory output starts
-after the prescribed equilibration interval; logs and frames are matched
-by timestep. The input uses a \SI{2}{\angstrom} neighbor-list skin with
-rebuild checks every step and saves numeric restarts every $10^5$ steps.
-Continuations restore the latest restart, skip minimization and velocity
-assignment, and advance to the original final-step target. They extend one
-trajectory rather than create independent replicas.
+For each state point, the physical enthalpy is calculated from kinetic and
+potential energies plus the volume multiplied by the imposed
+\SI{1}{bar} pressure. Thermostat and barostat energies are excluded.
+Mean enthalpies are differentiated using
+Eq.~\eqref{eq:finite-difference-cp} with $\Delta T=\SI{25}{K}$, so each
+derivative uses two trajectories separated by \SI{50}{K}. The extra
+\SI{175}{K} and \SI{425}{K} runs support centered derivatives at the
+endpoints of the reported 200--\SI{400}{K} interval. Energy, volume,
+temperature, and structural diagnostics are examined over the retained
+segment; their convergence is assessed in Section~\ref{sec:results-md}.
 
-\subsection{Normal modes and quantum harmonic heat capacity}
-\label{sec:normal-modes}
+\subsection{Harmonic references and heat-capacity assembly}
+\label{sec:harmonic-method}
 
-Fixed-cell reference Hessians are evaluated with PET-JAX/SADMOF. The full
-sparse differentiation procedure, its numerical settings, and its
-convergence requirements are collected in Appendix~\ref{sec:graph-coloring}.
+For each model and loading, the final configuration of the \SI{400}{K}
+trajectory is relaxed with ASE FIRE using the matching metatomic potential.
+All atomic coordinates are optimized while the final MD cell is held fixed.
+The resulting single structure supplies the loaded Hessian used at every
+reporting temperature. The empty MOF-5 input is relaxed separately at its
+original cell with each model to provide a harmonic reference; no empty-MOF
+MD trajectory is used.
 
-Symmetrize the Hessian, enforce the acoustic sum rule, and mass weight:
-\begin{equation}
-  \sum_j H_{i\alpha,j\beta}=0,
-\end{equation}
-The mass-weighted eigenproblem is Eq.~\eqref{eq:normal-mode-eigenproblem}.
-Uniform translations should have zero restoring force. Unlike the upstream
-SADMOF observable, which maps negative eigenvalues to zero, the local
-calculation preserves signed imaginary frequencies. Strict hybrid assembly
-rejects unexpected imaginary modes and allows at most three translational
-near-zero modes. Exploratory outputs instead discard modes at or below the
-threshold (Section~\ref{sec:results-hessians}).
+Table~\ref{tab:relax-settings} records the force targets and completed
+optimization steps for these references. The stopping criterion is the
+largest atomic force norm, which differs from the Cartesian-component
+criterion used in the current pre-MD initialization. The four unconverged
+loaded relaxations reached their recorded step limits. The archives for
+converged runs retain the completed step count but not the requested maximum
+budget; these values should therefore not be interpreted as iteration caps.
+FIRE uses the ASE defaults for its remaining optimizer controls, which are
+not separately recorded in the relaxation metadata.
 
-For retained positive modes, use the oscillator heat capacity derived in
-Section~\ref{sec:quantum-statistical-mechanics}:
-\begin{equation}
-  x_k=\frac{\hbar\omega_k}{k_{\mathrm B}T}
-      =\frac{h_{\mathrm P}c\tilde\nu_k}{k_{\mathrm B}T},
-\end{equation}
-\begin{equation}
-  C_{V,k}=k_{\mathrm B}
-  \left[\frac{x_k/2}{\sinh(x_k/2)}\right]^2,
-  \label{eq:quantum-harmonic-cv}
-\end{equation}
-\begin{equation}
-  c_V(T)=\frac{1}{M_{\mathrm{cell}}}
-  \sum_{k\in\mathcal V} C_{V,k},
-  \label{eq:harmonic-cv}
-\end{equation}
-$\tilde\nu_k$ is wavenumber, and $M_{\mathrm{cell}}$ includes guests.
-Using cell mass in grams and mode heat capacity in \si{J\per K} gives
-\si{J\per g\per K}. Equivalently use $N_{\mathrm A}/M_{\mathrm{molar}}$.
-One spectrum supplies the configured 100--\SI{500}{K} curve every
-\SI{10}{K}; temperature changes populations, assuming fixed force constants.
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Archived fixed-cell ASE FIRE settings and completed steps for
+  the reference structures. Loaded references originate at \SI{400}{K};
+  zero loading denotes the supplied empty host.}
+  \label{tab:relax-settings}
+  \begin{tabular}{@{}lrrrr@{}}
+    \toprule
+    Model & $N_{\chfour}$ & Force target (eV/\AA) & Steps & Converged \\
+    \midrule
+    PET-MAD & 0   & 0.002 & 70    & yes \\
+    PET-MAD & 50  & 0.002 & 10000 & no \\
+    PET-MAD & 100 & 0.010 & 1495  & yes \\
+    PET-MAD & 150 & 0.002 & 20000 & no \\
+    PET-SOL & 0   & 0.002 & 66    & yes \\
+    PET-SOL & 50  & 0.002 & 10000 & no \\
+    PET-SOL & 100 & 0.010 & 2154  & yes \\
+    PET-SOL & 150 & 0.002 & 20000 & no \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+PET-JAX/SADMOF computes the Hessians with the parameters in
+Table~\ref{tab:harmonic-settings}. The theoretical construction of normal
+modes is given in Section~\ref{sec:normal-modes}, the oscillator heat
+capacity in Section~\ref{sec:quantum-statistical-mechanics}, and the sparse
+AD algorithm in Appendix~\ref{sec:graph-coloring}. The present calculations
+symmetrize the Hessian, apply the force-constant row-sum acoustic treatment,
+and diagonalize the mass-weighted matrix while preserving the sign of
+unstable eigenvalues.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Hessian and heat-capacity settings for the reported analysis.
+  The archived Hessians use float64, overriding the float32 TOML template.}
+  \label{tab:harmonic-settings}
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    Parameter & Value \\
+    \midrule
+    Backend / precision & PET-JAX/SADMOF / float64 \\
+    Structures per model and loading & 1 (optimized frame index 0) \\
+    Sparse-pattern graph hops & 3 \\
+    AD chunk size & 1 \\
+    Rematerialization / shadow derivatives & Enabled / disabled \\
+    Acoustic treatment & Force-constant row sum \\
+    Frequency convention & Signed \\
+    Near-zero threshold & $|\widetilde\nu|\leq1\,\mathrm{cm^{-1}}$ \\
+    Imaginary-mode threshold & $\widetilde\nu<-1\,\mathrm{cm^{-1}}$ \\
+    Strict allowance for near-zero modes & At most 3 \\
+    Standalone harmonic temperature grid & 100--\SI{500}{K}, every \SI{10}{K} \\
+    Hybrid reporting grid & 200--\SI{400}{K}, every \SI{25}{K} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Strict assembly rejects unexpected imaginary modes and more than three
+near-zero modes. The reported exploratory curves instead retain only
+frequencies above $1\,\mathrm{cm^{-1}}$, using the same mask for the quantum
+and classical harmonic terms. This choice permits evaluation of the
+correction but does not establish stability of the reference structures;
+the corresponding diagnostics are reported in
+Section~\ref{sec:results-hessians}.
+
+At each reporting temperature, the retained loaded spectrum supplies the
+quantum-minus-classical harmonic correction in
+Eq.~\eqref{eq:quantum-correction}. It is added to the classical NPT heat
+capacity and divided by the total host-plus-guest mass to obtain
+\si{J\per g\per K}. The empty-framework harmonic curve is normalized by
+the host mass and shown as a separate reference. Sampling and model
+uncertainties are treated in the following subsection.
 
 \subsection{Uncertainty quantification}
 
@@ -2488,7 +2566,7 @@ trajectory/minimum sampling, and validated paired uncertainty propagation
 are needed before interpreting these curves as converged predictions.
 
 \appendix
-\section{Transformers and their use in PET}
+\section{Transformers and attention}
 \label{sec:transformers}
 
 \begin{figure}[htbp]
@@ -2502,196 +2580,137 @@ are needed before interpreting these curves as converged predictions.
   \label{fig:transformer}
 \end{figure}
 
-This appendix develops the transformer operations used within the PET
-message-passing blocks of Section~\ref{sec:pet-architecture}. The general
-construction follows Ref.~\cite{vaswani2017}; PET's token encoding and
-smooth-cutoff modification follow Section~6 and Appendix~A of
-Ref.~\cite{pet}. The equations below explain the computation and its
-shapes. They do not fix every implementation choice of a later checkpoint.
+\subsection{Tokenization and embedding}
 
-Transformers were introduced for sequence modeling and became widely known
-through language models such as GPT-3 \cite{brown2020}. Whereas recurrent
-networks pass a hidden state sequentially between positions, self-attention
-lets token representations exchange information directly and be evaluated
-in parallel during training. Autoregressive language generation still
-produces tokens sequentially. PET uses local self-attention on atomic
-geometry, without a language decoder or next-token prediction task.
+The original transformer architecture \cite{vaswani2017} was designed for sentence translation.
+But it was then used to other NLP tasks, such as text classification and question answering.
+Therefore, the transformer architecture takes a text as input.
+However, a text is a sequence of strings, which is not numerical data and can't be directly processed by a neural network.
+To convert a sentence into a numerical representation, each word (or punctuation mark) in the sentence is first separated into a token,
+and then each token is mapped to a vector representation, called an embedding.
+Each token embedding is a vector living in a high-dimensional space, and the embedding vectors are stacked together to form a matrix $\bm X$.
+The way to interpret these vectors is that each token is represented as a point in a high-dimensional space, and the distance between two points reflects the semantic similarity between the corresponding tokens.
+For instance, the tokens "cat" and "dog" are both animals, so their embeddings should be close to each other in the embedding space.
+In addition, the transformer architecture also uses positional encoding to encode the order of the tokens in the sequence.
+This is especially important for words that could have different meanings depending on their position in the sentence.
+For instance, the word "bank" could refer to a financial institution or the side of a river, and its meaning can be inferred from the surrounding words.
+So the embedding of the word "bank" could have different values depending on its position in the sentence, and the positional encoding helps to capture this information.
+These embeddings are something that has to be learned from the data, and they are usually initialized randomly and then updated during training.
+In the case of the PET architecture, the token embeddings are already explained in Section~\ref{sec:pet-architecture}.
+So what is relevant for us is to understand the next step in the transformer architecture, which is the attention mechanism.
 
-\subsection{Tokens and the input matrix}
+\subsection{Attention mechanism}
 
-A token is a vector of learned features. At message-passing block $k$, PET
-constructs one token for the center and one for each of its $m$ neighbors,
-using the embeddings and incoming messages in
-Eqs.~\eqref{eq:pet-position-embedding}--\eqref{eq:pet-token}.
-The transformer receives all $n=m+1$ tokens together, rather than treating
-them as independent examples. Write their current representations as rows
-of $\bm X\in\mathbb R^{n\times d}$, where $d=d_{\mathrm{PET}}$ for the
-original architecture. Subsequent transformer layers receive updated
-matrices with the same number of rows and the same width.
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.2\textwidth]{figures/transformer/ModalNet-20.png}
+  \includegraphics[width=0.2\textwidth]{figures/transformer/ModalNet-19.png}
+  \caption{One attention head computes queries, keys, and values from the
+  input token matrix $\bm X$ using learned linear projections. The queries
+  $\bm Q$ are compared with the keys $\bm K$ to produce attention weights
+  $\bm A$, which are then used to compute a weighted sum of the values
+  $\bm V$ to produce the output $\bm Y$.}
+  \label{fig:transformer-qkv}
+\end{figure}
 
-The central token introduces the central species, while each neighbor token
-contains its species, relative geometry, and, after the first block, an
-incoming message. Its token index identifies a neighbor entry; it is not a
-sequence position with physical meaning. Unlike text transformers, PET
-does not add a positional encoding based on the arbitrary neighbor-list
-order. Geometric information has already entered through
-$E_r^{(k)}(\bm r_{ij})$.
+With our input matrix $\bm X\in\mathbb R^{n\times d}$, where $n$ is the number of tokens and $d$ is the embedding dimension,
+we compute the queries, keys, and values as follows:
 
-Different environments can have different numbers of neighbors. A batched
-implementation may pad their token matrices to a common size, but padded
-slots must be masked. Batching environments is a computational convenience;
-attention acts within each environment. Message passing supplies the
-communication between environments.
-
-\subsection{Queries, keys, and values}
-
-For one attention head, three learned projections act on the same input
-matrix:
 \begin{equation}
   \bm Q=\bm X\bm W_Q,\qquad
   \bm K=\bm X\bm W_K,\qquad
   \bm V=\bm X\bm W_V,
   \label{eq:transformer-qkv}
 \end{equation}
+
 with $\bm W_Q,\bm W_K\in\mathbb R^{d\times d_k}$ and
-$\bm W_V\in\mathbb R^{d\times d_v}$. Thus $\bm Q$ and $\bm K$ have
-shape $n\times d_k$, while $\bm V$ has shape $n\times d_v$.
-Here $d_k$ is a query/key dimension, not the message-passing index $k$.
-These equations omit optional projection biases for clarity.
+$\bm W_V\in\mathbb R^{d\times d_v}$. Thus $\bm Q,\bm K, \bm V \in\mathbb R^{n\times d}$.
+These matrices are what the attention mechanism uses to compute the attention matrix $\bm A\in\mathbb R^{n\times n}$,
+which contains the attention weights for each token pair.
 
-The query $\bm q_a$ of token $a$ specifies which information it seeks, a key
-$\bm k_b$ determines compatibility with token $b$, and the value $\bm v_b$
-supplies the features to combine. These descriptions express computational
-roles, rather than predetermined meanings of individual feature components.
-Although all three vectors originate from the same token representation,
-the separate learned maps allow different comparisons and information
-content. Using the same token set for queries, keys, and values is what
-makes the operation \emph{self}-attention.
-
-\subsection{Scores, masks, and row-wise normalization}
-
-The dot product of a query and key gives a compatibility score. With $a,b,c$
-indexing tokens in the same environment, one head computes
 \begin{equation}
-  \begin{aligned}
-    s_{ab}&=\frac{\bm q_a^{\mathrm T}\bm k_b}{\sqrt{d_k}}+M_{ab},\\
-    A_{ab}&=\frac{\exp(s_{ab})}{\sum_{c=1}^{n}\exp(s_{ac})},
-    \qquad \bm y_a=\sum_{b=1}^{n}A_{ab}\bm v_b.
-  \end{aligned}
+  \bm A=\operatorname{softmax}_{\mathrm{row}}\!\left(
+    \frac{\bm Q\bm K^{\mathrm T}}{\sqrt{d_k}}+\bm M\right),
   \label{eq:transformer-attention-weights}
 \end{equation}
-Here the vectors are column-vector forms of the corresponding matrix rows.
-Rows of $\bm A$ identify receiving queries; columns identify the keys and
-values being used. Each row sums to one, provided at least one token in that
-row is allowed. The output is therefore a weighted combination of value
-vectors. The projection weights are trainable parameters, while $A_{ab}$
-is recomputed for each input configuration and transformer layer.
 
-Dividing by $\sqrt{d_k}$ moderates the growth of dot-product magnitudes
-with feature dimension. Without this scaling, large scores can make the
-softmax sharply concentrated and its gradients small
-\cite{vaswani2017}. In matrix form, the same operation is
+To better understand what $\bm A$ represents, we can look at its coefficients.
+Suppose we have a sentence "The animal didn't cross the street because it was too tired".
+The word "it" refers to "the animal" and not "the street",
+so the attention weight between "it" and "the animal" should be high,
+while the attention weight between "it" and "the street" should be low.
+The term $\bm Q\bm K^{\mathrm T}$ computes the dot product between the queries and keys,
+which measures the similarity between each token's query and every other token's key.
+The scaling factor $1/\sqrt{d_k}$ is used to prevent the dot products from growing too large.
+The $\bm M$ matrix is a mask that can be used to prevent certain tokens from attending to each other.
+For instance, if we are training the model to predict the next word in a sentence, we don't want the model to know the future words,
+otherwise it would defeat the purpose of predicting the next word,
+so we "mask" these words by setting their attention weights to zero.
+The softmax function is given by
+
 \begin{equation}
-  \bm Y=\operatorname{softmax}_{\mathrm{row}}\!\left(
-    \frac{\bm Q\bm K^{\mathrm T}}{\sqrt{d_k}}+\bm M\right)\bm V,
-  \label{eq:transformer-attention-matrix}
+  \operatorname{softmax}_{\mathrm{row}}(\bm Z)_{ab}
+    =\frac{\exp(Z_{ab})}{\sum_{c=1}^n\exp(Z_{ac})},
+  \qquad a,b=1,\ldots,n,
+  \label{eq:transformer-softmax}
 \end{equation}
-where $\bm Q\bm K^{\mathrm T}$ and $\bm A$ have shape $n\times n$ and
-$\bm Y$ has shape $n\times d_v$.
 
-The additive mask $\bm M$ restricts which values may be used. An allowed
-entry can have $M_{ab}=0$; setting an entry to $-\infty$ makes its softmax
-weight zero. In an autoregressive language model, a causal mask excludes
-future sequence positions. PET's atomic neighborhoods have no such causal
-order: every physical token may attend to every other physical token in
-the same environment. Padding is excluded, and radial cutoff weights
-supply a further modification. A mask based on arbitrary atom indices
-would introduce an artificial dependence on labeling.
+The softmax function normalizes the attention weights so that they sum to one across each row,
+which means that for each token, the attention weights represent a probability distribution over all other tokens.
+We add large negative values to the masked positions in $\bm M$ so that their softmax output is effectively zero.
+After computing $\bm A$, we can compute the output of the attention mechanism as a weighted sum of the values:
 
-\subsection{PET's smooth cutoff inside attention}
-\label{sec:transformer-cutoff-detail}
-
-Section~6 of Ref.~\cite{pet} multiplies the ordinary attention coefficients
-by a radial cutoff and renormalizes them. The main text denotes the ordinary
-coefficients by $\alpha_{ab}$; these are the entries $A_{ab}$ in
-Eq.~\eqref{eq:transformer-attention-weights}. For environment $A_i$, let
-$c_b=f_c(r_{ib}\mid R_c,\Delta_{R_c})$ for a neighbor and $c_b=1$ for the
-central token. Combining the softmax with the paper's cutoff rule gives
 \begin{equation}
-  \alpha_{ab}^{\mathrm{cut}}
-   =\frac{\exp(s_{ab})c_b}{\sum_c\exp(s_{ac})c_c}
-   =\frac{\alpha_{ab}c_b}{\sum_c\alpha_{ac}c_c}.
-  \label{eq:transformer-cutoff-expanded}
+  \bm Y = \bm A\bm V,
+  \label{eq:transformer-attention-output}
 \end{equation}
-The ordinary softmax denominator cancels when the weights are renormalized.
-Each head uses these modified weights to combine its values, as in
-Eq.~\eqref{eq:self-attention}. In particular, the radial factor depends on
-the distance of the \emph{source neighbor} from center $i$, rather than on
-the distance between the query token and that neighbor.
 
-For $c_b>0$, the same normalized weights can be obtained by adding
-$\log c_b$ to every score in column $b$. A zero cutoff corresponds to an
-excluded column, understood as the $\log c_b\to-\infty$ limit. This is a
-mathematical equivalence; numerical implementations must handle zero weights
-without evaluating an undefined logarithm. Padded source columns likewise
-have zero weight, and padded query outputs must be ignored downstream.
-Retaining the central token with unit weight ensures at least one active
-source for each physical query.
+where $\bm Y\in\mathbb R^{n\times d_v}$ is the output of the attention mechanism.
+Each of the $W_Q$, $W_K$, and $W_V$ are weight matrices that are fine-tuned during training.
+In the PET architecture, masking is not needed because there is no sequential ordering of the tokens, and all tokens can attend to each other.
 
-The purpose is smooth disappearance at the neighbor boundary. Multiplying
-only the final weighted sum by a cutoff would not remove the departing
-token from the attention normalization. Conversely, suppressing its role
-as a source does not force its own output token to zero: that token can
-still attend to the surviving ones. This is why the separate edge-energy
-readout cutoff in Eq.~\eqref{eq:pet-bond-sum} is also needed. Learned
-attention coefficients are not physical pair potentials and need not
-be monotonic functions of distance.
+\subsection{Multi-head attention}
 
-\subsection{Multiple attention heads and output projection}
+We can extend the attention mechanism by dividing the input tokens $\bm X$
+into subsets $\bm X_1, \ldots, \bm X_H$, such that $d_v = d/H$, and constructing attention matrices $\bm A_1, \ldots, \bm A_H$ for each subset,
+this is called multi-head attention. We can then concatenate the outputs of each head to form the final output:
 
-A multi-head layer repeats the query/key/value projections with independent
-parameters for $H$ heads. Each head produces $\bm Y_h\in\mathbb R^{n\times d_v}$,
-and their feature columns are concatenated and projected back to width $d$:
 \begin{equation}
   \operatorname{MHA}(\bm X)
     =\operatorname{Concat}(\bm Y_1,\ldots,\bm Y_H)\bm W_O,
   \qquad \bm W_O\in\mathbb R^{Hd_v\times d}.
   \label{eq:transformer-multihead}
 \end{equation}
-Concatenation joins the different heads' features for the \emph{same} token;
-it does not merge all neighbors into one token. Separate heads can learn
-different ways of comparing local features. A common choice is
-$d_k=d_v=d/H$: for $d=256$ and eight heads this gives 32 components per
+
+The two main advantages of using multi-head attention instead of simple attention
+are that it allows to make the process more parallelizable,
+and it allows the model to learn more complex relationships between the tokens,
+since it also adds more parameters to the model.
+A common choice is $d_k=d_v=d/H$ for $d=256$ and eight heads this gives 32 components per
 head. These dimensions describe attention projections, rather than the
 width of a later energy readout head.
 
-Attention heads and PET's readout heads serve different purposes. Attention
-heads mix information within an environment. The learned maps $H_c^{(k)}$
-and $H_n^{(k)}$ subsequently turn output features into scalar contributions.
-Neighbor contributions are summed or cutoff-weighted averaged according
-to the selected edge readout, then combined with central contributions in
-the total-energy sum. This scalar assembly differs from the feature
-concatenation in Eq.~\eqref{eq:transformer-multihead}.
-
 \subsection{Feedforward operations, residual paths, and normalization}
 
+Once the attention is computed, the output $\bm Y$ is passed through a feedforward network (FFN) to produce the final output of the transformer block.
 Attention exchanges information across token rows. A feedforward network
 then applies the same nonlinear map to each row independently. With row
 vectors and an intermediate width $d_{\mathrm{ff}}$, it can be written as
+
 \begin{equation}
   \operatorname{FFN}(\bm X)
    =\sigma\!\left(\bm X\bm W_1+\bm 1\bm b_1^{\mathrm T}\right)
       \bm W_2+\bm 1\bm b_2^{\mathrm T},
   \label{eq:transformer-ffn}
 \end{equation}
+
 where $\bm W_1\in\mathbb R^{d\times d_{\mathrm{ff}}}$,
 $\bm W_2\in\mathbb R^{d_{\mathrm{ff}}\times d}$,
 $\bm b_1\in\mathbb R^{d_{\mathrm{ff}}}$, and
 $\bm b_2\in\mathbb R^d$. The vector $\bm 1\in\mathbb R^n$ broadcasts
 the same biases over rows, and $\sigma$ acts componentwise. The expanded
 intermediate features and nonlinearity let the layer transform the
-information collected by attention. PET uses smooth activations; the
-original paper reports SiLU in its experiments \cite{pet}.
+information collected by attention.
 
 Residual connections add a sublayer's output to its input, preserving a
 direct path for features and gradients. Their addition requires matching
@@ -2715,6 +2734,7 @@ rather than over its neighbors. Here $v_a$ is a scalar variance, distinct
 from the attention value vector $\bm v_a$.
 
 For example, the original transformer's post-normalization arrangement is
+
 \begin{equation}
   \begin{aligned}
     \bm X'&=\operatorname{LN}\!\left(\bm X+\operatorname{MHA}(\bm X)\right),\\
@@ -2722,80 +2742,13 @@ For example, the original transformer's post-normalization arrangement is
   \end{aligned}
   \label{eq:transformer-block}
 \end{equation}
+
 A pre-normalization variant instead normalizes the input to each sublayer
 before adding its output to the residual stream. These are different
 architectural choices. Equation~\eqref{eq:transformer-block} illustrates
 the components, not a guarantee that every PET checkpoint uses that
 normalization order. The PET paper refers to a classical transformer;
 checkpoint implementations determine the exact order and projection details.
-
-\subsection{Permutation symmetry and geometric information}
-
-The same projections, feedforward maps, and normalization parameters are
-used at every neighbor slot. If $\bm P$ permutes tokens, the score matrix
-is transformed by $\bm S\mapsto\bm P\bm S\bm P^{\mathrm T}$.
-Permuting the masks and cutoff weights consistently gives
-\begin{equation}
-  \bm A' =\bm P\bm A\bm P^{\mathrm T},
-  \qquad \bm Y'=\bm A'\bm P\bm V=\bm P\bm Y.
-  \label{eq:transformer-permutation}
-\end{equation}
-Thus permuting neighbor inputs permutes their outputs, while the distinguished
-central token can remain fixed. Residual and token-wise operations preserve
-this property. It retains the association needed for directed messages;
-a symmetric energy readout then gives invariance to neighbor ordering.
-
-Cartesian position embeddings allow the representation of one neighbor
-to depend on relative directions as well as distances. For example, the
-geometric relation $\bm r_{ij}^{\mathrm T}\bm r_{il}
-=r_{ij}r_{il}\cos\theta_{jil}$ shows that their Cartesian vectors contain
-angular information. Attention and nonlinear feature transformations can
-learn functions of joint neighbor geometry without receiving a prescribed
-list of bond angles. This flexibility does not make the Cartesian network
-exactly rotationally invariant. Rotational augmentation and the separate
-ECSE construction address a different symmetry requirement from neighbor
-permutation equivariance \cite{pet}. The current project evaluates the
-pretrained PET models without ECSE.
-
-\subsection{From a transformer stack to PET predictions and derivatives}
-
-Within one PET message-passing block, the computation is therefore:
-construct the token matrix; project queries, keys, and values; compute
-cutoff-weighted attention in each head; concatenate and project the heads;
-apply the residual, normalization, and feedforward operations; and repeat
-for $n_{\mathrm{TL}}$ transformer layers. This list identifies the operations;
-the chosen normalization order determines their exact placement.
-The stack returns one output representation per input token. Appendix~A of
-Ref.~\cite{pet} denotes them by $x_i^{(k)}$ for the center and $x_{ji}^{(k)}$
-for neighbor $j$ in the environment centered on $i$.
-
-The central and neighbor outputs feed the readout heads, and the neighbor
-outputs also construct outgoing messages with the residual update described
-in the paper. Those messages are routed to the receiving environments
-before the next message-passing block. Increasing $n_{\mathrm{TL}}$ adds
-processing inside each fixed neighborhood; increasing $n_{\mathrm{GNN}}$
-adds communication rounds between environments. The final scalar energy
-collects readout contributions over centers and message-passing blocks,
-with the fitted atomic self-contributions restored, as in
-Eq.~\eqref{eq:pet-readout}.
-
-For $n$ local tokens, each attention head forms an $n\times n$ score matrix.
-This gives quadratic local token-pair work, while overall work grows
-approximately linearly with the number of atoms at bounded neighbor counts
-and fixed architecture. Enlarging local transformer depth and enlarging
-the message-passing receptive field therefore have different computational
-consequences. Neither finite local attention nor additional message-passing
-blocks by themselves supply a physically specified long-range interaction.
-
-All these operations form part of the computational graph introduced in
-Appendix~\ref{sec:backpropagation}. Backpropagation accumulates parameter
-gradients across every token and environment that uses a shared map.
-For forces, the parameters are fixed and the graph is differentiated with
-respect to coordinates instead. The derivatives include position embeddings,
-cutoff weights, softmax normalization, and every subsequent message and
-readout that depends on them. Hessians differentiate this coordinate
-gradient again, so sufficient smoothness and the precise implemented
-neighbor-selection conventions matter throughout the graph.
 
 \section{Sparse automatic differentiation}
 \label{sec:graph-coloring}
