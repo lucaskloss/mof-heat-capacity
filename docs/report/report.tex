@@ -868,41 +868,6 @@ enthalpies and structural observables must also converge with timestep.
 Short fixed-cell energy-conservation tests help detect integration errors
 that a thermostat could otherwise mask.
 
-\subsubsection{Periodic geometry and interaction range}
-
-A periodic cell represents a repeating bulk material
-(Figure~\ref{fig:periodic-boundaries}). With cell matrix $\bm h$,
-$V=\det\bm h$ and $\bm R_i=\bm h\bm s_i$, where $\bm s_i$ is fractional
-position. Periodic neighbors are separated by
-\begin{equation}
-  \bm r_{ij\bm n}=\bm R_j-\bm R_i+\bm h\bm n,
-  \qquad \bm n\in\mathbb Z^3.
-  \label{eq:md-periodic-displacement}
-\end{equation}
-Thus atoms near opposite faces can be close neighbors. In a one-dimensional
-cell of length \SI{20}{\angstrom}, positions 1 and \SI{19}{\angstrom}
-are only \SI{2}{\angstrom} apart through a periodic image.
-Crossing a boundary changes an atom's displayed image; unwrapped positions
-retain its displacement history.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.46\textwidth]{figures/periodic-boundaries.png}
-  \caption{The central simulation cell and its periodic images in two
-  dimensions. Neighbors can lie across a cell boundary. Reproduced unchanged
-  from Christopher Rowley \cite{rowley-pbc},
-  \href{https://creativecommons.org/licenses/by-sa/4.0/}{CC BY-SA 4.0}.}
-  \label{fig:periodic-boundaries}
-\end{figure}
-
-Periodicity specifies geometry, not interaction range. The present PET
-model uses local, many-body neighborhoods; there is no separate long-range
-electrostatic solver in the MD input. For a short enough cutoff, the closest
-periodic image suffices. Otherwise multiple images within the cutoff must
-be included. A neighbor list adds a skin beyond the physical cutoff and is
-rebuilt as atoms or the cell move. Smooth cutoffs and correct triclinic
-image handling are essential for continuous forces.
-
 \subsubsection{Temperature and pressure control}
 
 Newtonian dynamics in a fixed periodic cell conserves the physical
