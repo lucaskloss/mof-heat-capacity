@@ -54,6 +54,55 @@ MOF/species comparison a distinct export filename or directory. Reference
 curves for other systems are read from `<reference-root>/<mof>/<N><guest>.csv`;
 the existing methane/MOF-5 reference paths remain unchanged.
 
+### Experimental references in hybrid plots
+
+Hybrid assembly (`python -m mof_heat_capacity.analysis.hybrid`, including jobs
+submitted with `submit_hybrid_analysis.sh`) automatically overlays available
+experimental CSVs from `<output-root>/reference_heat_capacity`. The
+`plot_hybrid_by_loading.py` and `plot_hybrid_by_model.py` comparison scripts
+also use these experimental references, as does the separate PNG/PDF exporter
+in `mof_heat_capacity.analysis.hybrid_two_gpu`. Pass `--reference-root PATH` to select
+another reference directory or `--no-experimental-reference` to omit them.
+The loading-comparison script retains its existing reference-root default,
+`output/reference_heat_capacity` relative to the working directory.
+
+Supported experimental files:
+
+| System | Relative CSV paths | Experimental loading |
+|---|---|---|
+| MOF-303/H₂O | `mof303/mof-303_h20_0pct.csv`, `mof303/mof-303_h20_12p02pct.csv`, `mof303/mof-303_h20_34p25pct.csv` | Dry, 12.02%, and 34.25% of saturated water loading |
+| ZIF-8/CO₂ | `zif8/zif-8_co2.csv` | 0.56 mol CO₂/mol ZIF-8 |
+
+The reader requires `temperature_K,heat_capacity_J_per_gK` columns. These
+files are already in K and J/(g K): **no further unit conversion is applied**.
+Missing optional references are reported and skipped; malformed existing CSVs
+raise an error. Files are selected by host and guest, independently of the
+integer simulation loading, and retain their experimental loading labels.
+The plot includes supplied points within the simulation temperature range,
+with connecting dashed lines and no extrapolation. For ZIF-8, error bars show
+the SI's 2% standard uncertainty. The unlabeled `zif8/zif-8.csv` empty-host
+file is not read automatically.
+
+For the current cells, 50 H₂O in MOF-303 corresponds to 16.76% saturation and
+54 CO₂ in ZIF-8 to 0.5625 mol/mol. The per-run hybrid plot computes its loading
+note from the actual loaded-system mass. Experimental references are separate
+plot overlays; they do not alter the calculated hybrid NPZ/CSV values or
+uncertainties. Their paths, SHA-256 hashes, units, and literature DOIs are
+recorded under `experimental_references` in the hybrid JSON metadata.
+The ZIF-8 caption distinguishes the sealed-cell experimental heat capacity
+from the simulated approximate constant-pressure heat capacity.
+
+```bash
+./scripts/properties/submit_hybrid_analysis.sh --model pet-mad \
+  --mof mof303_2x2x2 --guest h2o --loading 50 --dry-run
+./scripts/properties/submit_hybrid_analysis.sh --model pet-mad \
+  --mof zif8_2x2x2 --guest co2 --loading 54 --dry-run
+```
+
+Remove `--dry-run` to submit assembly after the MD analysis and Hessian jobs
+have completed. Ensure the reference CSV directory is also present on the
+cluster; `output/` is ignored by Git and is not transferred with source code.
+
 For Hessian library calls, model metadata, numerical settings, archive fields,
 and debugging, see [HESSIANS.md](HESSIANS.md). Scientific theory and equations
 are in [SADMOF.md](../../docs/SADMOF.md) and [PET.md](../../docs/PET.md).

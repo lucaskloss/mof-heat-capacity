@@ -32,5 +32,361 @@
     "attribution": "Digitized from Kapil et al. (2019), confirmed by the user in this session.",
     "doi": "10.1021/acs.jctc.8b01297",
     "uncertainties": "Not supplied in the digitized CSVs."
+  },
+  "results-mof5-additional.pdf": {
+    "generator": "docs/report/generate_additional_results.py",
+    "description": "Archived central hybrid values and paired CEA+MD standard uncertainties; empty curves are harmonic cV with LLPR spread. All mass normalizations are system-specific.",
+    "inputs": [
+      {
+        "source": "output/post-processing/harmonic-correction/mof5/pet-mad-1.5-s-40nn/50co2/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "e6d63a97e82bc2d24c48a79e804bc2051e4b9a65c666388db985300dc3538e8c"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof5/pet-mad-1.5-s-40nn/50co2/heat-capacity.exploratory-discard-imaginary.json",
+        "sha256": "8f33f90fc2039fb9d785bc2d031b6b6204891973947423d55ce80a778b7f1ffa"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof5/pet-mad-1.5-s-40nn/50co2/minima/400K/rep01/optimized.relax.json",
+        "sha256": "753baf569001dc6016706abdcf73ab76cef80e4edcb102013c1719a0c2013b2c"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50co2/175K/rep01/summary.json",
+        "sha256": "116f5a8552719042f79e2e86c7558598fdaeaeeb3571e5dc37f86e7e8ba64199"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50co2/200K/rep01/summary.json",
+        "sha256": "c6c5ef403bf00d5c50cbc18ca04da6e9a1f827300ad80775aaf1f69a23d70866"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50co2/225K/rep01/summary.json",
+        "sha256": "98e9d3e9f27195bf5b215a2453f3a93a0dbff7f1e7594ef1d46b9188dfbfaf6f"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50co2/250K/rep01/summary.json",
+        "sha256": "dd12ddef315705d429d2705744efedf597fe45cba8cafdcb50e8fa54cad0b583"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50co2/275K/rep01/summary.json",
+        "sha256": "8f482636bf6f6b8d9143de3789cf0547b75fc33f8b46284578ccbf074bba26e9"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50co2/300K/rep01/summary.json",
+        "sha256": "71da589576e2c3c65702dd7c2db0fa8933490080b6fc4b653785ed48296c4fbd"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50co2/325K/rep01/summary.json",
+        "sha256": "254fa323f24c0a3ebb51edd83c31b8b91cc10c34b87eb210f121f9e0465f7c5a"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50co2/350K/rep01/summary.json",
+        "sha256": "a4b9989fd76bbdd26ca8ecadfa541726f26bb5d6f2d8f484b7da2b9e92da0295"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50co2/375K/rep01/summary.json",
+        "sha256": "f2c46352cbff8fb34a79a9e050fb82f81e898e66736857e68a76c37400bcead5"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50co2/400K/rep01/summary.json",
+        "sha256": "9970b8028e2846e647808c0b9a09eb5bd78730d372320c37477563ad1df883fa"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50co2/425K/rep01/summary.json",
+        "sha256": "b9d19ef782289a3036fc6665dbba059dfc5c80513193e7da67ec9c75503a9194"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof5/pet-mad-1.5-s-40nn/50h2o/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "eddb208230d1ed17b4aebca7a08420868ee95bbf07e843f73d370ed740603d8c"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof5/pet-mad-1.5-s-40nn/50h2o/heat-capacity.exploratory-discard-imaginary.json",
+        "sha256": "0cc13e5a057f54b2391ae7e282cf2364a1e641bd9b8d12fe924d5151f74d1746"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof5/pet-mad-1.5-s-40nn/50h2o/minima/400K/rep01/optimized.relax.json",
+        "sha256": "6ebd940844656f724a637fcd082c3fbd8eb929deac96dfe9c6d6941366b0e0c5"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50h2o/175K/rep01/summary.json",
+        "sha256": "b8bfdf3050167694f5cd3de8ac32af42fd11bdf617b31714c1c709e36ba35e6d"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50h2o/200K/rep01/summary.json",
+        "sha256": "256a419990865dee72b0405eaa14b987ebd064ddc8417d0de1801355b446a69f"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50h2o/225K/rep01/summary.json",
+        "sha256": "08dd36cf07b24498f7208467540761c8e6e14eb06fb73aa5421387facbeeca82"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50h2o/250K/rep01/summary.json",
+        "sha256": "ddb1f107873b9042c9fa08fde59d07cd7b0f04017d612b89f8ef736c2d99a2b3"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50h2o/275K/rep01/summary.json",
+        "sha256": "3b2440b3965c6993dbfe5faf645debbdf937147f19199a53bcd3253d98d2f7f7"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50h2o/300K/rep01/summary.json",
+        "sha256": "825dd6cadddacf59ac4bb963d0df5e2ba4c40749d3904482a7eff6cf2890d4a8"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50h2o/325K/rep01/summary.json",
+        "sha256": "dc7604cae87380ccf672b657d20e75a4442506b55bf4bcabe61939d84dc691c5"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50h2o/350K/rep01/summary.json",
+        "sha256": "b32c6bf9ee5ff2c083e87b4dc3b8491aa7c4c2caf79d36ca60251d88c1cf78e2"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50h2o/375K/rep01/summary.json",
+        "sha256": "a906ae18ed9fad616e162dd05371c72ea0961c23b885ecc0a9ec14cd512fde0c"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50h2o/400K/rep01/summary.json",
+        "sha256": "67311ceb4661b280412a2f379dffc306398ce55b326e51de184bf6b775a6ed6c"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof5/pet-mad-1.5-s-40nn/50h2o/425K/rep01/summary.json",
+        "sha256": "cb77982ea52981649f2f7ef535837116fc98073c42e537183027f6d063b76714"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof5/pet-mad-1.5-s-40nn/0co2/hessians/hessian.npz",
+        "sha256": "c13c750dcc9c8bb8a286fafa7d1aa20b37e33953102fe5ae7405e6fb41da1dc7"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof5/pet-mad-1.5-s-40nn/0co2/minima/optimized.relax.json",
+        "sha256": "5d2075558e397e795e04e41a4c689791a224b7ba0204edaa737e372a6b851738"
+      }
+    ]
+  },
+  "results-mof303_2x2x2-additional.pdf": {
+    "generator": "docs/report/generate_additional_results.py",
+    "description": "Archived central hybrid values and paired CEA+MD standard uncertainties; empty curves are harmonic cV with LLPR spread. Experimental references use their recorded sample loadings and total-sample mass normalization; dashed lines connect supplied experimental points without extrapolation. All mass normalizations are system-specific.",
+    "inputs": [
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "4e2da531086da80ae7f3179f4d0e651e2344485335d4100acd1ce427088836b0"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/heat-capacity.exploratory-discard-imaginary.json",
+        "sha256": "414924463ce60fff36f41c561efb5f41c9213b15e4d29291ef721a4352e92287"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/minima/400K/rep01/optimized.relax.json",
+        "sha256": "f4de0c6aa0d3b75c75aef143a83efdb9e6329ec937a0fd73fd69dfedabbb3fc1"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/175K/rep01/summary.json",
+        "sha256": "c1bfc60ffd744b4052fd0516ea8751685d24cfceab03df97fd1ed5c153c340f4"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/200K/rep01/summary.json",
+        "sha256": "7b90fc65232b1f1c968c3207db77055166f48192b11655c0acce4c274b859dc1"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/225K/rep01/summary.json",
+        "sha256": "6ec14a07c9f572b062362ba837022622af6c9be53dd9d93efd0819bd9c588e86"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/250K/rep01/summary.json",
+        "sha256": "6f2dd007422ca74b47e16c066d06f3faeebfa2bbdc1333fa5a329428f87568f4"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/275K/rep01/summary.json",
+        "sha256": "d83561d56ae5d5b4aea80699ee90963ef0e2609a4ed11bcb3fbed12a91f27855"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/300K/rep01/summary.json",
+        "sha256": "0642bda38a397e0e95b51d45384833defbbc9a9e118eae77511000d36916e937"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/325K/rep01/summary.json",
+        "sha256": "2e14ce0a694f22e089329f3a37c51c87c71769e95045bf44e502d9a7875e2531"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/350K/rep01/summary.json",
+        "sha256": "c35f3e928c5c1717c747cb12843ae8a2602c468cf78d33303da5ef53715a4dba"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/375K/rep01/summary.json",
+        "sha256": "a0093c9a8d6c7378331d3f4d8b0b0a844a47ea182332be97fc409d1be19f9c0a"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/400K/rep01/summary.json",
+        "sha256": "6a4396d32d3a577b277841795fb0ba7762ae4b62fd02dfde25517ee32da5b515"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/425K/rep01/summary.json",
+        "sha256": "fc8d297baaefccbed6501465f03901eeac7156ddd2606abd89eeab9ab2119dea"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "08c3ac2c00c75f8693517815c5a16f0202c12d022fcd6be26f81dbd3407b6147"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/heat-capacity.exploratory-discard-imaginary.json",
+        "sha256": "570a8e99c2f5bca34fccb90d58b213065161074b44356783f8f6c28506a6c19e"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/minima/400K/rep01/optimized.relax.json",
+        "sha256": "918f06be5940d58c620f3a0e9a7772dd58e40733001351078c985d14bfc61af1"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/175K/rep01/summary.json",
+        "sha256": "76a332e066293f1607d1eeb79ea2f933c10eb37241bdc4e811cc485b68c636ac"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/200K/rep01/summary.json",
+        "sha256": "4f02df86fcfa6dc21d94267f4e0053d692e09a03b1c1f5c1117b597748c793b0"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/225K/rep01/summary.json",
+        "sha256": "ab470a274d6815f2d3d567baf4b8414064247758b6e55dac65dc46bc991d2352"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/250K/rep01/summary.json",
+        "sha256": "cfbb7a4b32b21873167d53a2f0a2a1bbfe6fa3d8dad88e997504ca709a9907cb"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/275K/rep01/summary.json",
+        "sha256": "c1a6e303cdf6e0485ccdc175a30b5dc32b05b20c5167a5f5049a29cd7ede0946"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/300K/rep01/summary.json",
+        "sha256": "d41cdd9524689c447878f8243bba8c7d88a031f37d8caf37e561fb31f210e82b"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/325K/rep01/summary.json",
+        "sha256": "92326509a29558e8ab45a850346712e0c93116a28bcbe2f955831d4d003fd931"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/350K/rep01/summary.json",
+        "sha256": "477309dfebb8f874e61046fcf8ca8ef771aa15271cca9f40b3733dc69cfb5e14"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/375K/rep01/summary.json",
+        "sha256": "3b7d0bbd54d81f42681908218849b58b166c265f04f6aa6316b2b78f8a69ebd4"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/400K/rep01/summary.json",
+        "sha256": "a005fd2a01194660e856d165e790c72719756f0c1e6968dc2ee2ddb8d2af73a2"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/425K/rep01/summary.json",
+        "sha256": "f0fc6e2eab7095c9df9ba0a846b7f909c5cda8a67c3af3abba5a922aa2ef9097"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/0co2/hessians/hessian.npz",
+        "sha256": "9cd2dd7347d7844a9cadb323f3c1b9d1bc6893bda495eaf7b16094d5ad10415f"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/0co2/minima/optimized.relax.json",
+        "sha256": "9a5697853bece4cbbb1f635cc4ab1d850adf60cfdc1282cba5a076d978cd3c1f"
+      },
+      {
+        "source": "output/reference_heat_capacity/mof303/mof-303_h20_0pct.csv",
+        "sha256": "d7f5f42090c12a81bc8f07f73eed97c9ab1cdbf677769c5d5afda5ff2b1922c1",
+        "label": "Experiment: dry MOF-303",
+        "units": "temperature_K; heat_capacity_J_per_gK"
+      },
+      {
+        "source": "output/reference_heat_capacity/mof303/mof-303_h20_12p02pct.csv",
+        "sha256": "59925d67b4d7796817b845b95ac1aca4d1c31b31237c8c5d536ab43779c72975",
+        "label": "Experiment: H$_2$O, $q=12.02\\%$",
+        "units": "temperature_K; heat_capacity_J_per_gK"
+      },
+      {
+        "source": "output/reference_heat_capacity/mof303/mof-303_h20_34p25pct.csv",
+        "sha256": "1ce8f237b1c4e8196ab772d6159694de82c3c202d5fa3edb95a130c528b2320d",
+        "label": "Experiment: H$_2$O, $q=34.25\\%$",
+        "units": "temperature_K; heat_capacity_J_per_gK"
+      }
+    ],
+    "experimental_reference": {
+      "description": "q is the fraction of saturated water loading; 50 H2O corresponds to q = 16.76%.\nExperimental points are digitized; dashed lines connect the supplied points.",
+      "doi": "10.1016/j.icheatmasstransfer.2025.109088",
+      "uncertainty": "Not supplied with the digitized MOF-303 points."
+    }
+  },
+  "results-zif8_2x2x2-additional.pdf": {
+    "generator": "docs/report/generate_additional_results.py",
+    "description": "Archived central hybrid values and paired CEA+MD standard uncertainties; empty curves are harmonic cV with LLPR spread. Experimental references use their recorded sample loadings and total-sample mass normalization; dashed lines connect supplied experimental points without extrapolation. All mass normalizations are system-specific.",
+    "inputs": [
+      {
+        "source": "output/post-processing/harmonic-correction/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/heat-capacity.fd-two-gpu.exploratory-discard-imaginary.csv",
+        "sha256": "21021b0b5a565be07eac92acf7362b8dbbade346f71b87e57c41858d48a500ba"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/heat-capacity.fd-two-gpu.exploratory-discard-imaginary.json",
+        "sha256": "6a1d43d7b08b417eefba1c9fd78864936a58e132070e32a500a73674038ae855"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/minima/400K/rep01/optimized.relax.json",
+        "sha256": "5da3f61092c77d6d6940839a9e1c9fe9b9b5f349d355e7d316460fcaf58a8207"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/ensemble-validation.fd-two-gpu.json",
+        "sha256": "a1c4576bc4dd16f4015bc3cc919ff9dca52db051f428e115ceb920c8704903e5"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/175K/rep01/summary.json",
+        "sha256": "067fa4a5be72dbb5862a1aa486ece74fdad667c8e5f90e8c3bd7fb5768e19c70"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/200K/rep01/summary.json",
+        "sha256": "e7d5acb59b9c8d2962b29d5c4ffea7788b28d8d2f2c7bcba066dcb9e12064e43"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/225K/rep01/summary.json",
+        "sha256": "48d6ad2e7745b72420a236c702a0ca5aa9d14fea359afcf9105d7297ba7b4fd0"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/250K/rep01/summary.json",
+        "sha256": "162569a578386a4787a1a23c9570fcc23a3d7a1c42ab4c14390b67df0d3cde8d"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/275K/rep01/summary.json",
+        "sha256": "97fedfca6f620e975270b2b1c71bda068c08627c1f8efcddc2b9d7aee6f45412"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/300K/rep01/summary.json",
+        "sha256": "777ce50cc5eebe09d82e884fc58632573ed651086ef9ca9a9f537e9c69f5f91d"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/325K/rep01/summary.json",
+        "sha256": "6b8dd20a721419622d506a0de24e7030589e3575a2242b1b14caf62688822924"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/350K/rep01/summary.json",
+        "sha256": "8b9f73a32b75cde82357023bd3e631e475a3a77c552c04afef19c346a0c8e6e8"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/375K/rep01/summary.json",
+        "sha256": "fd3f3d5e969eaf6a7941feb2579c67ae542a156292361f73b3d5c490e1186c0b"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/400K/rep01/summary.json",
+        "sha256": "fd6f094770c556741b58f4ddcc740d048556eab416a634da790e969add09fa7c"
+      },
+      {
+        "source": "output/post-processing/trajectory-analysis/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/425K/rep01/summary.json",
+        "sha256": "1225c2255799a1cbc9611752dfa4f1deaf73a143c098cc972eb53f32fc210887"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/zif8_2x2x2/pet-mad-1.5-s-40nn/0co2/minima/optimized.relax.json",
+        "sha256": "3c7931b3993197dffa78ed7cf863ff535546f7097308c3d49ae1bc08dedb6e3f"
+      },
+      {
+        "source": "output/reference_heat_capacity/zif8/zif-8_co2.csv",
+        "sha256": "4b70f37756a099130ee67b656e452a37a3abd30283ab595377ae9d3ddf7939d9",
+        "label": "Experiment: CO$_2$, $X=0.56$",
+        "units": "temperature_K; heat_capacity_J_per_gK"
+      }
+    ],
+    "experimental_reference": {
+      "description": "X is mol CO2 per mol ZIF-8; simulation X = 0.5625.\nExperiment: sealed-cell C; simulation: approximate Cp. Experimental bars: 2% standard uncertainty.",
+      "doi": "10.1021/jacs.9b13883.s001",
+      "uncertainty": "2% standard uncertainty from Supporting Information Table 3."
+    }
   }
 }

@@ -22,6 +22,9 @@ from ..config import (
     output_root,
 )
 from .lammps import read_lammps_thermo
+from .experimental import (
+    ExperimentalCurve, experimental_note, load_experimental_curves, plot_experimental_curves,
+)
 from .statistics import AMU_TO_G, EV_TO_J, KB_EV_PER_K, summarize_series
 
 
@@ -62,6 +65,14 @@ def parse_args() -> argparse.Namespace:
         default=output_root() / "post-processing/harmonic-correction",
     )
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--reference-root", type=Path, default=output_root() / "reference_heat_capacity",
+        help="Optional experimental CSV root for MOF-303/H2O and ZIF-8/CO2 plot overlays",
+    )
+    parser.add_argument(
+        "--no-experimental-reference", action="store_true",
+        help="Omit experimental overlays; computed heat capacities are unaffected",
+    )
     parser.add_argument(
         "--hessian-source-temperature",
         type=int,
@@ -340,6 +351,8 @@ def plot_hybrid_heat_capacity(
     model_uncertainty_included: bool,
     mof: str = "mof5",
     guest: str = "ch4",
+    experimental_curves: list[ExperimentalCurve] | None = None,
+    total_mass_amu: float | None = None,
 ) -> None:
     """Plot classical, harmonic-correction, and final hybrid curves."""
     import matplotlib
@@ -347,7 +360,7 @@ def plot_hybrid_heat_capacity(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    figure, axis = plt.subplots(figsize=(7.5, 4.8))
+    figure, axis = plt.subplots(figsize=(10.5, 5.2) if experimental_curves else (7.5, 4.8))
     axis.plot(
         temperatures,
         classical,
@@ -387,16 +400,26 @@ def plot_hybrid_heat_capacity(
         approximate + approximate_error,
         alpha=0.2,
     )
+    if experimental_curves:
+        plot_experimental_curves(axis, experimental_curves, temperatures)
     axis.axhline(0.0, color="black", linewidth=0.7, alpha=0.4)
     axis.set(
         xlabel="Temperature (K)",
         ylabel=r"Heat capacity ($J\,g^{-1}\,K^{-1}$)",
     )
     axis.grid(alpha=0.2)
-    axis.legend(fontsize=9)
+    if experimental_curves:
+        axis.legend(fontsize=8, loc="center left", bbox_to_anchor=(1.01, 0.5))
+    else:
+        axis.legend(fontsize=9)
     figure.suptitle(f"{mof}, {model_label}, {loading} {guest.upper()}")
-    figure.tight_layout()
-    figure.savefig(path, dpi=180)
+    if experimental_curves:
+        figure.text(
+            0.5, 0.01, experimental_note(mof, guest, loading, total_mass_amu),
+            ha="center", fontsize=8,
+        )
+    figure.tight_layout(rect=(0, 0.10 if experimental_curves else 0, 1, 1))
+    figure.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(figure)
 
 
@@ -635,6 +658,10 @@ def run(args: argparse.Namespace) -> Path:
         )
     if args.bootstrap_samples < 100:
         raise ValueError("--bootstrap-samples must be at least 100")
+    experimental_curves = (
+        [] if args.no_experimental_reference
+        else load_experimental_curves(args.reference_root, args.mof, args.guest)
+    )
     replicas = _replicas(args.replicas)
     selected_temperatures = _temperatures(args.temperatures)
     report_temperatures = (
@@ -971,6 +998,7 @@ def run(args: argparse.Namespace) -> Path:
                 "guest": args.guest,
                 "model_label": args.model_label,
                 "loading": args.loading,
+                "experimental_references": [curve.provenance() for curve in experimental_curves],
                 "replicas": replicas,
                 "temperatures_K": temperatures.tolist(),
                 "classical_differentiation_temperatures_K": selected_temperatures,
@@ -1054,6 +1082,8 @@ def run(args: argparse.Namespace) -> Path:
         model_uncertainty_included=(
             model_uncertainty_record is not None or correction_by_member is not None
         ),
+        experimental_curves=experimental_curves,
+        total_mass_amu=mass_amu,
     )
     print(f"Saved hybrid heat capacity: {output}")
     print(f"Saved hybrid heat-capacity plot: {plot_path}")

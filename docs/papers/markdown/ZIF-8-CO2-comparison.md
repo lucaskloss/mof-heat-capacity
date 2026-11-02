@@ -11,9 +11,9 @@ Peter F. Rosen, Matthew S. Dickson, Jason J. Calvin, Nancy L. Ross, Tomislav Fri
 I also retrieved the authors' publicly available [Supporting Information](https://doi.org/10.1021/jacs.9b13883.s001) from ACS Figshare. Files saved beside this note:
 
 - [Supporting Information PDF](ZIF-8-CO2-supporting-information.pdf): original `ja9b13883_si_001.pdf`, downloaded from [Figshare file 21833136](https://ndownloader.figshare.com/files/21833136). Its MD5, `548742178ffc97d603cd0f3d66853b44`, matches the publisher's record.
-- [Experimental data CSV](ZIF-8-CO2-X056-experimental.csv): all **92 temperature/heat-capacity pairs from SI Table 3, p. S3**, extracted and sorted by temperature. The CSV contains measured molar values, without smoothing or mass conversion. The relevant table was visually checked against the PDF.
+- [Experimental data CSV](ZIF-8-CO2-X056-experimental.csv): all **92 temperature/heat-capacity pairs from SI Table 3, p. S3**, extracted and sorted by temperature. The CSV contains specific heat capacities in J/(g·K), calculated by dividing the measured molar values by the sample molar mass of 252.3 g/mol; temperatures remain in Kelvin and no smoothing is applied. The relevant table was visually checked against the PDF.
 
-The supplement is attributed to Rosen et al. and distributed by ACS Figshare under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/). The CSV is a reformatted extraction of that table. Numerical interpolations and simulation comparisons in this note are calculations made here. Main-paper references below use journal page numbers; SI pages are labeled S1–S7.
+The supplement is attributed to Rosen et al. and distributed by ACS Figshare under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/). The CSV is a reformatted extraction of that table with heat capacities converted to a total-sample mass basis. Numerical interpolations and simulation comparisons in this note are calculations made here. Main-paper references below use journal page numbers; SI pages are labeled S1–S7.
 
 ## What the paper establishes
 
@@ -151,7 +151,7 @@ Divide this result by $X$ for the excess per mole of CO₂ used in Fig. 5B. The 
 
 ## Reproduce the conversion and numerical table
 
-Run the following from the repository root in an environment with ASE and NumPy. It reads the extracted experimental data and your existing result without changing either file. The factor 252.3 comes directly from SI Table 3.
+Run the following from the repository root in an environment with ASE and NumPy. It reads the extracted experimental data and your existing result without changing either file. The CSV already includes the division by 252.3 g/mol from SI Table 3; do not divide its heat capacities again.
 
 ```python
 from pathlib import Path
@@ -172,7 +172,7 @@ exp = np.genfromtxt(
     "docs/ZIF-8-CO2-X056-experimental.csv", delimiter=",", names=True
 )
 T_exp = exp["temperature_K"]
-C_exp = exp["C_m_J_per_mol_ZIF8_K"]
+c_exp = exp["heat_capacity_J_per_gK"]
 assert np.all(np.diff(T_exp) > 0)
 
 path = Path(
@@ -184,8 +184,8 @@ sim = np.genfromtxt(path, delimiter=",", names=True)
 T = sim["temperature_K"]
 keep = (T >= max(1.8, T_exp.min())) & (T <= min(300.0, T_exp.max()))
 T = T[keep]
-Cm_ref = np.interp(T, T_exp, C_exp)
-c_ref = Cm_ref / 252.3
+c_ref = np.interp(T, T_exp, c_exp)
+Cm_ref = c_ref * 252.3
 c_sim = sim["approximate_cp_J_per_gK"][keep]
 u_sim = sim["approximate_cp_combined_standard_uncertainty_J_per_gK"][keep]
 relative = 100 * (c_sim - c_ref) / c_ref

@@ -264,12 +264,24 @@ class SlurmSelectionTest(unittest.TestCase):
 
             output = run("scripts/md/submit_loaded_md.sh", "--temperatures", "300", "--host", str(host),
                          "--insertion-method", "repacking", "--packing-restarts", "7")
+            submission_lines = [line for line in output.splitlines() if line.startswith("DRY RUN: sbatch")]
+            self.assertEqual(len(submission_lines), 2)
+            for line in submission_lines:
+                self.assertIn("--exclude=i39", shlex.split(line.removeprefix("DRY RUN: ")))
             planner = shlex.split(output.splitlines()[-1].removeprefix("DRY RUN: "))
             continuation = planner[planner.index("--wrap") + 1]
             self.assertIn("--mof example --guest co2", continuation)
             self.assertIn(f"--host {host}", continuation)
             self.assertIn("--insertion-method repacking --packing-restarts 7", continuation)
             self.assertIn(f"md/calibration/example/{MODEL}/2co2/", output)
+            timing = root / "elapsed-seconds.txt"
+            timing.write_text("1\n")
+            production = run("scripts/md/submit_loaded_md.sh", "--temperatures", "300",
+                             "--host", str(host), "--production-after-calibration", str(timing),
+                             "--time", "01:00:00")
+            production_lines = [line for line in production.splitlines() if line.startswith("DRY RUN: sbatch")]
+            self.assertEqual(len(production_lines), 1)
+            self.assertIn("--exclude=i39", shlex.split(production_lines[0].removeprefix("DRY RUN: ")))
             config = load_run_config(root / f"configs/example/{MODEL}/2co2/300K-rep01.toml")
             config.output_dir.mkdir(parents=True)
             write_lammps_data(config.output_dir / "md.final.data", io.read(config.structure))

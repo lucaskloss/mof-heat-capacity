@@ -16,6 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from mof_heat_capacity.campaign import GUEST_SYMBOLS, structure_directory, system_directory, validate_selection
 
 from mof_heat_capacity.analysis.uncertainty_comparison import hybrid_uncertainty_components
+from mof_heat_capacity.analysis.experimental import (
+    experimental_note, load_experimental_curves, plot_experimental_curves,
+)
 
 
 MODEL_TITLES = {
@@ -43,8 +46,9 @@ def parse_args() -> argparse.Namespace:
         "--reference-root",
         type=Path,
         default=Path("output/reference_heat_capacity"),
-        help="Directory containing optional [<mof>/]<loading><guest>.csv reference curves",
+        help="Root containing legacy reference curves and experimental mof303/ and zif8/ CSVs",
     )
+    parser.add_argument("--no-experimental-reference", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--uncertainty-method", choices=("cea", "dpose"), default="cea",
@@ -116,9 +120,11 @@ def main() -> None:
         raise ValueError("--loadings must contain unique non-negative integers")
 
     figure, axis = plt.subplots(figsize=(10, 6))
+    grids = []
     for loading in loadings:
         path = args.input_root / system_directory(args.model_label, loading, args.mof, args.guest) / args.csv_name
         temperatures, heat_capacity, uncertainty = load_curve(path)
+        grids.append(temperatures)
         if loading > 0:
             uncertainty = load_model_uncertainty(
                 args.model_label, loading, temperatures,
@@ -153,6 +159,11 @@ def main() -> None:
                 label=f"{loading} {args.guest.upper()} — reference",
             )
 
+    experiments = (
+        [] if args.no_experimental_reference
+        else load_experimental_curves(args.reference_root, args.mof, args.guest)
+    )
+    plot_experimental_curves(axis, experiments, np.concatenate(grids))
     model_title = MODEL_TITLES.get(args.model_label, args.model_label)
     axis.set(
         title=f"{args.mof} + {args.guest.upper()}: {model_title} hybrid heat capacity",
@@ -166,13 +177,14 @@ def main() -> None:
         0.01,
         ("Exploratory: CEA central curves retained; loaded shading uses Gaussian NPT LLPR spread and CEA sampling error."
          if args.uncertainty_method == "dpose" else
-         "Exploratory: unstable/near-zero modes discarded; loaded uncertainty includes sampling and LLPR spread."),
+         "Exploratory: unstable/near-zero modes discarded; loaded uncertainty includes sampling and LLPR spread.")
+        + ("\n" + experimental_note(args.mof, args.guest, loadings[0]) if experiments else ""),
         ha="center",
         fontsize=9,
     )
-    figure.tight_layout(rect=(0.0, 0.06, 1.0, 1.0))
+    figure.tight_layout(rect=(0.0, 0.12 if experiments else 0.06, 1.0, 1.0))
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(args.output, dpi=180)
+    figure.savefig(args.output, dpi=180, bbox_inches="tight")
     plt.close(figure)
     print(f"Saved loading comparison: {args.output}")
 

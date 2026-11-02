@@ -54,8 +54,12 @@ PET-JAX/SADMOF Hessians. PET-MAD and PET-SOL calculations at 50, 100, and
 last-layer prediction-rigidity (LLPR) model uncertainties are propagated
 separately. Production drift, imaginary modes, incomplete relaxation, and
 sensitivity to uncertainty propagation prevent a claim of convergence.
-Variation across quenched minima remains unestimated. The empty-framework
-Hessian provides a separate reference.
+Additional PET-MAD results cover CO$_2$ and H$_2$O in MOF-5 and
+MOF-303, and CO$_2$ in ZIF-8. Water-loaded trajectories show substantial
+enthalpy drift. Variation across quenched minima remains unestimated.
+Empty-framework Hessians provide separate references. Experimental
+comparisons are included for water-loaded MOF-303 and CO$_2$-loaded ZIF-8,
+with explicit loading and measurement-condition qualifications.
 \end{abstract}
 
 \section{Scientific motivation and scope}
@@ -87,13 +91,13 @@ potentials PET-MAD and PET-SOL for both contributions. Methane-loaded MOF-5
 provides the initial test system and a connection to the study of Kapil
 \emph{et al.}\ \cite{kapil2019}. The objective is to assess the temperature
 and loading dependence of its heat capacity and establish the convergence
-and validity of the approach with PET. Extensions to carbon dioxide and
-water, and to MOF-303 and ZIF-8, will test how pore chemistry and framework
+and validity of the approach with PET. Calculations with carbon dioxide and
+water, and with MOF-303 and ZIF-8, test how pore chemistry and framework
 flexibility affect the thermal response. In particular, MOF-303 offers
 polar water-binding sites \cite{hanikel2021}, while ZIF-8 provides flexible
-pore windows \cite{hobday2018}. The results presented here concern the
-MOF-5/methane comparison; the additional systems define the broader scope
-of the project.
+pore windows \cite{hobday2018}. The results presented here cover methane-, carbon-dioxide-, and
+water-loaded MOF-5, carbon-dioxide- and water-loaded MOF-303, and
+carbon-dioxide-loaded ZIF-8.
 
 \section{Theory}
 \label{sec:theory}
@@ -1610,7 +1614,7 @@ the reported calculations.
 \subsection{Frameworks and simulation systems}
 \label{sec:framework-method}
 
-The reported campaign uses the conventional cubic MOF-5 cell, with initial
+The methane comparison uses the conventional cubic MOF-5 cell, with initial
 lattice parameter \SI{25.866}{\angstrom} and composition
 $\mathrm{C}_{192}\mathrm{H}_{96}\mathrm{O}_{104}\mathrm{Zn}_{32}$
 (424 host atoms). Its $\mathrm{Zn}_4\mathrm O$ nodes are connected by
@@ -1621,16 +1625,22 @@ loading, and temperature, giving 66 trajectories in total. Periodic boundary
 conditions apply in all three directions. All host and guest atoms move
 freely; no rigid-molecule or fixed-framework constraints are imposed.
 
-The additional starting structures in Figure~\ref{fig:frameworks} are
-prepared for extensions of this comparison. MOF-303,
+The additional starting structures in Figure~\ref{fig:frameworks} extend
+this comparison to other hosts. MOF-303,
 $\mathrm{Al(OH)(PZDC)}$, contains aluminium--oxygen rods connected by
 1H-pyrazole-3,5-dicarboxylate linkers \cite{hanikel2021}; its
 $2\times2\times2$ host supercell contains 1024 atoms. ZIF-8,
 $\mathrm{Zn(mIm)}_2$, contains zinc centres joined by 2-methylimidazolate
 linkers in a sodalite-type network \cite{hobday2018}; its
-$2\times2\times2$ host supercell contains 2208 atoms. These structures
-specify the proposed host cells, while the numerical results and
-run-specific settings below refer to MOF-5/methane.
+$2\times2\times2$ host supercell contains 2208 atoms. The additional PET-MAD campaigns contain 50 CO$_2$ or 50 H$_2$O
+molecules in MOF-5 and MOF-303, and 54 CO$_2$ molecules in ZIF-8.
+They add 55 trajectories on the same temperature grid, giving 121 runs
+in total. Each uses \SI{500}{ps} of flexible-cell NPT at \SI{1}{bar},
+with a \SI{0.5}{fs} timestep and the first \SI{100}{ps} discarded.
+The methane-specific settings below are retained; additional relaxation
+and Hessian diagnostics are given in
+Appendix~\ref{sec:capacity-diagnostics}. ZIF-8 uses the finite-difference Hessian
+calculation described in Appendix~\ref{sec:zif8-reference-diagnostics}.
 
 \begin{figure}[htbp]
   \centering
@@ -1808,7 +1818,8 @@ derivative uses two trajectories separated by \SI{50}{K}. The extra
 \SI{175}{K} and \SI{425}{K} runs support centered derivatives at the
 endpoints of the reported 200--\SI{400}{K} interval. Energy, volume,
 temperature, and structural diagnostics are examined over the retained
-segment; their convergence is assessed in Section~\ref{sec:results-md}.
+segment; the corresponding convergence checks are reported in
+Appendix~\ref{sec:capacity-diagnostics}.
 
 \subsection{Harmonic references and heat-capacity assembly}
 \label{sec:harmonic-method}
@@ -1822,10 +1833,11 @@ original cell with each model to provide a harmonic reference; no empty-MOF
 MD trajectory is used.
 
 Table~\ref{tab:relax-settings} records the force targets and completed
-optimization steps for these references. The stopping criterion is the
+optimization steps for the MOF-5/methane and empty MOF-5 references.
+The stopping criterion is the
 largest atomic force norm, which differs from the Cartesian-component
 criterion used in the current pre-MD initialization. The four unconverged
-loaded relaxations reached their recorded step limits. The archives for
+methane-loaded relaxations reached their recorded step limits. The archives for
 converged runs retain the completed step count but not the requested maximum
 budget; these values should therefore not be interpreted as iteration caps.
 FIRE uses the ASE defaults for its remaining optimizer controls, which are
@@ -1854,18 +1866,20 @@ not separately recorded in the relaxation metadata.
   \end{tabular}
 \end{table}
 
-PET-JAX/SADMOF computes the Hessians with the parameters in
-Table~\ref{tab:harmonic-settings}. The theoretical construction of normal
+PET-JAX/SADMOF computes the MOF-5 and MOF-303 Hessians with the sparse AD
+parameters in Table~\ref{tab:harmonic-settings}. The ZIF-8 results instead
+use the finite-difference calculation described in
+Appendix~\ref{sec:zif8-reference-diagnostics}. The theoretical construction of normal
 modes is given in Section~\ref{sec:normal-modes}, the oscillator heat
 capacity in Section~\ref{sec:quantum-statistical-mechanics}, and the sparse
-AD algorithm in Appendix~\ref{sec:graph-coloring}. The present calculations
+AD algorithm in Appendix~\ref{sec:graph-coloring}. The sparse AD calculations
 symmetrize the Hessian, apply the force-constant row-sum acoustic treatment,
 and diagonalize the mass-weighted matrix while preserving the sign of
 unstable eigenvalues.
 
 \begin{table}[htbp]
   \centering
-  \caption{Hessian and heat-capacity settings for the reported analysis.
+  \caption{Hessian and heat-capacity settings for the MOF-5/methane analysis.
   The archived Hessians use float64, overriding the float32 TOML template.}
   \label{tab:harmonic-settings}
   \begin{tabular}{@{}ll@{}}
@@ -1894,7 +1908,7 @@ frequencies above $1\,\mathrm{cm^{-1}}$, using the same mask for the quantum
 and classical harmonic terms. This choice permits evaluation of the
 correction but does not establish stability of the reference structures;
 the corresponding diagnostics are reported in
-Section~\ref{sec:results-hessians}.
+Appendix~\ref{sec:results-hessians}.
 
 At each reporting temperature, the retained loaded spectrum supplies the
 quantum-minus-classical harmonic correction in
@@ -2049,163 +2063,48 @@ The total uncertainty of the hybrid heat capacity is then obtained by combining 
 
 \section{Results}
 \label{sec:results}
-
-\subsection{Available calculations and status}
 \label{sec:results-scope}
 
-The campaign contains 66 trajectories: PET-MAD
-(\texttt{pet-mad-1.\allowbreak{}5-s-40nn}) and PET-SOL (\texttt{pet-sol-s-best}), three
-loadings, eleven temperatures, and one replica per state point. Each
-\SI{500}{ps} run contributes 8001 frames after discarding \SI{100}{ps}:
-\SI{33}{ns} simulated and \SI{26.4}{ns} analyzed in total.
-Hybrid curves span 200--\SI{400}{K}; 175/\SI{425}{K} support centered endpoint
-derivatives. Each curve reuses one loaded \SI{400}{K} reference spectrum.
+Results are grouped by framework and then by guest loading. A loading
+counts molecules per simulated cell: the conventional MOF-5 cell or the
+$2\times2\times2$ MOF-303 and ZIF-8 supercells. Equal molecule counts
+therefore do not imply equal concentrations across hosts. Specific heat
+capacities use the total host-plus-guest mass; empty references use the
+host mass. Hybrid curves cover 200--\SI{400}{K} in \SI{25}{K} steps.
+These estimates remain exploratory; supporting checks and detailed
+uncertainty analysis are provided in Appendix~\ref{sec:capacity-diagnostics}.
 
-All estimates are \emph{exploratory}: every loaded spectrum has imaginary
-modes, and four of six relaxations failed their convergence criterion.
-Discarding unstable modes does not satisfy the strict acceptance protocol.
-Bands quantify selected sampling and model errors, excluding unstable-mode
-bias and unestimated variation across minima.
+\subsection{MOF-5}
+\label{sec:mof-5-results}
 
-Trajectory diagnostics come from per-run \texttt{summary.\allowbreak{}json}; central
-values and relaxation diagnostics come from
-\texttt{heat-capacity.\allowbreak{}exploratory-discard-imaginary} CSV/JSON archives.
-Reported bands use refreshed stride-1 evaluation of all 8001 frames with
-64 persistent LLPR members, rather than older per-loading uncertainty
-columns. Figure sources are recorded in \texttt{results-provenance.\allowbreak{}json}.
-
-\subsection{Thermodynamic sampling and equilibration}
-\label{sec:results-md}
-
-Mean temperatures stay within \SI{0.315}{K} of target. PET-MAD/100 at
-\SI{300}{K} gives $299.854\pm8.031$ K (mean and standard deviation),
-close to the equipartition width
-$T\sqrt{2/(3N-3)}=\SI{8.058}{K}$. This checks kinetic sampling, not
-configurational ergodicity. Pressure fluctuations span
-$0.80$--$1.51\times10^3$ bar with mean errors of 9--18 bar;
-PET-MAD/100 gives $4.65\pm13.11$ bar, compatible with the \SI{1}{bar}
-target. Physical enthalpy always uses imposed pressure.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=\textwidth]{figures/results-md-overview.pdf}
-  \caption{Thermodynamic diagnostics from all 66 trajectory summaries.
-  Left: mass-specific enthalpy increase relative to the same model and loading
-  at \SI{175}{K}; the baseline is a display offset, and the small bars show the
-  pointwise enthalpy standard errors without propagating the shared baseline
-  error. Middle: fractional change of mean cell volume relative to
-  \SI{175}{K}. Right: the archived difference between production-half mean
-  enthalpies divided by their combined standard error, $z_H$; dashed lines
-  mark $\pm2$. These are diagnostics of the individual runs, not replica
-  averages.}
-  \label{fig:results-md-overview}
-\end{figure}
-
-Enthalpy increases smoothly (Figure~\ref{fig:results-md-overview}).
-Archived enthalpy correlation times of 0.095--\SI{0.101}{ps} imply
-1980--2115 effective samples and mean errors of 0.015--\SI{0.046}{eV}.
-These short-time estimates do not exclude slow drift.
-
-Half-trajectory discrepancies flag 33 of 66 runs with $|z_H|>2$, where
-\begin{equation}
- z_H=\frac{\overline H_{\mathrm{second}}-\overline H_{\mathrm{first}}}
- {\sqrt{\operatorname{SE}_{\mathrm{first}}^2+
-              \operatorname{SE}_{\mathrm{second}}^2}}.
-\end{equation}
-Examples are $z_H=7.47$ for PET-MAD/150 at \SI{175}{K} and 4.57 for
-PET-SOL/150 at \SI{300}{K}. Some RMS-force correlation times reach
-\SI{26.1}{ps}, leaving fewer than eight effective samples.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.78\textwidth]{figures/results-convergence-mad-150-175.png}
-  \caption{Archived enthalpy convergence diagnostic for PET-MAD with 150
-  methane molecules at \SI{175}{K}. The upper panel separates MD sampling
-  error from the LLPR spread of the \emph{enthalpy}, in eV. The lower panel
-  shows the accumulated mean relative to the full-production mean. Its
-  endpoint is zero by construction and is not evidence of equilibration.}
-  \label{fig:results-convergence}
-\end{figure}
-
-In Figure~\ref{fig:results-convergence}, the accumulated mean differs from
-the final mean by about $-0.30$ eV after \SI{100}{ps} and $-0.15$ eV
-after \SI{200}{ps}. A large model spread does not absorb a
-temperature-dependent sampling bias. Longer independent runs and sensitivity
-to discarded intervals are needed to validate the reported small MD errors.
-
-\subsection{Cell response, framework motion, and methane mobility}
-\label{sec:results-structure}
-
-Both models predict contraction at 50/100 guests and expansion at 150 over
-175--\SI{425}{K} (Figure~\ref{fig:results-md-overview}). PET-MAD volumes
-change from 17146.8 to 17019.9, 17170.2 to 17108.4, and 17210.4 to
-\SI{17274.4}{\angstrom\cubed}, respectively. Across models the changes
-are about $-0.75\%$, $-0.37\%$, and $+0.3$--$0.4\%$.
-Densities at \SI{300}{K} are about 0.677, 0.752, and
-\SI{0.825}{g\per\centi\meter\cubed}, largely reflecting added guest mass.
-Because $C_P-C_V\propto\alpha_V^2$, contraction does not imply a negative
-heat-capacity difference; compressibility is also needed to quantify it.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.85\textwidth]{figures/results-structure-sol-150-300.png}
-  \caption{Structural diagnostics for PET-SOL with 150 methane molecules at
-  \SI{300}{K}: framework RMSD, nearest host-atom--methane center-of-mass
-  distance, radial distributions, and methane center-of-mass mean-squared
-  displacement (MSD). The first analyzed frame at \SI{100}{ps} defines the
-  framework reference, hence the initial zero RMSD. Long-lag MSD values use
-  fewer time origins than short-lag values.}
-  \label{fig:results-structure}
-\end{figure}
-
-At \SI{300}{K}, framework RMSDs are 0.659--\SI{0.725}{\angstrom},
-while tracked bond-length changes are only 0.055--\SI{0.059}{\angstrom}.
-Bounded RMSD supports collective motion without gross collapse over the
-analyzed interval, but tracking a reference neighbor set cannot rule out
-all bond changes.
-
-Methane \SI{400}{ps} MSDs at \SI{300}{K} decrease with loading:
-$8.9$--$9.2$, $5.1$--$5.6$, and $3.1$--$3.4\times10^3\,\text{\AA}^2$
-for 50, 100, and 150 molecules, respectively. Guest radial distributions
-peak near \SI{4}{\angstrom}. Mobility and crowding support the need for
-anharmonic MD; a single harmonic geometry cannot describe diffusion.
-Endpoint MSDs alone do not establish diffusion coefficients without a
-verified diffusive regime, cell-motion control, and replica statistics.
-
-\subsection{Classical, harmonic, and hybrid heat capacities}
+The methane comparison uses PET-MAD and PET-SOL at 50, 100, and 150
+molecules. Additional PET-MAD calculations contain 50 CO$_2$ or 50 H$_2$O
+molecules. Table~\ref{tab:results-cp} summarizes the \SI{300}{K}
+methane results. Harmonic quantization removes 59--63\% of the classical
+term; hybrid values rise from about 0.93 to 1.07--1.08 and
+\SI{1.16}{J\per g\per K} with loading.
 \label{sec:results-cp}
-
-Table~\ref{tab:results-cp} resolves the \SI{300}{K} contributions.
-The negative harmonic correction removes 59--63\% of the classical term,
-as quantum occupations suppress high-frequency vibrations. Its increase
-in magnitude with loading reflects added methane and mixed host--guest
-modes, requiring loaded rather than empty spectra.
 
 \begin{table}[htbp]
   \centering
-  \small
-  \caption{Heat capacities and uncertainty estimates at \SI{300}{K}, all in
-  \si{J\per g\per K} and normalized by the total mass of each loaded cell.
-  $c_{\mathrm{cl}}$ is the central enthalpy derivative, $\Delta c_{\mathrm{har}}$
-  the retained-mode harmonic correction, and $c_{\mathrm{hyb}}$ their sum.
-  $u_{\mathrm{CEA}}$ and $u_{\mathrm G}$ use different paired model spreads
-  around the \emph{same} central value and MD standard error
-  $\sigma_{\mathrm{MD}}$. The final column is the separate variance-based
-  central hybrid estimate. None of these uncertainties includes the bias
-  from discarded imaginary modes or an estimated spread across minima.}
+  \caption{MOF-5/methane heat capacities at \SI{300}{K}, in
+  \si{J\per g\per K}, normalized by the total loaded-cell mass.
+  $c_{\mathrm{cl}}$ is the classical enthalpy derivative,
+  $\Delta c_{\mathrm{har}}$ is the harmonic quantum correction, and
+  $c_{\mathrm{hyb}}$ is their sum. Quoted errors are standard uncertainties;
+  their analysis is given in Appendix~\ref{sec:results-uncertainty}.}
   \label{tab:results-cp}
-  \begin{tabular}{@{}lrrrrrrrr@{}}
+  \begin{tabular}{@{}lrrrr@{}}
     \toprule
     Model & $N_{\chfour}$ & $c_{\mathrm{cl}}$ & $\Delta c_{\mathrm{har}}$
-    & $c_{\mathrm{hyb}}$ & $\sigma_{\mathrm{MD}}$ & $u_{\mathrm{CEA}}$
-    & $u_{\mathrm G}$ & $c_{\mathrm{hyb}}^{\mathrm{var}}$ \\
+      & $c_{\mathrm{hyb}}$ \\
     \midrule
-PET-MAD & 50 & 2.281 & -1.351 & 0.929 & 0.010 & 0.068 & 0.127 & 0.926 \\
-PET-MAD & 100 & 2.762 & -1.682 & 1.080 & 0.010 & 0.123 & 0.169 & 1.044 \\
-PET-MAD & 150 & 3.122 & -1.957 & 1.165 & 0.010 & 0.113 & 0.214 & 1.202 \\
-PET-SOL & 50 & 2.289 & -1.363 & 0.926 & 0.010 & 0.087 & 0.150 & 0.940 \\
-PET-SOL & 100 & 2.762 & -1.693 & 1.069 & 0.010 & 0.153 & 0.225 & 1.024 \\
-PET-SOL & 150 & 3.134 & -1.969 & 1.166 & 0.010 & 0.103 & 0.306 & 1.230 \\
+    PET-MAD & 50  & 2.281 & -1.351 & $0.929\pm0.068$ \\
+    PET-MAD & 100 & 2.762 & -1.682 & $1.080\pm0.123$ \\
+    PET-MAD & 150 & 3.122 & -1.957 & $1.165\pm0.113$ \\
+    PET-SOL & 50  & 2.289 & -1.363 & $0.926\pm0.087$ \\
+    PET-SOL & 100 & 2.762 & -1.693 & $1.069\pm0.153$ \\
+    PET-SOL & 150 & 3.134 & -1.969 & $1.166\pm0.103$ \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -2213,163 +2112,263 @@ PET-SOL & 150 & 3.134 & -1.969 & 1.166 & 0.010 & 0.103 & 0.306 & 1.230 \\
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.90\textwidth]{figures/results-pet-mad-cea.png}
-  \caption{Supplied PET-MAD loading comparison. Loaded solid curves are
-  central classical enthalpy derivatives plus retained-mode harmonic quantum
-  corrections. Their shading is $\pm u_{\mathrm{CEA}}$, combining MD sampling
-  error with correlated classical--harmonic LLPR spread. Despite the common
-  ``hybrid'' legend, the zero-loading curve is a quantum-harmonic $c_V$
-  calculation only, with a harmonic LLPR band; no empty-system MD term was
-  computed. Dashed curves are the supplied reference CSVs, whose provenance
-  is discussed in the text.}
+  \caption{PET-MAD heat capacities for methane-loaded MOF-5.
+  Solid loaded curves show hybrid $c_P$; the empty-framework curve is
+  harmonic $c_V$. Dashed curves are digitized Kapil \emph{et al.}\ data
+  \cite{kapil2019}. Shading denotes standard uncertainty; details are in
+  Appendix~\ref{sec:results-uncertainty}.}
   \label{fig:results-cp-mad}
 \end{figure}
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.90\textwidth]{figures/results-pet-sol-cea.png}
-  \caption{Supplied PET-SOL loading comparison, with the same definitions
-  and exploratory mode treatment as Figure~\ref{fig:results-cp-mad}.
-  The slight decrease of the 100-molecule central curve at the upper end of
-  the grid is smaller than its uncertainty band and is not evidence of a
-  resolved thermodynamic anomaly. Shading denotes standard uncertainty,
-  not a calibrated confidence interval.}
+  \caption{PET-SOL heat capacities for methane-loaded MOF-5,
+  with the same definitions as Figure~\ref{fig:results-cp-mad}.}
   \label{fig:results-cp-sol}
 \end{figure}
 
-Room-temperature hybrid values rise from approximately 0.93 to 1.07--1.08
-and \SI{1.16}{J\per g\per K} with loading. Model differences of 0.003,
-0.011, and \SI{0.001}{J\per g\per K} are below propagated bands and
-cannot distinguish predictive accuracy.
+The dashed curves in Figures~\ref{fig:results-cp-mad}
+and~\ref{fig:results-cp-sol} are digitized Kapil \emph{et al.}\ data
+\cite{kapil2019}. Their \SI{300}{K} values are approximately 0.788,
+0.944, 1.037, and \SI{1.151}{J\per g\per K} at 0, 50, 100, and
+150 guests. Loaded differences from this work are at most
+\SI{0.043}{J\per g\per K}. The comparison uses different force fields
+and preparation protocols. The present temperature grid does not bracket
+the reference low-temperature minimum.
 
-The curves generally rise over 200--\SI{400}{K}
-(Figures~\ref{fig:results-cp-mad}--\ref{fig:results-cp-sol}). For PET-MAD/50,
-the classical term decreases from 2.347 to \SI{2.269}{J\per g\per K},
-while the correction becomes less negative, from $-1.551$ to
-$-1.164\,\mathrm{J\,g^{-1}\,K^{-1}}$. Thus the upward hybrid slope
-need not indicate increasing classical anharmonicity. Adjacent loading bands
-overlap; significance requires paired propagation of their difference.
-The grid does not bracket the reference low-temperature minimum, and small
-local bends remain unresolved within uncertainty.
+\subsubsection{Zero loading: empty framework}
+\label{sec:mof5-empty-results}
 
-Empty-framework \SI{300}{K} values are $0.786\pm0.021$ (PET-MAD) and
-$0.766\pm0.027\,\mathrm{J\,g^{-1}\,K^{-1}}$ (PET-SOL). These are
-framework-mass-normalized quantum harmonic $c_V$ values with LLPR spread,
-not hybrid $c_P$ or incremental adsorption heat capacities.
+At \SI{300}{K}, the empty-framework quantum harmonic $c_V$ is
+$0.786\pm0.021$ for PET-MAD and
+$0.766\pm0.027\,\mathrm{J\,g^{-1}\,K^{-1}}$ for PET-SOL.
+These references use the host mass. The empty PET-MAD references prepared
+for the CO$_2$ and H$_2$O campaigns both reproduce
+\SI{0.786}{J\per g\per K} to the precision reported here.
 
-Dashed curves are digitized Kapil \emph{et al.}\ data \cite{kapil2019}.
-Their \SI{300}{K} values are approximately 0.788, 0.944, 1.037, and
-\SI{1.151}{J\per g\per K} for 0/50/100/150 guests. Loaded differences
-from this work are at most \SI{0.043}{J\per g\per K}. Agreement is
-contextual: the digitization has no uncertainty estimates, the force fields
-and preparation differ, and present sampling/spectra remain unconverged.
-The earlier approximate empty-host scale is not a separate fitting target.
+\subsubsection{50 methane molecules}
+\label{sec:mof5-50ch4-results}
 
-\subsection{Hessian stability}
-\label{sec:results-hessians}
+At \SI{300}{K}, PET-MAD gives
+$c_{\mathrm{cl}}=2.281$, $\Delta c_{\mathrm{har}}=-1.351$, and
+$c_{\mathrm{hyb}}=0.929\pm0.068\,\mathrm{J\,g^{-1}\,K^{-1}}$.
+PET-SOL gives 2.289, $-1.363$, and
+$0.926\pm0.087\,\mathrm{J\,g^{-1}\,K^{-1}}$, respectively.
+For PET-MAD, the classical term decreases from 2.347 to 2.269 over
+200--\SI{400}{K}, while the correction becomes less negative, from
+$-1.551$ to $-1.164\,\mathrm{J\,g^{-1}\,K^{-1}}$.
+The resulting hybrid curve rises from 0.796 to
+\SI{1.105}{J\per g\per K}.
 
-\begin{table}[htbp]
-  \centering
-  \small
-  \caption{Archived central loaded-Hessian diagnostics. All calculations use
-  PET-JAX, float64, three graph hops, and the force-constant row-sum acoustic
-  treatment. ``Converged'' reproduces the relaxation archive's flag for its
-  requested tolerance. Imaginary modes have signed frequencies below
-  $-1\,\mathrm{cm^{-1}}$; near-zero modes satisfy
-  $|\widetilde\nu|\leq1\,\mathrm{cm^{-1}}$. Retained modes have positive
-  frequencies above the threshold. Signed negative values represent
-  unstable curvature, not physical negative-frequency oscillators.}
-  \label{tab:results-hessians}
-  \begin{tabular}{@{}lrr rrrr r@{}}
-    \toprule
-    Model & $N_{\chfour}$ & Converged & $F_{\max}$ & Imaginary & Near zero
-      & Retained & $\widetilde\nu_{\min}$ \\
-    & & & (eV/\AA) & & & & ($\mathrm{cm^{-1}}$) \\
-    \midrule
-PET-MAD & 50 & no & 0.0170 & 17 & 5 & 2000 & -53.5 \\
-PET-MAD & 100 & yes & 0.0097 & 114 & 3 & 2655 & -92.4 \\
-PET-MAD & 150 & no & 0.0095 & 28 & 3 & 3491 & -66.8 \\
-PET-SOL & 50 & no & 0.0054 & 32 & 3 & 1987 & -107.7 \\
-PET-SOL & 100 & yes & 0.0100 & 95 & 3 & 2674 & -138.4 \\
-PET-SOL & 150 & no & 0.0049 & 35 & 3 & 3484 & -86.5 \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+\subsubsection{100 methane molecules}
+\label{sec:mof5-100ch4-results}
 
-Force convergence does not establish positive curvature: the two
-100-molecule structures pass their archived force criteria but retain
-114/95 imaginary modes, down to $-92.4/-138.4\,\mathrm{cm^{-1}}$.
-Other loaded runs have 17--35 imaginary modes and failed convergence flags;
-PET-MAD/50 also has five near-zero modes. Run-dependent criteria must be
-judged from each archive rather than comparing residual forces alone.
-Empty spectra have four/five imaginary modes, down to
-$-5.5/-6.6\,\mathrm{cm^{-1}}$.
+At \SI{300}{K}, both models give
+$c_{\mathrm{cl}}=\SI{2.762}{J\per g\per K}$. Harmonic corrections of
+$-1.682$ and $-1.693\,\mathrm{J\,g^{-1}\,K^{-1}}$ yield
+$c_{\mathrm{hyb}}=1.080\pm0.123$ for PET-MAD and
+$1.069\pm0.153\,\mathrm{J\,g^{-1}\,K^{-1}}$ for PET-SOL.
+The curves increase overall with temperature; the PET-SOL curve shows a
+slight decrease at the upper end of the grid.
 
-Discarding negative eigenvalues enables an oscillator sum but does not
-create a stable minimum. Distinguish insufficient relaxation, unstable
-stationary structures, and sparse-curvature errors with convergence checks.
-Matching quantum/classical mode masks avoids inconsistent subtraction;
-it does not estimate unstable-mode bias. Reusing one \SI{400}{K} geometry
-also leaves temperature dependence and minimum-to-minimum variation untested.
-LLPR spread at a central geometry does not replace structural sampling.
+\subsubsection{150 methane molecules}
+\label{sec:mof5-150ch4-results}
 
-\subsection{Uncertainty bands}
-\label{sec:results-uncertainty}
+At \SI{300}{K}, PET-MAD gives
+$c_{\mathrm{cl}}=3.122$, $\Delta c_{\mathrm{har}}=-1.957$, and
+$c_{\mathrm{hyb}}=1.165\pm0.113\,\mathrm{J\,g^{-1}\,K^{-1}}$.
+PET-SOL gives 3.134, $-1.969$, and
+$1.166\pm0.103\,\mathrm{J\,g^{-1}\,K^{-1}}$, respectively.
+These are the highest room-temperature methane-loaded values in the
+present comparison. The two models differ by only
+\SI{0.001}{J\per g\per K}.
 
-Figures~\ref{fig:results-error-cea}--\ref{fig:results-error-gaussian}
-separate MD sampling, classical LLPR, harmonic LLPR, and paired total
-uncertainty. MD errors are about \SI{0.010}{J\per g\per K} at
-\SI{300}{K}; model terms dominate. Covariance can make the total smaller
-than an individual component when the member contributions are anticorrelated.
+\clearpage
+\subsubsection{50 carbon dioxide molecules}
+\label{sec:mof5-co2-results}
+
+At \SI{300}{K}, PET-MAD gives $c_{\mathrm{cl}}=1.792$ and
+$\Delta c_{\mathrm{har}}=-0.837$, yielding
+$c_{\mathrm{hyb}}=0.955\pm0.127\,\mathrm{J\,g^{-1}\,K^{-1}}$.
+The hybrid curve increases overall from 0.852 at \SI{200}{K} to
+\SI{1.032}{J\per g\per K} at \SI{400}{K}
+(Figure~\ref{fig:results-mof5-additional}).
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=\textwidth]{figures/results-uncertainty-cea.png}
-  \caption{Supplied uncertainty decomposition using refreshed CEA member
-  curves. Every panel uses all 8001 saved production frames at each
-  temperature and 64 LLPR members. The harmonic curve is model spread at
-  one fixed geometry, not an uncertainty across minima. The total preserves
-  classical--harmonic covariance and excludes an unestimated harmonic
-  sampling term. All plotted quantities are standard errors or model standard
-  deviations in \si{J\per g\per K}, not variance fractions.}
-  \label{fig:results-error-cea}
+  \includegraphics[width=\textwidth]{figures/results-mof5-additional.pdf}
+  \caption{PET-MAD heat capacities for MOF-5 with
+  50 CO$_2$ or 50 H$_2$O molecules per cell. Left: hybrid curves and the
+  empty-framework harmonic $c_V$ reference, with standard uncertainty
+  bands. Right: classical heat capacity and harmonic quantum correction.
+  Each curve uses its own total mass.}
+  \label{fig:results-mof5-additional}
 \end{figure}
 
-For PET-SOL with 150 guests at \SI{300}{K}, classical and harmonic CEA
-spreads of 0.108 and \SI{0.155}{J\per g\per K} combine to
-\SI{0.103}{J\per g\per K}, with inferred correlation $-0.75$.
-PET-SOL/100 instead has correlation $+0.37$ and paired spread
-\SI{0.153}{J\per g\per K}. Independent quadrature would miss both effects;
-predictive spread is not reduced by $\sqrt{64}$.
+\subsubsection{50 water molecules}
+\label{sec:mof5-h2o-results}
+
+At \SI{300}{K}, PET-MAD gives $c_{\mathrm{cl}}=2.295$ and
+$\Delta c_{\mathrm{har}}=-1.086$, yielding
+$c_{\mathrm{hyb}}=1.209\pm0.088\,\mathrm{J\,g^{-1}\,K^{-1}}$.
+The curve increases overall but is irregular: it gives 0.218 at
+\SI{200}{K}, 1.150 at \SI{250}{K}, 0.872 at \SI{275}{K}, and
+\SI{1.578}{J\per g\per K} at \SI{400}{K}.
+
+\clearpage
+\subsection{MOF-303}
+\label{sec:mof303-results}
+
+These PET-MAD calculations use a $2\times2\times2$ supercell containing
+50 CO$_2$ or 50 H$_2$O molecules. Figure~\ref{fig:results-mof303-additional}
+compares the heat-capacity curves and their classical and harmonic terms,
+and includes digitized experimental measurements for dry and water-loaded
+MOF-303~\cite{abuelmaaty2025}.
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=\textwidth]{figures/results-uncertainty-gaussian.png}
-  \caption{Supplied Gaussian NPT/DPOSE uncertainty decomposition. Central
-  hybrid curves, MD sampling errors, harmonic member corrections, and frame
-  coverage are identical to the CEA comparison; only the classical member
-  spread and its covariance with the harmonic correction change. The smoother
-  orange curves result from a different estimator and do not establish more
-  accurate uncertainty calibration.}
-  \label{fig:results-error-gaussian}
+  \includegraphics[width=\textwidth]{figures/results-mof303_2x2x2-additional.pdf}
+  \caption{PET-MAD heat capacities for MOF-303 with
+  50 CO$_2$ or 50 H$_2$O molecules per $2\times2\times2$ supercell.
+  Curve definitions and mass normalizations match
+  Figure~\ref{fig:results-mof5-additional}. Left: experimental points for
+  dry MOF-303 and water loadings $q=12.02\%$ and $34.25\%$ are overlaid
+  on the simulation curves~\cite{abuelmaaty2025}. Here $q$ is the water
+  mass relative to the saturated water amount; the 50-water simulation
+  corresponds to $q=16.76\%$. Dashed experimental curves connect the
+  digitized points, for which uncertainties were not supplied. Right:
+  classical heat capacities and harmonic corrections.}
+  \label{fig:results-mof303-additional}
 \end{figure}
 
-Gaussian propagation gives larger \SI{300}{K} bands in every case
-(Table~\ref{tab:results-cp}), with positive classical--harmonic correlations
-of 0.43--0.63. Smoother or narrower bands do not demonstrate calibration.
-Recorded $\operatorname{var}(\beta\Delta U_i)$ spans about 2.4 to
-$1.42\times10^3$, violating the small-variance CEA criterion; some direct
-reweighting effective counts approach one. Neither collapsed reweighting
-nor untested Gaussian tails validate these bands, whose coverage against
-reference electronic-structure data remains unestablished.
+\subsubsection{Zero loading: empty framework}
+\label{sec:mof303-empty-results}
 
-The separate \texttt{variance-hybrid} calculation also changes the central
-classical estimator. At \SI{300}{K}, hybrid differences from the derivative
-route range from $-0.045$ to $+0.064\,\mathrm{J\,g^{-1}\,K^{-1}}$,
-with MD errors of 0.022--\SI{0.030}{J\per g\per K} from squared-fluctuation
-correlations. Shared trajectories and harmonic corrections make these
-cross-checks correlated. Quantitative predictions require stable Hessians,
-stationary independent trajectories, multiple quenched structures, and
-validated member propagation.
+The empty PET-MAD reference gives quantum harmonic
+$c_V=0.947\pm0.016\,\mathrm{J\,g^{-1}\,K^{-1}}$ at \SI{300}{K},
+normalized by host mass. The separately prepared CO$_2$ and H$_2$O
+campaign references agree to the reported precision.
+
+\subsubsection{50 carbon dioxide molecules}
+\label{sec:mof303-co2-results}
+
+At \SI{300}{K}, $c_{\mathrm{cl}}=2.026$ and
+$\Delta c_{\mathrm{har}}=-0.991$ give
+$c_{\mathrm{hyb}}=1.035\pm0.053\,\mathrm{J\,g^{-1}\,K^{-1}}$.
+The curve increases overall from 0.877 at \SI{200}{K} to
+\SI{1.200}{J\per g\per K} at \SI{400}{K}.
+
+\subsubsection{50 water molecules}
+\label{sec:mof303-h2o-results}
+
+At \SI{300}{K}, $c_{\mathrm{cl}}=2.247$ and
+$\Delta c_{\mathrm{har}}=-1.141$ give
+$c_{\mathrm{hyb}}=1.106\pm0.133\,\mathrm{J\,g^{-1}\,K^{-1}}$.
+The curve increases overall from 0.386 at \SI{200}{K} to
+\SI{1.452}{J\per g\per K} at \SI{400}{K}, with local decreases
+at 250 and \SI{325}{K}.
+
+\paragraph{Comparison with experimental water loadings.}
+The experimental loading variable is
+$q=m_{\mathrm{water}}/m_{\mathrm{water,sat}}$.
+The reported dry and saturated sample masses, 7.3990 and
+\SI{10.5358}{mg}, give a saturated water-to-dry-framework mass ratio of
+0.42395~\cite{abuelmaaty2025}. The 50 water molecules in the present
+1024-atom host give a water-to-host mass ratio of 0.07106 and hence
+$q=0.16761$. This composition lies between the measured $q=0.1202$ and
+$q=0.3425$ samples. These experimental curves provide composition
+references; neither is an exact loading match to the simulation.
+
+The experimental temperatures were rounded to the nearest integer in
+degrees Celsius before conversion to kelvin, giving a displayed range of
+283.15--\SI{368.15}{K}. Heat capacities in
+$\mathrm{J\,g^{-1}\,{}^{\circ}C^{-1}}$ retain their numerical values in
+$\mathrm{J\,g^{-1}\,K^{-1}}$. Linear interpolation in temperature between
+the digitized points gives approximately 1.285 and
+\SI{1.607}{J\per g\per K} at \SI{300}{K} for the lower and higher
+water loadings, respectively. The simulated value of
+\SI{1.106}{J\per g\per K} lies below both curves. This comparison assumes
+that the reported experimental specific heats use the current hydrated
+sample mass; that normalization is not explicitly documented in the main
+experimental text. Drift in the water-loaded MD, the exploratory Hessian
+treatment, and possible thermal redistribution of water in the sealed DSC
+sample limit interpretation of the discrepancy. The water measurements
+provide no experimental benchmark for the MOF-303/CO$_2$ curve in the
+same figure.
+
+\clearpage
+\subsection{ZIF-8}
+\label{sec:zif8-results}
+
+The PET-MAD calculation contains 54 CO$_2$ molecules in a
+$2\times2\times2$ supercell, containing 96 Zn(MeIm)$_2$ formula units.
+Its molar loading is therefore $X=54/96=0.5625$, close to the experimental
+$X=0.56$ sample of Rosen \emph{et al.}~\cite{rosen2020co2}.
+
+\subsubsection{Zero loading: empty framework}
+\label{sec:zif8-empty-results}
+
+No completed empty-ZIF-8 harmonic heat-capacity curve is available in the
+campaign archive.
+
+\subsubsection{54 carbon dioxide molecules}
+\label{sec:zif8-co2-results}
+
+At \SI{300}{K}, $c_{\mathrm{cl}}=2.426$ and
+$\Delta c_{\mathrm{har}}=-1.460$ give
+$c_{\mathrm{hyb}}=0.967\pm0.151\,\mathrm{J\,g^{-1}\,K^{-1}}$.
+The hybrid curve rises from 0.805 at \SI{200}{K} to
+\SI{1.200}{J\per g\per K} at \SI{400}{K}
+(Figure~\ref{fig:results-zif8-additional}). Different guest concentrations
+and mass normalizations must be considered when comparing these values
+with the other frameworks.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/results-zif8_2x2x2-additional.pdf}
+  \caption{PET-MAD heat capacities for 54 CO$_2$
+  molecules in the ZIF-8 $2\times2\times2$ supercell. Left: hybrid heat
+  capacity with standard uncertainty and experimental measurements at
+  $X=0.56$ mol CO$_2$/mol ZIF-8~\cite{rosen2020co2}; the simulation has
+  $X=0.5625$. The experimental molar values from Supporting Information
+  Table~3 are divided by the loaded sample molar mass,
+  \SI{252.3}{g\per mol}, to give the same total-sample mass basis as the
+  simulation. Experimental error bars show 2\% standard uncertainty in
+  this temperature range; dashed lines connect measured points. The
+  experiment reports sealed-cell $C$, whereas the simulation estimates
+  $C_P$. Right: classical heat capacity and harmonic quantum correction.}
+  \label{fig:results-zif8-additional}
+\end{figure}
+
+\paragraph{Comparison with the matched experimental composition.}
+The experimental data are tabulated measurements rather than digitized
+points. They cover nominally 1.8--\SI{300}{K}; the final tabulated point
+for $X=0.56$ is at \SI{302.71}{K}. Only measured points within the plotted
+temperature range are shown, without extrapolation to the higher
+simulation temperatures. On the common 200--\SI{300}{K} grid, linear
+interpolation between neighboring experimental temperatures gives signed
+simulation differences ranging from approximately $+2.2\%$ to $-4.0\%$.
+At \SI{300}{K}, the interpolated experimental value is approximately
+\SI{1.007}{J\per g\per K}, compared with the simulated
+$0.967\pm0.151\,\mathrm{J\,g^{-1}\,K^{-1}}$. The 2\% experimental
+standard uncertainty corresponds to approximately
+\SI{0.020}{J\per g\per K} at this temperature and does not include a
+separate interpolation uncertainty.
+
+This numerical agreement is qualified by the measurement conditions.
+The experiment fixes the total CO$_2$ amount in a sealed pan; neglecting
+pan expansion, the authors describe its heat capacity as approximately
+constant-volume for the entire system, including any free CO$_2$ outside
+the crystal~\cite{rosen2020co2}. The periodic NPT simulation instead
+contains all 54 CO$_2$ molecules inside the framework. The initial
+experimental sealing pressure is not a pressure maintained throughout
+the temperature scan. In addition, the existing 200--\SI{400}{K}
+simulation curve samples only the upper tail of the reported
+70--\SI{220}{K} structural anomaly. The overlay therefore does not
+validate the gate-opening mechanism or the low-temperature peak shape.
+Imaginary-mode removal and incomplete reference relaxation remain
+systematic limitations outside the plotted statistical uncertainty.
 
 \section{Recommended production and analysis protocol}
 
@@ -2501,9 +2500,9 @@ require convergence in bead number and trajectory sampling
     \toprule
     Present limitation & Required evidence \\
     \midrule
-    33/66 enthalpy drift flags; one replica per state & Longer independent
+    55/121 enthalpy drift flags; one replica per state & Longer independent
     trajectories and stable block/replica statistics. \\
-    Imaginary modes in every loaded reference; four failed relaxations &
+    Imaginary modes in all 11 loaded references; seven failed relaxations &
     Stable minima and converged signed spectra, sparsity reach, and precision. \\
     One loaded geometry per curve & Multiple independent quenches and
     sensitivity to harmonic-reference temperature. \\
@@ -2526,7 +2525,18 @@ PET-MAD and PET-SOL give exploratory room-temperature heat capacities rising
 from about 0.93 to \SI{1.16}{J\per g\per K} with methane loading. Harmonic
 quantization removes 59--63\% of the classical term; guest mobility supports
 retaining anharmonic MD. Broad agreement with digitized reference trends
-does not establish quantitative accuracy. Stable spectra, independent
+does not establish quantitative accuracy. Additional PET-MAD estimates
+at \SI{300}{K} are 0.955/1.209 for CO$_2$/H$_2$O in MOF-5,
+1.035/1.106 for CO$_2$/H$_2$O in MOF-303, and
+\SI{0.967}{J\per g\per K} for CO$_2$ in ZIF-8. These values use
+different guest concentrations and do not establish a ranking of hosts.
+Experimental overlays place the MOF-303/water estimate below the measured
+neighboring loading curves at \SI{300}{K}, while the ZIF-8/CO$_2$ estimate
+is within about 4\% of the matched-composition measurement. Loading,
+mass-normalization, and sealed-cell versus constant-pressure conditions
+qualify these comparisons.
+Water-loaded trajectories show particularly strong drift, and all loaded
+spectra contain imaginary modes. Stable spectra, independent
 trajectory/minimum sampling, and validated paired uncertainty propagation
 are needed before interpreting these curves as converged predictions.
 
@@ -3609,6 +3619,364 @@ analysis evaluate coordinate curvature rather than optimizer updates.
 Appendix~\ref{sec:graph-coloring} explains how many such directional
 second derivatives are combined to recover the Hessian efficiently.
 
+\section{Trajectory diagnostics, reference stability, and uncertainty analysis}
+\label{sec:capacity-diagnostics}
+
+This appendix collects the supporting checks for the heat capacities in
+Section~\ref{sec:results}. Sources are recorded in
+\texttt{results-provenance.\allowbreak{}json}.
+
+\subsection{Campaign coverage and reference treatment}
+
+The completed campaigns contain 121 trajectories: 66 for MOF-5/methane
+with PET-MAD and PET-SOL, and 55 for the additional PET-MAD systems.
+Each state point has one \SI{500}{ps} trajectory and 8001 retained frames
+after discarding \SI{100}{ps}. This gives \SI{60.5}{ns} simulated and
+\SI{48.4}{ns} analyzed. Trajectories span 175--\SI{425}{K} in
+\SI{25}{K} steps; centered enthalpy derivatives give hybrid curves over
+200--\SI{400}{K}. Each curve reuses one loaded \SI{400}{K} reference
+spectrum.
+
+All loaded heat capacities remain \emph{exploratory}. Every loaded
+reference has imaginary modes, and seven of eleven loaded relaxations
+failed their force criterion. The harmonic sums retain only frequencies
+above $1\,\mathrm{cm^{-1}}$, with identical quantum and classical masks.
+Discarding modes does not establish a stable minimum. Trajectory
+statistics and heat capacities come from the archived summary JSON and
+exploratory CSV/JSON files; sources are recorded in
+\texttt{results-provenance.\allowbreak{}json}.
+
+\subsection{MOF-5 sampling and structural diagnostics}
+\label{sec:results-md}
+\label{sec:results-structure}
+Across the 66 methane trajectories, mean temperatures remain within
+\SI{0.315}{K} of target. Pressure fluctuations span
+$0.80$--$1.51\times10^3$ bar, with mean errors of 9--18 bar.
+Physical enthalpy uses the imposed \SI{1}{bar} pressure. Enthalpy rises
+smoothly with temperature (Figure~\ref{fig:results-md-overview}).
+Archived correlation times of 0.095--\SI{0.101}{ps} imply 1980--2115
+effective samples and mean enthalpy errors of 0.015--\SI{0.046}{eV}.
+These short-time estimates do not exclude slow drift.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/results-md-overview.pdf}
+  \caption{Thermodynamic diagnostics from all 66 trajectory summaries.
+  Left: mass-specific enthalpy increase relative to the same model and loading
+  at \SI{175}{K}; the baseline is a display offset, and the small bars show the
+  pointwise enthalpy standard errors without propagating the shared baseline
+  error. Middle: fractional change of mean cell volume relative to
+  \SI{175}{K}. Right: the archived difference between production-half mean
+  enthalpies divided by their combined standard error, $z_H$; dashed lines
+  mark $\pm2$. These are diagnostics of the individual runs, not replica
+  averages.}
+  \label{fig:results-md-overview}
+\end{figure}
+
+The production-half diagnostic is
+\begin{equation}
+ z_H=\frac{\overline H_{\mathrm{second}}-\overline H_{\mathrm{first}}}
+ {\sqrt{\operatorname{SE}_{\mathrm{first}}^2+
+              \operatorname{SE}_{\mathrm{second}}^2}}.
+ \label{eq:results-stationarity}
+\end{equation}
+It flags 33 of 66 methane trajectories with $|z_H|>2$.
+Some RMS-force correlation times reach \SI{26.1}{ps}, leaving fewer
+than eight effective samples. Longer independent runs and sensitivity to
+the discarded interval are needed to validate the small MD errors.
+
+Both models predict cell contraction at 50/100 methane molecules and
+expansion at 150 over 175--\SI{425}{K}. The changes are about
+$-0.75\%$, $-0.37\%$, and $+0.3$--$0.4\%$, respectively.
+Because $C_P-C_V\propto\alpha_V^2$, contraction does not imply a negative
+heat-capacity difference; compressibility is also needed to quantify it.
+At \SI{300}{K}, framework RMSDs are 0.659--\SI{0.725}{\angstrom},
+while tracked bond-length RMS changes are 0.055--\SI{0.059}{\angstrom}.
+These diagnostics support collective motion without gross collapse over
+the analyzed interval, but a fixed reference-neighbor set cannot rule out
+all bond changes. Guest radial distributions peak near \SI{4}{\angstrom}.
+Endpoint MSDs alone do not establish diffusion coefficients without a
+verified diffusive regime, cell-motion control, and replica statistics.
+
+\paragraph{50 methane molecules}
+The PET-MAD cell volume decreases from 17146.8 to
+\SI{17019.9}{\angstrom\cubed} over 175--\SI{425}{K}.
+Both models give a density near \SI{0.677}{g\per\centi\meter\cubed}
+at \SI{300}{K}; methane MSDs at \SI{400}{ps} are
+$8.9$--$9.2\times10^3\,\text{\AA}^2$.
+The enthalpy diagnostic flags 4/11 PET-MAD and 2/11 PET-SOL trajectories.
+Neither loaded relaxation converged. The spectra contain 17 and 32
+imaginary modes, respectively; PET-MAD also has five near-zero modes
+(Table~\ref{tab:results-hessians}).
+
+\paragraph{100 methane molecules}
+The PET-MAD mean temperature at \SI{300}{K} is
+$299.854\pm8.031$ K (mean and standard deviation), close to the
+canonical width of \SI{8.058}{K}. Its mean pressure is
+$4.65\pm13.11$ bar (standard error), compatible with the \SI{1}{bar}
+target. These checks do not establish configurational ergodicity:
+7/11 PET-MAD and 6/11 PET-SOL trajectories have $|z_H|>2$.
+PET-MAD volumes decrease from 17170.2 to
+\SI{17108.4}{\angstrom\cubed} over 175--\SI{425}{K}.
+At \SI{300}{K}, densities are about
+\SI{0.752}{g\per\centi\meter\cubed} and methane \SI{400}{ps} MSDs
+are $5.1$--$5.6\times10^3\,\text{\AA}^2$.
+Both relaxations pass their looser \SI{0.010}{eV\per\angstrom} force
+criterion, but retain 114/95 imaginary modes down to
+$-92.4/-138.4\,\mathrm{cm^{-1}}$.
+
+\paragraph{150 methane molecules}
+PET-MAD volumes increase from 17210.4 to
+\SI{17274.4}{\angstrom\cubed} over 175--\SI{425}{K}.
+At \SI{300}{K}, densities are about
+\SI{0.825}{g\per\centi\meter\cubed} and methane \SI{400}{ps} MSDs
+are $3.1$--$3.4\times10^3\,\text{\AA}^2$, below the lower-loading
+values. Guest motion persists despite crowding, supporting the need for
+anharmonic MD.
+
+The enthalpy diagnostic flags 6/11 PET-MAD and 8/11 PET-SOL trajectories.
+Examples are $z_H=7.47$ for PET-MAD at \SI{175}{K} and 4.57 for
+PET-SOL at \SI{300}{K}. The accumulated mean differs from its final value
+by about $-0.30$ eV after
+\SI{100}{ps} and $-0.15$ eV after \SI{200}{ps}. A large model spread
+does not absorb temperature-dependent sampling bias. Neither relaxation
+converged; the PET-MAD/PET-SOL spectra retain 28/35 imaginary modes.
+
+\subsection{MOF-5 reference spectra}
+\label{sec:results-hessians}
+Table~\ref{tab:results-hessians} lists the central loaded spectra.
+Force convergence alone does not establish positive curvature. Neither
+matching mode masks nor LLPR spread at a single geometry estimates the
+bias from unstable modes or the variation across quenched minima.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Archived central methane-loaded MOF-5 Hessian diagnostics. These calculations use
+  PET-JAX, float64, three graph hops, and the force-constant row-sum acoustic
+  treatment. ``Converged'' reproduces the relaxation archive's flag for its
+  requested tolerance. Imaginary modes have signed frequencies below
+  $-1\,\mathrm{cm^{-1}}$; near-zero modes satisfy
+  $|\widetilde\nu|\leq1\,\mathrm{cm^{-1}}$. Retained modes have positive
+  frequencies above the threshold. Signed negative values represent
+  unstable curvature, not physical negative-frequency oscillators.}
+  \label{tab:results-hessians}
+  \begin{tabular}{@{}lrr rrrr r@{}}
+    \toprule
+    Model & $N_{\chfour}$ & Converged & $F_{\max}$ & Imaginary & Near zero
+      & Retained & $\widetilde\nu_{\min}$ \\
+    & & & (eV/\AA) & & & & ($\mathrm{cm^{-1}}$) \\
+    \midrule
+PET-MAD & 50 & no & 0.0170 & 17 & 5 & 2000 & -53.5 \\
+PET-MAD & 100 & yes & 0.0097 & 114 & 3 & 2655 & -92.4 \\
+PET-MAD & 150 & no & 0.0095 & 28 & 3 & 3491 & -66.8 \\
+PET-SOL & 50 & no & 0.0054 & 32 & 3 & 1987 & -107.7 \\
+PET-SOL & 100 & yes & 0.0100 & 95 & 3 & 2674 & -138.4 \\
+PET-SOL & 150 & no & 0.0049 & 35 & 3 & 3484 & -86.5 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The empty PET-MAD/PET-SOL spectra retain four/five imaginary modes,
+down to $-5.5/-6.6\,\mathrm{cm^{-1}}$, despite force-converged relaxations.
+
+\subsection{Additional host and guest diagnostics}
+
+\paragraph{MOF-5 with 50 carbon dioxide molecules.}
+The mean cell volume contracts by 0.69\% over 175--\SI{425}{K},
+from 17136.6 to \SI{17017.5}{\angstrom\cubed}.
+The \SI{300}{K} density is \SI{0.813}{g\per\centi\meter\cubed}.
+
+At \SI{300}{K}, framework RMSD and tracked bond RMS change are
+0.699 and \SI{0.059}{\angstrom}. Five of eleven trajectories have
+$|z_H|>2$, including $z_H=-11.98$ at \SI{200}{K}.
+The loaded FIRE relaxation reaches 20000 steps with
+$F_{\max}=\SI{0.00630}{eV\per\angstrom}$, above its
+\SI{0.002}{eV\per\angstrom} target. The sparse AD spectrum contains
+eight imaginary modes, three near-zero modes, and 1711 retained modes;
+its lowest signed frequency is $-24.6\,\mathrm{cm^{-1}}$.
+
+\paragraph{MOF-5 with 50 water molecules.}
+Five of eleven trajectories have $|z_H|>2$, reaching $-25.97$ at
+\SI{225}{K} and $-14.81$ at \SI{275}{K}. These runs enter the
+centered derivatives, so the small error at a particular reporting
+temperature does not rule out sampling bias.
+
+At \SI{300}{K}, the density is
+\SI{0.689}{g\per\centi\meter\cubed}, framework RMSD is
+\SI{0.978}{\angstrom}, and tracked bond RMS change is
+\SI{0.086}{\angstrom}. The mean maximum change among tracked bonds
+is \SI{1.14}{\angstrom}; bonding and coordination need closer inspection
+before assigning the enhanced fluctuations to a mechanism.
+The loaded relaxation converges after 6949 steps with
+$F_{\max}=\SI{0.00198}{eV\per\angstrom}$, but the sparse AD spectrum
+still has two imaginary modes down to $-30.6\,\mathrm{cm^{-1}}$.
+Three modes are near zero and 1717 are retained.
+
+\paragraph{MOF-303 reference settings and empty framework.}
+Each guest has eleven trajectories and one fixed-cell loaded reference
+from \SI{400}{K}. Sparse AD uses float64, three graph hops, chunk size
+one, and the force-constant row-sum acoustic treatment.
+In the CO$_2$
+reference archive, relaxation converges after 267 steps with
+$F_{\max}=\SI{0.00192}{eV\per\angstrom}$. Its central spectrum has
+no frequencies below $-1\,\mathrm{cm^{-1}}$, three near-zero modes,
+and 3069 positive retained modes. However, 42 of the 64 LLPR member
+spectra contain imaginary modes, with up to 128 per member. Central
+spectral stability therefore does not validate the harmonic uncertainty
+band.
+
+\paragraph{MOF-303 with 50 carbon dioxide molecules.}
+The volume increases from 20124.7 to
+\SI{20223.2}{\angstrom\cubed} over 175--\SI{425}{K}, or 0.49\%.
+At \SI{300}{K}, the density is
+\SI{1.224}{g\per\centi\meter\cubed}, framework RMSD is
+\SI{0.364}{\angstrom}, and tracked bond RMS change is
+\SI{0.065}{\angstrom}.
+
+Only the \SI{250}{K} trajectory exceeds $|z_H|=2$, with $z_H=-2.30$.
+This is a better stationarity diagnostic than for water, but one replica
+cannot establish convergence. Relaxation reaches 20000 steps with
+$F_{\max}=\SI{0.00958}{eV\per\angstrom}$, above the
+\SI{0.002}{eV\per\angstrom} target. The spectrum has four imaginary
+modes down to $-25.1\,\mathrm{cm^{-1}}$, three near-zero modes, and
+3515 retained modes. Across temperatures and LLPR members,
+$\operatorname{var}(\beta\Delta U_i)=10.2$--368, outside the
+small-variance CEA regime.
+
+\paragraph{MOF-303 with 50 water molecules.}
+Ten of eleven trajectories have $|z_H|>2$;
+all flagged values are negative, reaching $-17.71$ at \SI{175}{K}
+and $-15.47$ at \SI{350}{K}. This persistent enthalpy drift prevents
+interpreting the slope or local bends as converged thermodynamic behavior.
+
+Between \SI{175}{K} and \SI{425}{K}, the mean cell volume increases by
+0.83\%, from 20313.3 to \SI{20481.8}{\angstrom\cubed}.
+At \SI{300}{K}, the density is
+\SI{1.108}{g\per\centi\meter\cubed}, framework RMSD is
+\SI{0.412}{\angstrom}, and tracked bond RMS change is
+\SI{0.064}{\angstrom}. Relaxation converges after 4723 steps with
+$F_{\max}=\SI{0.00199}{eV\per\angstrom}$. The spectrum nevertheless
+has one imaginary mode at $-11.0\,\mathrm{cm^{-1}}$, three near-zero
+modes, and 3518 retained modes. LLPR variance diagnostics range from
+8.6 to 295. The uncertainty band therefore also requires validation.
+
+\paragraph{ZIF-8 empty framework.}
+The empty reference relaxation converges after 1481 steps.
+The final maximum force is \SI{0.00199}{eV\per\angstrom}.
+
+\paragraph{ZIF-8 with 54 carbon dioxide molecules.}
+\label{sec:zif8-reference-diagnostics}
+The volume increases from
+39701.9 to \SI{40169.5}{\angstrom\cubed} over 175--\SI{425}{K},
+or 1.18\%. At \SI{300}{K}, the density is
+\SI{1.007}{g\per\centi\meter\cubed}.
+
+Only the \SI{300}{K} trajectory exceeds $|z_H|=2$, with $z_H=-2.71$.
+Its framework RMSD is \SI{0.959}{\angstrom}; tracked bond RMS change
+is \SI{0.180}{\angstrom}, and the mean maximum tracked-bond change is
+\SI{3.63}{\angstrom}. These changes require inspection of coordination
+and periodic neighbor tracking before claiming structural stability.
+Duplicate restart frames were removed in the trajectory summaries;
+8001 production frames remain per temperature.
+
+The loaded relaxation reaches 20000 steps with
+$F_{\max}=\SI{0.00655}{eV\per\angstrom}$, above its
+\SI{0.002}{eV\per\angstrom} target. The ZIF-8 curve uses the completed
+experimental two-GPU
+finite-difference Hessian ensemble: float64, displacement
+$5\times10^{-5}\,\text{\AA}$, fixed neighbor selection, and no shadow
+derivatives. The central spectrum has 14 imaginary modes down to
+$-67.8\,\mathrm{cm^{-1}}$, three near-zero modes, and 7093 retained modes.
+All 64 member spectra are complete, but contain 24--873 imaginary modes
+at the same central geometry. Completeness does not establish spectral
+stability or convergence with displacement.
+
+\subsection{Uncertainty propagation and estimator comparisons}
+\label{sec:results-uncertainty}
+
+Loaded-system uncertainties combine the MD standard error with paired CEA
+classical--harmonic LLPR spread from 64 members. They exclude drift bias,
+unstable-mode bias, and unestimated variation across minima.
+Empty-framework uncertainties are the sample standard deviations of 64
+harmonic LLPR curves.
+
+Figure~\ref{fig:results-error-cea} separates MD sampling, classical LLPR,
+harmonic LLPR, and paired total
+uncertainty. These use refreshed stride-1 evaluations of all 8001 frames,
+rather than older per-loading uncertainty columns. Model spread dominates
+the approximately \SI{0.010}{J\per g\per K} MD errors at \SI{300}{K}.
+Classical--harmonic covariance can either reduce or increase the total;
+predictive spread is not divided by $\sqrt{64}$.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/results-uncertainty-cea.png}
+  \caption{Supplied uncertainty decomposition using refreshed CEA member
+  curves. Every panel uses all 8001 saved production frames at each
+  temperature and 64 LLPR members. The harmonic curve is model spread at
+  one fixed geometry, not an uncertainty across minima. The total preserves
+  classical--harmonic covariance and excludes an unestimated harmonic
+  sampling term. All plotted quantities are standard errors or model standard
+  deviations in \si{J\per g\per K}, not variance fractions.}
+  \label{fig:results-error-cea}
+\end{figure}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Heat capacities and uncertainty estimates at \SI{300}{K}, all in
+  \si{J\per g\per K} and normalized by the total mass of each loaded cell.
+  $c_{\mathrm{cl}}$ is the central enthalpy derivative, $\Delta c_{\mathrm{har}}$
+  the retained-mode harmonic correction, and $c_{\mathrm{hyb}}$ their sum.
+  $u_{\mathrm{CEA}}$ and $u_{\mathrm G}$ use different paired model spreads
+  around the \emph{same} central value and MD standard error
+  $\sigma_{\mathrm{MD}}$. The final column is the separate variance-based
+  central hybrid estimate. None of these uncertainties includes the bias
+  from discarded imaginary modes or an estimated spread across minima.}
+  \label{tab:results-cp-uncertainty}
+  \begin{tabular}{@{}lrrrrrrrr@{}}
+    \toprule
+    Model & $N_{\chfour}$ & $c_{\mathrm{cl}}$ & $\Delta c_{\mathrm{har}}$
+    & $c_{\mathrm{hyb}}$ & $\sigma_{\mathrm{MD}}$ & $u_{\mathrm{CEA}}$
+    & $u_{\mathrm G}$ & $c_{\mathrm{hyb}}^{\mathrm{var}}$ \\
+    \midrule
+PET-MAD & 50 & 2.281 & -1.351 & 0.929 & 0.010 & 0.068 & 0.127 & 0.926 \\
+PET-MAD & 100 & 2.762 & -1.682 & 1.080 & 0.010 & 0.123 & 0.169 & 1.044 \\
+PET-MAD & 150 & 3.122 & -1.957 & 1.165 & 0.010 & 0.113 & 0.214 & 1.202 \\
+PET-SOL & 50 & 2.289 & -1.363 & 0.926 & 0.010 & 0.087 & 0.150 & 0.940 \\
+PET-SOL & 100 & 2.762 & -1.693 & 1.069 & 0.010 & 0.153 & 0.225 & 1.024 \\
+PET-SOL & 150 & 3.134 & -1.969 & 1.166 & 0.010 & 0.103 & 0.306 & 1.230 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Table~\ref{tab:results-cp-uncertainty} compares the MD error, paired CEA
+and Gaussian model propagation, and the separate variance-based hybrid
+estimator at \SI{300}{K}.
+For PET-SOL with 100 methane molecules, the CEA classical--harmonic
+correlation is $+0.37$. At 150 methane molecules, classical and harmonic
+CEA spreads of 0.108 and \SI{0.155}{J\per g\per K} combine to
+\SI{0.103}{J\per g\per K}, with inferred correlation $-0.75$.
+Independent quadrature would miss this cancellation.
+
+For MOF-5 with 50 CO$_2$, 50 H$_2$O, MOF-303 with 50 CO$_2$,
+50 H$_2$O, and ZIF-8 with 54 CO$_2$, respectively, the
+\SI{300}{K} MD errors alone are 0.008, 0.012, 0.007, 0.008, and
+\SI{0.005}{J\per g\per K}.
+
+For both additional MOF-5 guests, the LLPR analysis uses all 8001 frames
+and 64 members. Across temperatures and members,
+$\operatorname{var}(\beta\Delta U_i)$ spans 5.6--298 for CO$_2$ and
+3.7--234 for H$_2$O. Thus the CEA small-variance condition is not met;
+the reported bands are uncalibrated propagation estimates.
+
+For ZIF-8, the LLPR variance diagnostic spans
+$2.46\times10^3$--$4.80\times10^3$, far outside the small-variance CEA
+regime. Thus the reported uncertainty is an exploratory propagation
+estimate.
+
+
 \begin{thebibliography}{99}
 
 \bibitem{cohen-tannoudji2020}
@@ -3733,6 +4101,24 @@ Metal--Organic Frameworks: An Interplay of Quantum and Anharmonic
 Fluctuations}, Journal of Chemical Theory and Computation \textbf{15},
 3237--3249 (2019),
 \href{https://doi.org/10.1021/acs.jctc.8b01297}{doi:10.1021/acs.jctc.8b01297}.
+
+\bibitem{abuelmaaty2025}
+A. E. Abu El-maaty, O. Saoudi, A. S. Abdelrazik, and R. Ben-Mansour,
+\emph{Experimental investigation of specific heat and thermal stability of
+MOF-303 at different water vapor loading and various temperatures},
+International Communications in Heat and Mass Transfer \textbf{165},
+109088 (2025),
+\href{https://doi.org/10.1016/j.icheatmasstransfer.2025.109088}{doi:10.1016/j.icheatmasstransfer.2025.109088}.
+
+\bibitem{rosen2020co2}
+P. F. Rosen, M. S. Dickson, J. J. Calvin, N. L. Ross,
+T. Fri\v{s}\v{c}i\'c, A. Navrotsky, and B. F. Woodfield,
+\emph{Thermodynamic Evidence of Structural Transformations in CO$_2$-Loaded
+Metal--Organic Framework Zn(MeIm)$_2$ from Heat Capacity Measurements},
+Journal of the American Chemical Society \textbf{142}, 4833--4841 (2020),
+\href{https://doi.org/10.1021/jacs.9b13883}{doi:10.1021/jacs.9b13883}.
+Experimental values and uncertainties are from Supporting Information
+Table~3, \href{https://doi.org/10.1021/jacs.9b13883.s001}{doi:10.1021/jacs.9b13883.s001}.
 
 \bibitem{vaswani2017}
 A. Vaswani \emph{et al.},

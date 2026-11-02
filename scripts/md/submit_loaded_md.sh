@@ -377,7 +377,7 @@ submit_automatic_pipeline() {
         calibration_log_dir="${SLURM_OUTPUT_DIR}/simulation/${MOF_PATH}${model_label}/${LOADING}${GUEST}/calibration"
         planner_log_dir="${SLURM_OUTPUT_DIR}/simulation/${MOF_PATH}${model_label}/${LOADING}${GUEST}/planner"
         calibration_command=(
-            sbatch --parsable --job-name="${MOF}-${LOADING}${GUEST}-${model}-calibration"
+            sbatch --parsable --exclude=i39 --job-name="${MOF}-${LOADING}${GUEST}-${model}-calibration"
             --partition="${PARTITION}" --qos=debug
             --nodes=1 --ntasks=1 --cpus-per-task=4 --gres=gpu:1 --time=01:00:00
             --output="${calibration_log_dir}/%j.out"
@@ -411,12 +411,12 @@ submit_automatic_pipeline() {
         printf -v continuation '%q ' "${continuation_command[@]}"
         if ((DRY_RUN)); then
             printf 'DRY RUN:'; printf ' %q' "${calibration_command[@]}"; printf '\n'
-            printf 'DRY RUN: sbatch --dependency=afterok:<calibration-job> --partition=%q --qos=debug --nodes=1 --ntasks=1 --cpus-per-task=1 --gres=gpu:1 --time=00:20:00 --wrap %q\n' "${PARTITION}" "cd ${PROJECT_DIR} && exec ${continuation}"
+            printf 'DRY RUN: sbatch --exclude=i39 --dependency=afterok:<calibration-job> --partition=%q --qos=debug --nodes=1 --ntasks=1 --cpus-per-task=1 --gres=gpu:1 --time=00:20:00 --wrap %q\n' "${PARTITION}" "cd ${PROJECT_DIR} && exec ${continuation}"
             continue
         fi
         mkdir -p "${calibration_log_dir}" "${planner_log_dir}"
         calibration_submission=$("${calibration_command[@]}")
-        planner_submission=$(sbatch --parsable --job-name="${MOF}-${LOADING}${GUEST}-${model}-production-plan" \
+        planner_submission=$(sbatch --parsable --exclude=i39 --job-name="${MOF}-${LOADING}${GUEST}-${model}-production-plan" \
             --dependency="afterok:${calibration_submission%%;*}" \
             --partition="${PARTITION}" --qos=debug --nodes=1 --ntasks=1 \
             --cpus-per-task=1 --gres=gpu:1 --time=00:20:00 \
@@ -503,7 +503,7 @@ for index in "${!CONFIGS[@]}"; do
     fi
     slurm_run_dir="${SLURM_OUTPUT_DIR}/simulation/${MOF_PATH}${model_label}/${LOADING}${GUEST}/${temperature}K/rep${replica_tag}"
     command=(
-        sbatch --parsable
+        sbatch --parsable --exclude=i39
         --job-name="${MOF}-${LOADING}${GUEST}-${run_model}-npt-${temperature}K-r${replica_tag}"
         --partition="${PARTITION}" --qos="${QOS}"
         --nodes=1 --ntasks=1 --cpus-per-task="${CPUS_PER_TASK}"

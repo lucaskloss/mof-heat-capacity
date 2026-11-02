@@ -54,13 +54,21 @@ def collect_spectra(root):
     return np.asarray(spectra), reference, llpr_hash, records
 
 
-def plot_results(output, spectra, title):
+def plot_results(output, spectra, title, *, reference_root=None, no_experimental_reference=False):
+    from ..config import output_root
+    from .experimental import experimental_note, load_experimental_curves, plot_experimental_curves
+
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    identity = json.loads(output.with_suffix('.json').read_text())
+    curves = ([] if no_experimental_reference else load_experimental_curves(
+        reference_root if reference_root is not None else output_root() / 'reference_heat_capacity',
+        identity['mof'], identity['guest'],
+    ))
     with np.load(output, allow_pickle=False) as a:
         t = a['temperatures_K']
-        fig, ax = plt.subplots(figsize=(8,5.2))
+        fig, ax = plt.subplots(figsize=(10.5,5.2) if curves else (8,5.2))
         for key, uncertainty, label, style in (
             ('classical_anharmonic_cp_J_per_gK', 'classical_anharmonic_cp_combined_standard_uncertainty_J_per_gK', r'Classical $C_P$', '--'),
             ('harmonic_quantum_correction_J_per_gK', 'harmonic_quantum_correction_model_standard_deviation_J_per_gK', 'Harmonic correction', ':'),
@@ -68,13 +76,23 @@ def plot_results(output, spectra, title):
             y, sd = a[key], a[uncertainty]
             line, = ax.plot(t, y, 'o', linestyle=style, label=label)
             ax.fill_between(t, y-sd, y+sd, color=line.get_color(), alpha=0.15)
+        plot_experimental_curves(ax, curves, t)
         ax.axhline(0,color='black',alpha=0.4,linewidth=0.7)
         ax.set(xlabel='Temperature (K)',ylabel=r'Heat capacity ($J\,g^{-1}\,K^{-1}$)',title=title)
-        ax.grid(alpha=0.2); ax.legend()
-        fig.text(0.5,0.015,'Exploratory: unstable modes discarded; unconverged reference geometry',ha='center',fontsize=9)
-        fig.tight_layout(rect=(0,0.04,1,1))
-        fig.savefig(output.with_suffix('.png'),dpi=180)
-        fig.savefig(output.with_suffix('.pdf'))
+        ax.grid(alpha=0.2)
+        if curves:
+            ax.legend(fontsize=8, loc='center left', bbox_to_anchor=(1.01,0.5))
+        else:
+            ax.legend()
+        note = 'Exploratory: unstable modes discarded; unconverged reference geometry'
+        if curves:
+            note += '\n' + experimental_note(
+                identity['mof'], identity['guest'], identity['loading'], float(a['total_mass_amu'])
+            )
+        fig.text(0.5,0.015,note,ha='center',fontsize=8)
+        fig.tight_layout(rect=(0,0.13 if curves else 0.04,1,1))
+        fig.savefig(output.with_suffix('.png'),dpi=180,bbox_inches='tight')
+        fig.savefig(output.with_suffix('.pdf'),bbox_inches='tight')
         plt.close(fig)
     fig, axes = plt.subplots(1,2,figsize=(11,4.5))
     for s in spectra[1:]:
@@ -99,6 +117,8 @@ def main():
     parser.add_argument('--analysis-archive',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--model-label',default='pet-mad-1.5-s-40nn')
+    parser.add_argument('--reference-root', type=Path)
+    parser.add_argument('--no-experimental-reference', action='store_true')
     args=parser.parse_args()
     if any(args.output.with_suffix(s).exists() for s in ('.npz','.png','.json','.csv','.pdf')):
         raise FileExistsError('Choose a new hybrid output prefix')
@@ -138,8 +158,13 @@ def main():
              '--model-label',args.model_label,'--replicas','1','--hybrid-dir',str(root),
              '--hessian-source-temperature','400','--model-uncertainty',str(args.analysis_archive),
              '--discard-imaginary-modes','--output',str(args.output)]
+    if args.reference_root is not None:
+        command.extend(['--reference-root', str(args.reference_root)])
+    if args.no_experimental_reference:
+        command.append('--no-experimental-reference')
     subprocess.run(command,check=True)
-    plot_results(args.output,spectra,f'{config.mof}, {args.model_label}, {config.loading} {config.guest.upper()}')
+    plot_results(args.output,spectra,f'{config.mof}, {args.model_label}, {config.loading} {config.guest.upper()}',
+                 reference_root=args.reference_root, no_experimental_reference=args.no_experimental_reference)
     print(f'Exploratory hybrid plots saved beside {args.output}',flush=True)
 
 

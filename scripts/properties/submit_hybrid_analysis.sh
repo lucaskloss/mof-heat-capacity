@@ -40,6 +40,8 @@ MODEL_UNCERTAINTY=1
 # modes during hybrid assembly and label the resulting output exploratory.
 DISCARD_IMAGINARY_MODES=1
 CENTRAL_HESSIANS_ONLY=0
+REFERENCE_ROOT=""
+EXPERIMENTAL_REFERENCE=1
 DRY_RUN=0
 
 
@@ -58,6 +60,8 @@ run_hybrid_worker() {
     local discard_imaginary_modes=0
     local central_hessians_only=0
     local hessian_source_temperature=""
+    local reference_root=""
+    local experimental_reference=1
 
     shift
     while (($#)); do
@@ -76,6 +80,8 @@ run_hybrid_worker() {
             --discard-imaginary-modes) discard_imaginary_modes=1; shift ;;
             --central-hessians-only) central_hessians_only=1; shift ;;
             --model-uncertainty) model_uncertainty="$2"; shift 2 ;;
+            --reference-root) reference_root="$2"; shift 2 ;;
+            --no-experimental-reference) experimental_reference=0; shift ;;
             *) echo "error: unknown hybrid-worker argument: $1" >&2; exit 2 ;;
         esac
     done
@@ -129,6 +135,12 @@ run_hybrid_worker() {
     )
     if [[ -n "${model_uncertainty}" ]]; then
         command+=(--model-uncertainty "${model_uncertainty}")
+    fi
+    if [[ -n "${reference_root}" ]]; then
+        command+=(--reference-root "${reference_root}")
+    fi
+    if ((!experimental_reference)); then
+        command+=(--no-experimental-reference)
     fi
     if [[ -n "${hessian_source_temperature}" ]]; then
         command+=(--hessian-source-temperature "${hessian_source_temperature}")
@@ -190,6 +202,10 @@ Options:
                           submit_analysis.sh --model-uncertainty (default).
   --analysis-dir PATH     Trajectory-analysis root used to find that archive
                           (default: repository output/post-processing/trajectory-analysis).
+  --reference-root PATH   Experimental CSV root for plot overlays (default:
+                          <output-root>/reference_heat_capacity).
+  --no-experimental-reference
+                          Omit experimental overlays from the hybrid plot.
   --slurm-output-dir PATH Slurm log directory (default: repository output/slurm).
   --dry-run               Print submissions without calling sbatch.
   -h, --help              Show this help.
@@ -230,6 +246,8 @@ while (($#)); do
         --afterok) require_value "$@"; AFTEROK="$2"; shift 2 ;;
         --model-uncertainty) MODEL_UNCERTAINTY=1; shift ;;
         --analysis-dir) require_value "$@"; ANALYSIS_DIR="$2"; shift 2 ;;
+        --reference-root) require_value "$@"; REFERENCE_ROOT="$2"; shift 2 ;;
+        --no-experimental-reference) EXPERIMENTAL_REFERENCE=0; shift ;;
         --slurm-output-dir) require_value "$@"; SLURM_OUTPUT_DIR="$2"; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -337,6 +355,11 @@ if [[ "${OUTPUT_ROOT}" != /* ]]; then
     OUTPUT_ROOT="${PROJECT_DIR}/${OUTPUT_ROOT}"
 fi
 export MOF_OUTPUT_ROOT="${OUTPUT_ROOT}"
+if [[ -z "${REFERENCE_ROOT}" ]]; then
+    REFERENCE_ROOT="${OUTPUT_ROOT}/reference_heat_capacity"
+elif [[ "${REFERENCE_ROOT}" != /* ]]; then
+    REFERENCE_ROOT="${PROJECT_DIR}/${REFERENCE_ROOT}"
+fi
 if [[ "${ANALYSIS_DIR}" != /* ]]; then
     ANALYSIS_DIR="${PROJECT_DIR}/${ANALYSIS_DIR}"
 fi
@@ -387,6 +410,10 @@ for model_label in "${MODEL_LABELS[@]}"; do
     )
     if [[ -n "${REPORT_TEMPERATURES}" ]]; then
         command+=(--report-temperatures "${REPORT_TEMPERATURES}")
+    fi
+    command+=(--reference-root "${REFERENCE_ROOT}")
+    if ((!EXPERIMENTAL_REFERENCE)); then
+        command+=(--no-experimental-reference)
     fi
     if ((MODEL_UNCERTAINTY)); then
         command+=(--model-uncertainty "${model_uncertainty_path}")

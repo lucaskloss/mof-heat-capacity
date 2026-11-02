@@ -11,6 +11,11 @@ Run commands from the repository root:
 ./scripts/md/submit_loaded_md.sh --model both --loading 50 --replicas 1
 ```
 
+Calibration, production planners, MD runs, and automatic restart continuations
+exclude node `i39` by default because multiple jobs stalled there. The shared
+GPU runtime also carries `#SBATCH --exclude=i39`, covering direct submissions
+and continuations from jobs already running when the policy was added.
+
 ## Select the MOF and guest
 
 `--mof` selects the host label (default `mof5`), `--guest` selects `ch4`,

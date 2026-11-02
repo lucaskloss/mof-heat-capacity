@@ -14,6 +14,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from mof_heat_capacity.campaign import GUEST_SYMBOLS, system_directory, validate_selection
+from mof_heat_capacity.config import output_root
+from mof_heat_capacity.analysis.experimental import (
+    experimental_note, load_experimental_curves, plot_experimental_curves,
+)
 
 
 MODEL_TITLES = {
@@ -42,6 +46,8 @@ def parse_args() -> argparse.Namespace:
         default="heat-capacity.exploratory-discard-imaginary.central-only.csv",
     )
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--reference-root", type=Path, default=output_root() / "reference_heat_capacity")
+    parser.add_argument("--no-experimental-reference", action="store_true")
     return parser.parse_args()
 
 
@@ -68,11 +74,13 @@ def main() -> None:
         raise ValueError("--models must contain unique model labels")
 
     figure, axis = plt.subplots(figsize=(10, 6))
+    grids = []
     for model in models:
         path = args.input_root / system_directory(model, args.loading, args.mof, args.guest) / args.csv_name
         if not path.is_file():
             raise FileNotFoundError(f"hybrid CSV not found: {path}")
         temperatures, heat_capacity, standard_error = read_curve(path)
+        grids.append(temperatures)
         line = axis.plot(
             temperatures,
             heat_capacity,
@@ -88,6 +96,11 @@ def main() -> None:
             alpha=0.18,
         )
 
+    experiments = (
+        [] if args.no_experimental_reference
+        else load_experimental_curves(args.reference_root, args.mof, args.guest)
+    )
+    plot_experimental_curves(axis, experiments, np.concatenate(grids))
     axis.set(
         title=f"{args.mof} + {args.loading} {args.guest.upper()}: central-only hybrid heat capacity",
         xlabel="Temperature (K)",
@@ -98,13 +111,14 @@ def main() -> None:
     figure.text(
         0.5,
         0.01,
-        "Exploratory: unstable/near-zero modes discarded; shading is sampling ±1 SE (LLPR uncertainty omitted).",
+        "Exploratory: unstable/near-zero modes discarded; shading is sampling ±1 SE (LLPR uncertainty omitted)."
+        + ("\n" + experimental_note(args.mof, args.guest, args.loading) if experiments else ""),
         ha="center",
         fontsize=9,
     )
-    figure.tight_layout(rect=(0.0, 0.06, 1.0, 1.0))
+    figure.tight_layout(rect=(0.0, 0.12 if experiments else 0.06, 1.0, 1.0))
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(args.output, dpi=180)
+    figure.savefig(args.output, dpi=180, bbox_inches="tight")
     plt.close(figure)
     print(f"Saved model comparison: {args.output}")
 

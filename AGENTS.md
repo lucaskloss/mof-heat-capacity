@@ -95,6 +95,10 @@ campaign TOMLs are ignored; the versioned hybrid template is their source.
 
 ## Izar / GPU guidance
 
+Exclude node `i39` from simulation submissions: repeated MD and analysis jobs
+stalled there. Keep this exclusion in calibration, planners, production, and
+automatic MD continuations; the shared runtime also declares it in SBATCH.
+
 Read `docs/IZAR.md` before running on EPFL SCITAS Izar. The Slurm template
 uses one node, one task, and one GPU because neither entry point is MPI or
 multi-GPU. Validate CUDA only in an allocation, never on a login node.

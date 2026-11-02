@@ -10,6 +10,7 @@
 
 #SBATCH --job-name=mof5
 #SBATCH --partition=gpu
+#SBATCH --exclude=i39
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -327,7 +328,7 @@ submit_md_continuation() {
         return 2
     fi
     command=(
-        sbatch --parsable
+        sbatch --parsable --exclude=i39
         --job-name="${MOF_SUBMIT_JOB_NAME}"
         --partition="${MOF_SUBMIT_PARTITION}" --qos="${MOF_SUBMIT_QOS}"
         --nodes=1 --ntasks=1 --cpus-per-task="${MOF_SUBMIT_CPUS}"
