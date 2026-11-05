@@ -1,0 +1,63 @@
+% Native LaTeX figures; data exported by scripts/export_framework_plot_data.py.
+\definecolor{frameworkexpwaterlow}{HTML}{009E73}
+\definecolor{frameworkexpwaterhigh}{HTML}{A34899}
+\pgfplotsset{frameworktotal/.style={
+  xmin=195,xmax=405,ymin=0,ymax=2,
+  xtick={200,250,300,350,400},ytick={0,0.4,0.8,1.2,1.6,2},
+  xlabel={$T$ [K]},ylabel={$C_p$ [J\,g$^{-1}$\,K$^{-1}$]},
+  tick label style={font=\small},label style={font=\small},
+  grid=major,grid style={black!10},
+  legend style={font=\scriptsize,draw=none,fill=none,at={(0,1.03)},anchor=south west},
+}}
+
+\newcommand{\frameworktotalcurve}[3]{%
+  \addplot[name path=lower,draw=none,forget plot]
+    table[x=temperature_K,y=lower,col sep=comma]{figures/data/#1.csv};
+  \addplot[name path=upper,draw=none,forget plot]
+    table[x=temperature_K,y=upper,col sep=comma]{figures/data/#1.csv};
+  \addplot[#2!18,draw=none,forget plot] fill between[of=lower and upper];
+  \addplot[#2,thick,mark=*,mark size=1.5pt]
+    table[x=temperature_K,y=heat_capacity,col sep=comma]{figures/data/#1.csv};
+  \addlegendentry{#3}
+}
+
+\newcommand{\frameworkexperiment}[4]{%
+  \addplot[#2,dashed,mark=#3,mark size=2pt,mark options={solid,fill=white}]
+    table[x=temperature_K,y=heat_capacity,col sep=comma]{figures/data/#1.csv};
+  \addlegendentry{#4}
+}
+
+\newcommand{\mofthreethreetotals}{%
+  \begin{tikzpicture}
+    \begin{groupplot}[frameworktotal,
+      group style={group size=2 by 1,horizontal sep=0.7cm,
+        xlabels at=edge bottom,ylabels at=edge left,yticklabels at=edge left},
+      scale only axis,width=\dimexpr(\textwidth-2.6cm)/2\relax,height=0.29\textwidth,
+    ]
+      \nextgroupplot
+      \frameworktotalcurve{mof303-total-50co2}{mofloadinghundred}{PET-MAD: 50 $\mathrm{CO_2}$, total $C_p$}
+      \frameworktotalcurve{mof303-total-empty}{mofloadingzero}{PET-MAD: empty, harmonic $C_V$}
+      \frameworkexperiment{mof303-experiment-dry}{black}{diamond*}{Experiment: dry MOF-303}
+      \nextgroupplot
+      \frameworktotalcurve{mof303-total-50h2o}{mofloadingfifty}{PET-MAD: 50 $\mathrm{H_2O}$ ($q=16.76\%$)}
+      \frameworktotalcurve{mof303-total-empty}{mofloadingzero}{PET-MAD: empty, harmonic $C_V$}
+      \frameworkexperiment{mof303-experiment-dry}{black}{diamond*}{Experiment: dry MOF-303}
+      \frameworkexperiment{mof303-experiment-water12}{frameworkexpwaterlow}{triangle*}{Experiment: $q=12.02\%$}
+      \frameworkexperiment{mof303-experiment-water34}{frameworkexpwaterhigh}{triangle*}{Experiment: $q=34.25\%$}
+    \end{groupplot}
+  \end{tikzpicture}%
+}
+
+\newcommand{\zifeighttotal}{%
+  \begin{tikzpicture}
+    \begin{axis}[frameworktotal,scale only axis,
+      width=\dimexpr\textwidth-1.9cm\relax,height=0.32\textwidth]
+      \frameworktotalcurve{zif8-total-54co2}{mofloadinghundred}{PET-MAD: 54 $\mathrm{CO_2}$, total $C_p$ ($X=0.5625$)}
+      \addplot[frameworkexpwaterlow,dashed,mark=diamond*,mark size=2pt,
+        mark options={solid,fill=white},error bars/.cd,y dir=both,y explicit]
+        table[x=temperature_K,y=heat_capacity,y error=uncertainty,col sep=comma]
+          {figures/data/zif8-experiment-co2.csv};
+      \addlegendentry{Experiment: $X=0.56$ (2\% standard uncertainty)}
+    \end{axis}
+  \end{tikzpicture}%
+}

@@ -388,5 +388,217 @@
       "doi": "10.1021/jacs.9b13883.s001",
       "uncertainty": "2% standard uncertainty from Supporting Information Table 3."
     }
+  },
+  "results-mof5-panels.tex": {
+    "generator": "docs/report/scripts/export_mof5_plot_data.py",
+    "description": "Native PGFPlots 1x3 panels per model for 50, 100, and 150 CH4. Each panel overlays loaded hybrid cP and empty harmonic cV with their matching digitized Kapil references. Distinct colors identify empty, 50, 100, and 150 CH4; solid results and dashed references share a color. Loaded bands preserve archived CEA combined standard uncertainties; empty bands preserve harmonic LLPR spread. All axes span 0 to 1.8 J/g/K.",
+    "inputs": [
+      {
+        "source": "output/post-processing/harmonic-correction/loading-comparisons/hybrid-heat-capacity-uncertainty-components-cea.csv",
+        "sha256": "f3c21c9c1644bc396e62f5ce5c536f3687b4e34d93fd991b990e6b303c314696"
+      },
+      {
+        "source": "output/reference_heat_capacity/mof5/0ch4.csv",
+        "sha256": "2f85ee0d9ef7eaed8dc9d3e4db732ae1ca7925099c3a505fda3ffdde10e77bb1"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/pet-mad-1.5-s-40nn/0ch4/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "d3c984f0a16b98ddfb59bf441be53d897b30712d38d779b8a26134560bc3b27b"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/pet-sol-s-best/0ch4/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "31ff21b1cab338908b9c6a46bbc91757b7fdc351e0798c72539b37e7b0525de9"
+      },
+      {
+        "source": "output/reference_heat_capacity/mof5/50ch4.csv",
+        "sha256": "37c3859777e6fd85baecc8b88a86e1ed8dd2b91ebec777a8d3afdf84215051f0"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/pet-mad-1.5-s-40nn/50ch4/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "1c9e8806d8937ff388b928d9e4348b0ac2cc04e7688fb8de95bacc10fbacf6fb"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/pet-sol-s-best/50ch4/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "2ffb5f045ab8e276452d79652ad77bc0a27f849c3fb911bdaf0a14485b9d3ac6"
+      },
+      {
+        "source": "output/reference_heat_capacity/mof5/100ch4.csv",
+        "sha256": "42f3e3557e8efd272fae084ef988748f5a63eb292176dc98eb8c69b321d4c25a"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/pet-mad-1.5-s-40nn/100ch4/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "43a30fcab69dc2c4ee482c9094318c8c02a6eac8812fc469caf33ead896c2322"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/pet-sol-s-best/100ch4/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "6580399f217b1753693cceb32f6befd9ba90f1eaa7fd01bd4ac679cc9ea374da"
+      },
+      {
+        "source": "output/reference_heat_capacity/mof5/150ch4.csv",
+        "sha256": "288a8a2a5c4064a8ddfb8b18aabd3a7e2e76c549f48dcfdc276468a433811924"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/pet-mad-1.5-s-40nn/150ch4/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "a610f62e63f57ea8cea4aa64a4aee6300ff21a40bc929b5db5e61664cd8c407c"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/pet-sol-s-best/150ch4/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "ad676b3d52743ec1a659147bf2cee19ec3b5e927ff96b7dadf19a0a8eb97ff24"
+      }
+    ],
+    "exported_data": [
+      {
+        "source": "docs/report/figures/data/mof5-reference-0ch4.csv",
+        "sha256": "39846c8232e3312f4c8494441d8646786c28c7752cc9f72f1190850427cf724a"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-pet-mad-0ch4.csv",
+        "sha256": "11e15bd132748994c058a7cfde3e2f2211c2944cedfa7f9117de11e22fea2030"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-pet-sol-0ch4.csv",
+        "sha256": "555e50dac7cddab7c3335b34935e154f8275b8fb1b43a4b16f963cae07ed643d"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-reference-50ch4.csv",
+        "sha256": "b7fdc7cfb3dfa46e873d08558dcc1b70dd80fb69e331c66261d6f2a898c6dccc"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-pet-mad-50ch4.csv",
+        "sha256": "5d89cb825f140059e2fb4ee5f08cca231f1fb9cd3903c710c26bf045fc4412ac"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-pet-sol-50ch4.csv",
+        "sha256": "c47ca118b4ac376385215f06353c3f808650f58f7f3a96efe620f00972779ab7"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-reference-100ch4.csv",
+        "sha256": "12528b16f002bdb32e20cb6af8ee8c20ced87046882da5327f45f6200bc0d3c1"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-pet-mad-100ch4.csv",
+        "sha256": "76e25c7d1b1f5a81fd9b99b006747340cf11d47b520d167d0fe2f3519f2be636"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-pet-sol-100ch4.csv",
+        "sha256": "b3f43dc9a7508683b0fa49334ccfa4cb78e077156a589898b55b94b0e2d8d97e"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-reference-150ch4.csv",
+        "sha256": "69eb633c8b765fb15ca41caf9c8c5246aefae9c5dae99e69aa116eac5e64cb51"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-pet-mad-150ch4.csv",
+        "sha256": "2297cc826bcfb723ebe6e5970c2debfb7f9ef3d307df790e21d6584e8fbe76f1"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-pet-sol-150ch4.csv",
+        "sha256": "51cf034f35b6576e6b68f1d82ba5decc0ee364e5e01d869b912713f02a7b7565"
+      }
+    ]
+  },
+  "results-mof5-additional.tex": {
+    "generator": "docs/report/scripts/export_mof5_additional_data.py",
+    "description": "Native PGFPlots panels for 50 CO2 and 50 H2O: total hybrid cP and the archived empty harmonic cV reference. Bands preserve combined standard uncertainties for loaded systems and sample LLPR spread for the empty reference. Axes span 0 to 2 J/g/K; negative uncertainty bounds remain in the data and are clipped visually at zero.",
+    "inputs": [
+      {
+        "source": "output/post-processing/harmonic-correction/mof5/pet-mad-1.5-s-40nn/50co2/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "e6d63a97e82bc2d24c48a79e804bc2051e4b9a65c666388db985300dc3538e8c"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof5/pet-mad-1.5-s-40nn/50h2o/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "eddb208230d1ed17b4aebca7a08420868ee95bbf07e843f73d370ed740603d8c"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof5/pet-mad-1.5-s-40nn/0co2/hessians/hessian.npz",
+        "sha256": "c13c750dcc9c8bb8a286fafa7d1aa20b37e33953102fe5ae7405e6fb41da1dc7"
+      }
+    ],
+    "exported_data": [
+      {
+        "source": "docs/report/figures/data/mof5-additional-50co2.csv",
+        "sha256": "9b6dc6577087a8548d80112b6e625a27d62426258a9130a4e252e013c288d188"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-additional-50h2o.csv",
+        "sha256": "5d405973da7e3a60c8f219f68e04ced6acb5480feced3f477d2801da0c3b0b0e"
+      },
+      {
+        "source": "docs/report/figures/data/mof5-additional-empty.csv",
+        "sha256": "4f72272a4ddf945577f7ce3207dbed7e23c6624649d8923d415d81700617b546"
+      }
+    ]
+  },
+  "results-framework-totals.tex": {
+    "generator": "docs/report/scripts/export_framework_plot_data.py",
+    "description": "Native LaTeX total hybrid heat capacities with archived combined standard uncertainty. MOF-303 includes empty harmonic cV with sample LLPR spread and dry/water experimental references. ZIF-8 retains measured CO2 reference points and 2% standard uncertainty. Measurements are restricted to 195\u2013405 K without extrapolation. All y-axes start at zero; negative band bounds are preserved in tables and clipped visually.",
+    "inputs": [
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "4e2da531086da80ae7f3179f4d0e651e2344485335d4100acd1ce427088836b0"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/50h2o/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "08c3ac2c00c75f8693517815c5a16f0202c12d022fcd6be26f81dbd3407b6147"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/0co2/hessians/hessian.npz",
+        "sha256": "9cd2dd7347d7844a9cadb323f3c1b9d1bc6893bda495eaf7b16094d5ad10415f"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/heat-capacity.fd-two-gpu.exploratory-discard-imaginary.csv",
+        "sha256": "21021b0b5a565be07eac92acf7362b8dbbade346f71b87e57c41858d48a500ba"
+      },
+      {
+        "source": "output/reference_heat_capacity/mof303/mof-303_h20_0pct.csv",
+        "sha256": "d7f5f42090c12a81bc8f07f73eed97c9ab1cdbf677769c5d5afda5ff2b1922c1"
+      },
+      {
+        "source": "output/reference_heat_capacity/mof303/mof-303_h20_12p02pct.csv",
+        "sha256": "59925d67b4d7796817b845b95ac1aca4d1c31b31237c8c5d536ab43779c72975"
+      },
+      {
+        "source": "output/reference_heat_capacity/mof303/mof-303_h20_34p25pct.csv",
+        "sha256": "1ce8f237b1c4e8196ab772d6159694de82c3c202d5fa3edb95a130c528b2320d"
+      },
+      {
+        "source": "output/reference_heat_capacity/zif8/zif-8_co2.csv",
+        "sha256": "4b70f37756a099130ee67b656e452a37a3abd30283ab595377ae9d3ddf7939d9"
+      }
+    ],
+    "exported_data": [
+      {
+        "source": "docs/report/figures/data/mof303-total-50co2.csv",
+        "sha256": "46ee8c1332742ebfe717c2310ae74d6d5b636413ee95280e231c6fd6cba25bbe"
+      },
+      {
+        "source": "docs/report/figures/data/mof303-total-50h2o.csv",
+        "sha256": "628e396c566134ad800187fadfb23af2b65594868b70f8adf4c1dd633f772f5a"
+      },
+      {
+        "source": "docs/report/figures/data/mof303-total-empty.csv",
+        "sha256": "4184be898e40c005fe1194b4df17d5831c002b4910f80017f28a94401e946785"
+      },
+      {
+        "source": "docs/report/figures/data/zif8-total-54co2.csv",
+        "sha256": "d6caf0542c5cd1ed754ca6ecf338a815a771e54d85d66042cbb771e6eaa1aed9"
+      },
+      {
+        "source": "docs/report/figures/data/mof303-experiment-dry.csv",
+        "sha256": "884b35f70bad7cd4b143ddb6785ff22ab7e1f13f19387c8b4e956ad911c31dc6"
+      },
+      {
+        "source": "docs/report/figures/data/mof303-experiment-water12.csv",
+        "sha256": "a70fd32579d52b87877dc23625f37645e04ec6e5be0510034b4d4dc6582c90b7"
+      },
+      {
+        "source": "docs/report/figures/data/mof303-experiment-water34.csv",
+        "sha256": "91cdfd51692d4b1323ed5b79289eb591265c7d1fce03fd6710005d4f6b6a487d"
+      },
+      {
+        "source": "docs/report/figures/data/zif8-experiment-co2.csv",
+        "sha256": "888bbf991745f7bc4fa5f9f59fe6785366f30b246a38266b021172c7e68db549"
+      }
+    ]
   }
 }
