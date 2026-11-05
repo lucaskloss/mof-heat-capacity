@@ -33,7 +33,6 @@ QOS="${MOF_ANALYSIS_QOS:-normal}"
 WALL_TIME="${MOF_ANALYSIS_TIME:-01:15:00}"
 CPUS_PER_TASK="${MOF_ANALYSIS_CPUS:-4}"
 SLURM_OUTPUT_DIR="${MOF_SLURM_OUTPUT_DIR:-${OUTPUT_ROOT}/slurm}"
-NO_PLOTS=0
 NO_AGGREGATE=0
 AGGREGATE_ONLY=0
 MODEL_UNCERTAINTY=1
@@ -49,7 +48,6 @@ run_analysis_worker() {
     local discard_ps="100"
     local enthalpy_convergence_step_ps="25"
     local analysis_dir="${MOF_OUTPUT_ROOT:-${PROJECT_DIR}/output}/post-processing/trajectory-analysis"
-    local no_plots=0
     local model_uncertainty=0
     local uncertainty_model=""
     local uncertainty_stride=1
@@ -65,7 +63,7 @@ run_analysis_worker() {
             --discard-ps) discard_ps="$2"; shift 2 ;;
             --enthalpy-convergence-step-ps) enthalpy_convergence_step_ps="$2"; shift 2 ;;
             --analysis-dir) analysis_dir="$2"; shift 2 ;;
-            --no-plots) no_plots=1; shift ;;
+            --no-plots) shift ;; # Compatibility: analysis always writes data only.
             --model-uncertainty) model_uncertainty=1; shift ;;
             --uncertainty-model) uncertainty_model="$2"; shift 2 ;;
             --uncertainty-stride) uncertainty_stride="$2"; shift 2 ;;
@@ -113,8 +111,6 @@ run_analysis_worker() {
     export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
     export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
     export PYTHONUNBUFFERED=1
-    export MPLCONFIGDIR="${analysis_dir}/.matplotlib/${SLURM_JOB_ID}"
-    mkdir -p "${MPLCONFIGDIR}"
 
     echo "Job ID:          ${SLURM_JOB_ID}"
     echo "Node:            ${SLURMD_NODENAME}"
@@ -140,9 +136,6 @@ run_analysis_worker() {
         --enthalpy-convergence-step-ps "${enthalpy_convergence_step_ps}"
         --analysis-dir "${analysis_dir}"
     )
-    if ((no_plots)); then
-        command+=(--no-plots)
-    fi
     if ((model_uncertainty)); then
         command+=(
             --model-uncertainty
@@ -195,7 +188,6 @@ Options:
   --time HH:MM:SS         Wall time (default: 01:15:00).
   --cpus N                CPUs for each trajectory-analysis job (default: 4).
   --slurm-output-dir PATH Slurm log directory (default: repository output/slurm).
-  --no-plots              Skip PNG generation.
   --no-aggregate          Submit only per-trajectory jobs. Use this with one
                           --runs selection to run trajectory UQ individually.
   --aggregate-only        Submit only per-model/loading aggregate jobs, using
@@ -218,7 +210,8 @@ The trajectory jobs use Izar's shortest production QOS, normal, by default and
 allocate one GPU. Standard diagnostics are CPU-based; optional ensemble
 inference uses that GPU. Each selected trajectory is analyzed in its own Slurm
 job. A small dependent job assembles
-the combined CSV, manifest, and temperature-sweep plot. By default, loaded
+the combined CSV, manifest, and workflow requirements. All outputs are data;
+figures are rendered separately in LaTeX. By default, loaded
 classical replica 1 is selected from 175 to 425 K in 25 K steps for both MLIPs.
 Empty MOF-5 has no MD stage in the hybrid workflow.
 
@@ -256,7 +249,7 @@ while (($#)); do
         --time) require_value "$@"; WALL_TIME="$2"; shift 2 ;;
         --cpus) require_value "$@"; CPUS_PER_TASK="$2"; shift 2 ;;
         --slurm-output-dir) require_value "$@"; SLURM_OUTPUT_DIR="$2"; shift 2 ;;
-        --no-plots) NO_PLOTS=1; shift ;;
+        --no-plots) shift ;; # Compatibility: analysis always writes data only.
         --no-aggregate) NO_AGGREGATE=1; shift ;;
         --aggregate-only) AGGREGATE_ONLY=1; shift ;;
         --model-uncertainty) MODEL_UNCERTAINTY=1; shift ;;
@@ -529,9 +522,6 @@ for record in "${SELECTED_RUN_RECORDS[@]}"; do
         --analysis-dir "${run_analysis_dir}"
         --run-only
     )
-    if ((NO_PLOTS)); then
-        command+=(--no-plots)
-    fi
     if ((MODEL_UNCERTAINTY)); then
         command+=(
             --model-uncertainty
@@ -595,9 +585,6 @@ for group_key in "${GROUP_KEYS[@]}"; do
         --analysis-dir "${GROUP_DIRS[${group_key}]}"
         --aggregate-only
     )
-    if ((NO_PLOTS)); then
-        aggregate_command+=(--no-plots)
-    fi
     if ((MODEL_UNCERTAINTY)); then
         aggregate_command+=(
             --model-uncertainty

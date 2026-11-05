@@ -86,7 +86,7 @@ def hybrid_uncertainty_components(
 
     ensemble = _load_arrays(ensemble_path) if ensemble_path is not None else None
     if require_all_frames and ensemble is None:
-        raise ValueError("an all-frame plot requires the refreshed CEA ensemble archive")
+        raise ValueError("an all-frame comparison requires the refreshed CEA ensemble archive")
     if ensemble is not None:
         if str(hybrid["llpr_checkpoint_sha256"].item()) != str(ensemble["model_sha256"].item()):
             raise ValueError(f"CEA and Hessian LLPR checkpoint mismatch: {ensemble_path}")

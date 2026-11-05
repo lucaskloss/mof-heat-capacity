@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot hybrid loading curves and uncertainty components using NPT variances."""
+"""Export hybrid loading curves and uncertainty components using NPT variances."""
 
 from __future__ import annotations
 
@@ -8,20 +8,14 @@ import csv
 import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from mof_heat_capacity.campaign import GUEST_SYMBOLS, structure_directory, system_directory, validate_selection
+from mof_heat_capacity.campaign import GUEST_SYMBOLS, system_directory, validate_selection
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
-MODEL_TITLES = {
-    "pet-mad-1.5-s-40nn": "PET-MAD",
-    "pet-sol-s-best": "PET-SOL",
-}
-LOADINGS = (50, 100, 150)
 COMPONENTS = (
     ("MD NPT variance sampling", "gaussian_npt_central_sampling_standard_error_J_per_gK"),
     ("Classical Gaussian LLPR", "classical_variance_model_sd_J_per_gK"),
@@ -41,9 +35,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--hybrid-root", type=Path, default=PROJECT_DIR / "output/post-processing/harmonic-correction"
-    )
-    parser.add_argument(
-        "--reference-root", type=Path, default=PROJECT_DIR / "output/reference_heat_capacity"
     )
     parser.add_argument(
         "--output-dir", type=Path,
@@ -135,89 +126,6 @@ def _write_csv(path: Path, result: dict[str, np.ndarray]) -> None:
             writer.writerow({name: result[name][index] for name in fields})
 
 
-def _read_reference(path: Path) -> tuple[np.ndarray, np.ndarray] | None:
-    if not path.is_file():
-        return None
-    with path.open(newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    return (
-        np.asarray([float(row["temperature_K"]) for row in rows]),
-        np.asarray([float(row["reference_heat_capacity_J_per_gK"]) for row in rows]),
-    )
-
-
-def _plot_hybrid_curves(
-    models: list[str], loadings: list[int], results: dict[tuple[str, int], dict[str, np.ndarray]], args: argparse.Namespace
-) -> None:
-    for model in models:
-        figure, axis = plt.subplots(figsize=(10, 6))
-        for loading in loadings:
-            result = results[(model, loading)]
-            line = axis.plot(
-                result["temperature_K"], result["central_hybrid_cp_J_per_gK"],
-                marker="o", linewidth=2.5, label=f"{loading} {args.guest.upper()} — variance hybrid",
-            )[0]
-            uncertainty = result["combined_standard_uncertainty_J_per_gK"]
-            axis.fill_between(
-                result["temperature_K"],
-                result["central_hybrid_cp_J_per_gK"] - uncertainty,
-                result["central_hybrid_cp_J_per_gK"] + uncertainty,
-                color=line.get_color(), alpha=0.18,
-            )
-            reference = _read_reference(args.reference_root / structure_directory(loading, args.mof, args.guest).with_suffix(".csv"))
-            if reference is not None:
-                axis.plot(*reference, color=line.get_color(), linestyle="--", linewidth=2,
-                          label=f"{loading} {args.guest.upper()} — reference")
-        axis.set(
-            title=f"{args.mof} + {args.guest.upper()}: {MODEL_TITLES.get(model, model)} Gaussian-variance hybrid heat capacity",
-            xlabel="Temperature (K)", ylabel=r"Hybrid heat capacity (J g$^{-1}$ K$^{-1}$)",
-        )
-        axis.grid(alpha=0.25)
-        axis.legend(title="Guest loading / curve", ncol=2)
-        figure.text(
-            0.5, 0.01,
-            "Exploratory Hessian policy; Gaussian NPT fluctuation closure; shading combines MD sampling error and LLPR spread.",
-            ha="center", fontsize=9,
-        )
-        figure.tight_layout(rect=(0.0, 0.06, 1.0, 1.0))
-        path = args.output_dir / f"{model}-{'-vs-'.join(map(str, loadings))}{args.guest}-variance-hybrid-heat-capacity.png"
-        figure.savefig(path, dpi=180)
-        plt.close(figure)
-        print(f"Saved variance hybrid loading comparison: {path}")
-
-
-def _plot_components(
-    models: list[str], loadings: list[int], results: dict[tuple[str, int], dict[str, np.ndarray]], output: Path, guest: str = "ch4"
-) -> None:
-    figure, axes = plt.subplots(
-        len(models), len(loadings), figsize=(4.7 * len(loadings), 6.5),
-        sharex=True, sharey=True, squeeze=False,
-    )
-    axes = np.atleast_2d(axes)
-    for row, model in enumerate(models):
-        for column, loading in enumerate(loadings):
-            axis = axes[row, column]
-            result = results[(model, loading)]
-            for label, field in COMPONENTS:
-                axis.plot(result["temperature_K"], result[field], marker="o", linewidth=2, label=label)
-            axis.set_title(f"{MODEL_TITLES.get(model, model)}, {loading} {guest.upper()}")
-            axis.grid(alpha=0.25)
-            if row == len(models) - 1:
-                axis.set_xlabel("Temperature (K)")
-            if column == 0:
-                axis.set_ylabel(r"Standard uncertainty (J g$^{-1}$ K$^{-1}$)")
-    handles, labels = axes[0, 0].get_legend_handles_labels()
-    figure.legend(
-        handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.99),
-        ncol=2, frameon=False,
-    )
-    figure.subplots_adjust(top=0.84, bottom=0.10, left=0.075, right=0.99,
-                           hspace=0.20, wspace=0.04)
-    figure.savefig(output, dpi=180, bbox_inches="tight")
-    plt.close(figure)
-    print(f"Saved variance uncertainty-component comparison: {output}")
-
-
 def main() -> None:
     args = parse_args()
     validate_selection(args.mof, args.guest)
@@ -229,18 +137,12 @@ def main() -> None:
         raise ValueError("--models and --loadings must be non-empty; loadings must be positive")
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    results = {}
     for model in models:
         for loading in loadings:
             result = _assemble(model, loading, args)
-            results[(model, loading)] = result
-            _write_csv(args.output_dir / f"{model}-{loading}{args.guest}-variance-hybrid-heat-capacity.csv", result)
-    _plot_hybrid_curves(models, loadings, results, args)
-    _plot_components(
-        models, loadings, results,
-        args.output_dir / "hybrid-heat-capacity-variance-uncertainty-components.png",
-        args.guest,
-    )
+            output = args.output_dir / f"{model}-{loading}{args.guest}-variance-hybrid-heat-capacity.csv"
+            _write_csv(output, result)
+            print(f"Saved variance hybrid data: {output}")
 
 
 if __name__ == "__main__":

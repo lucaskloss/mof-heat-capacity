@@ -1,4 +1,4 @@
-"""Validate experimental two-GPU spectra and assemble an exploratory hybrid plot."""
+"""Validate experimental two-GPU spectra and assemble exploratory hybrid data."""
 import argparse
 import hashlib
 import json
@@ -54,63 +54,6 @@ def collect_spectra(root):
     return np.asarray(spectra), reference, llpr_hash, records
 
 
-def plot_results(output, spectra, title, *, reference_root=None, no_experimental_reference=False):
-    from ..config import output_root
-    from .experimental import experimental_note, load_experimental_curves, plot_experimental_curves
-
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    identity = json.loads(output.with_suffix('.json').read_text())
-    curves = ([] if no_experimental_reference else load_experimental_curves(
-        reference_root if reference_root is not None else output_root() / 'reference_heat_capacity',
-        identity['mof'], identity['guest'],
-    ))
-    with np.load(output, allow_pickle=False) as a:
-        t = a['temperatures_K']
-        fig, ax = plt.subplots(figsize=(10.5,5.2) if curves else (8,5.2))
-        for key, uncertainty, label, style in (
-            ('classical_anharmonic_cp_J_per_gK', 'classical_anharmonic_cp_combined_standard_uncertainty_J_per_gK', r'Classical $C_P$', '--'),
-            ('harmonic_quantum_correction_J_per_gK', 'harmonic_quantum_correction_model_standard_deviation_J_per_gK', 'Harmonic correction', ':'),
-            ('approximate_cp_J_per_gK', 'approximate_cp_combined_standard_uncertainty_J_per_gK', r'Hybrid $C_P$', '-')):
-            y, sd = a[key], a[uncertainty]
-            line, = ax.plot(t, y, 'o', linestyle=style, label=label)
-            ax.fill_between(t, y-sd, y+sd, color=line.get_color(), alpha=0.15)
-        plot_experimental_curves(ax, curves, t)
-        ax.axhline(0,color='black',alpha=0.4,linewidth=0.7)
-        ax.set(xlabel='Temperature (K)',ylabel=r'Heat capacity ($J\,g^{-1}\,K^{-1}$)',title=title)
-        ax.grid(alpha=0.2)
-        if curves:
-            ax.legend(fontsize=8, loc='center left', bbox_to_anchor=(1.01,0.5))
-        else:
-            ax.legend()
-        note = 'Exploratory: unstable modes discarded; unconverged reference geometry'
-        if curves:
-            note += '\n' + experimental_note(
-                identity['mof'], identity['guest'], identity['loading'], float(a['total_mass_amu'])
-            )
-        fig.text(0.5,0.015,note,ha='center',fontsize=8)
-        fig.tight_layout(rect=(0,0.13 if curves else 0.04,1,1))
-        fig.savefig(output.with_suffix('.png'),dpi=180,bbox_inches='tight')
-        fig.savefig(output.with_suffix('.pdf'),bbox_inches='tight')
-        plt.close(fig)
-    fig, axes = plt.subplots(1,2,figsize=(11,4.5))
-    for s in spectra[1:]:
-        axes[0].plot(np.arange(1,1001),s[:1000],color='tab:blue',alpha=0.12,linewidth=0.5)
-    axes[0].plot(np.arange(1,1001),spectra[0,:1000],color='black',label='Central model')
-    axes[0].axhline(0,color='red',linewidth=0.6)
-    axes[0].set(xlabel='Sorted mode index',ylabel=r'Frequency ($cm^{-1}$)',title='Lowest 1000 signed modes')
-    axes[0].legend()
-    counts=(spectra[1:] < -1).sum(axis=1)
-    axes[1].hist(counts,bins=15,alpha=0.7,label='64 LLPR members')
-    axes[1].axvline((spectra[0] < -1).sum(),color='black',label='Central model')
-    axes[1].set(xlabel=r'Imaginary modes below $-1\ cm^{-1}$',ylabel='Members',title='Spectral stability')
-    axes[1].legend()
-    fig.suptitle(title);fig.tight_layout()
-    fig.savefig(output.with_name('spectral-stability.fd-two-gpu.png'),dpi=180)
-    plt.close(fig)
-
-
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ensemble',type=Path,required=True)
@@ -163,9 +106,7 @@ def main():
     if args.no_experimental_reference:
         command.append('--no-experimental-reference')
     subprocess.run(command,check=True)
-    plot_results(args.output,spectra,f'{config.mof}, {args.model_label}, {config.loading} {config.guest.upper()}',
-                 reference_root=args.reference_root, no_experimental_reference=args.no_experimental_reference)
-    print(f'Exploratory hybrid plots saved beside {args.output}',flush=True)
+    print(f'Exploratory hybrid data saved beside {args.output}',flush=True)
 
 
 if __name__ == '__main__':

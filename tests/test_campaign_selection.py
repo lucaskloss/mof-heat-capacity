@@ -186,7 +186,7 @@ class CampaignSelectionTest(unittest.TestCase):
                         .replace('trajectory_file = "trajectory.lammpstrj"', 'trajectory_file = "trajectory.traj"'))
         analysis = self.root / "analysis"
         with patch("sys.argv", ["results", "--config-dir", str(self.root / "configs"),
-                "--analysis-dir", str(analysis), "--discard-ps", "0", "--no-plots",
+                "--analysis-dir", str(analysis), "--discard-ps", "0",
                 "--structural-stride", "1", "--rdf-stride", "1"]), redirect_stdout(StringIO()):
             results.main()
         group = analysis / f"example/{MODEL}/2h2o"
@@ -195,6 +195,8 @@ class CampaignSelectionTest(unittest.TestCase):
         self.assertEqual(summary["metadata"]["guest_molecules"], 2)
         self.assertEqual((summary["mof"], summary["guest"]), ("example", "h2o"))
         self.assertTrue((group / "runs.csv").is_file())
+        self.assertFalse(list(group.rglob("*.png")))
+        self.assertFalse(list(group.rglob("*.pdf")))
         with np.load(group / "300K/rep01/structural_distributions.npz") as archive:
             self.assertIn("guest_com_msd_A2", archive.files)
             self.assertNotIn("methane_com_msd_A2", archive.files)
@@ -214,15 +216,14 @@ class CampaignSelectionTest(unittest.TestCase):
                 patch.object(hybrid, "_harmonic_corrections", return_value=(
                     np.zeros(9), np.zeros(9), member_corrections, "llpr-hash", []
                 )), \
-                patch.object(hybrid, "plot_hybrid_heat_capacity") as plot, \
                 redirect_stdout(StringIO()):
             output = hybrid.run(args)
         self.assertEqual(enthalpy.call_args.kwargs["temperatures"], temperatures.tolist())
         expected_harmonic_spread = member_corrections.std(axis=0, ddof=1)
-        np.testing.assert_allclose(
-            plot.call_args.kwargs["correction_error"], expected_harmonic_spread
-        )
+        self.assertFalse(list(output.parent.glob("*.png")))
+        self.assertFalse(list(output.parent.glob("*.pdf")))
         with np.load(output) as data:
+            np.testing.assert_allclose(data["harmonic_quantum_correction_model_standard_deviation_J_per_gK"], expected_harmonic_spread)
             np.testing.assert_array_equal(data["temperatures_K"], np.arange(200, 401, 25))
             cp = data["classical_anharmonic_cp_J_per_gK"]
         conversion = EV_TO_J / (100 * AMU_TO_G)
@@ -233,6 +234,37 @@ class CampaignSelectionTest(unittest.TestCase):
 
 
 class SlurmSelectionTest(unittest.TestCase):
+    def test_data_only_workers_launch_without_matplotlib_configuration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            srun = root / "srun"
+            srun.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+            srun.chmod(0o755)
+            env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
+                   "MOF_ENV_PREFIX": sys.prefix, "SLURM_SUBMIT_DIR": str(PROJECT),
+                   "SLURM_CPUS_PER_TASK": "1", "SLURM_JOB_ID": "test",
+                   "SLURMD_NODENAME": "test", "MOF_OUTPUT_ROOT": str(root / "output")}
+            env.pop("MPLCONFIGDIR", None)
+            commands = (
+                ("submit_analysis.sh", "mof_heat_capacity.analysis.results",
+                 ["--internal-analysis-worker", "--runs", "example", "--run-only"]),
+                ("submit_hybrid_analysis.sh", "mof_heat_capacity.analysis.hybrid",
+                 ["--internal-hybrid-worker", "--model-label", MODEL, "--loading", "50",
+                  "--replicas", "1", "--temperatures", "275,300,325",
+                  "--output", str(root / "hybrid.npz"), "--zero-threshold-cm1", "1",
+                  "--max-near-zero-modes", "3"]),
+            )
+            for script, module, arguments in commands:
+                with self.subTest(script=script):
+                    result = subprocess.run(
+                        ["bash", str(PROJECT / "scripts/properties" / script), *arguments],
+                        cwd=PROJECT, env=env, text=True, capture_output=True,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn(module, result.stdout)
+            self.assertFalse(list(root.rglob("*.png")))
+            self.assertFalse(list(root.rglob("*.pdf")))
+
     def test_dry_run_pipeline_and_property_commands_keep_host_and_guest(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

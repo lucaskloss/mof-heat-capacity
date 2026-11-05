@@ -22,9 +22,7 @@ from ..config import (
     output_root,
 )
 from .lammps import read_lammps_thermo
-from .experimental import (
-    ExperimentalCurve, experimental_note, load_experimental_curves, plot_experimental_curves,
-)
+from .experimental import load_experimental_curves
 from .statistics import AMU_TO_G, EV_TO_J, KB_EV_PER_K, summarize_series
 
 
@@ -67,11 +65,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path)
     parser.add_argument(
         "--reference-root", type=Path, default=output_root() / "reference_heat_capacity",
-        help="Optional experimental CSV root for MOF-303/H2O and ZIF-8/CO2 plot overlays",
+        help="Optional experimental CSV root for MOF-303/H2O and ZIF-8/CO2 provenance",
     )
     parser.add_argument(
         "--no-experimental-reference", action="store_true",
-        help="Omit experimental overlays; computed heat capacities are unaffected",
+        help="Omit experimental reference provenance; computed heat capacities are unaffected",
     )
     parser.add_argument(
         "--hessian-source-temperature",
@@ -328,99 +326,6 @@ def _classical_model_uncertainty(
             h_variance, axis=0
         ).tolist(),
     }, cp_by_member
-
-
-def plot_hybrid_heat_capacity(
-    path: Path,
-    *,
-    model_label: str,
-    loading: int,
-    temperatures: np.ndarray,
-    classical: np.ndarray,
-    classical_error: np.ndarray,
-    correction: np.ndarray,
-    correction_error: np.ndarray,
-    approximate: np.ndarray,
-    approximate_error: np.ndarray,
-    classical_vol: np.ndarray,
-    classical_error_vol: np.ndarray,
-    correction_vol: np.ndarray,
-    correction_error_vol: np.ndarray,
-    approximate_vol: np.ndarray,
-    approximate_error_vol: np.ndarray,
-    model_uncertainty_included: bool,
-    mof: str = "mof5",
-    guest: str = "ch4",
-    experimental_curves: list[ExperimentalCurve] | None = None,
-    total_mass_amu: float | None = None,
-) -> None:
-    """Plot classical, harmonic-correction, and final hybrid curves."""
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    figure, axis = plt.subplots(figsize=(10.5, 5.2) if experimental_curves else (7.5, 4.8))
-    axis.plot(
-        temperatures,
-        classical,
-        marker="o",
-        linestyle="--",
-        label=r"Classical $C_P$",
-    )
-    axis.fill_between(
-        temperatures,
-        classical - classical_error,
-        classical + classical_error,
-        alpha=0.12,
-    )
-    axis.plot(
-        temperatures,
-        correction,
-        marker="o",
-        linestyle=":",
-        label="Harmonic correction",
-    )
-    axis.fill_between(
-        temperatures,
-        correction - correction_error,
-        correction + correction_error,
-        alpha=0.12,
-    )
-    axis.plot(
-        temperatures,
-        approximate,
-        marker="o",
-        linewidth=2.0,
-        label=r"Hybrid $C_P$",
-    )
-    axis.fill_between(
-        temperatures,
-        approximate - approximate_error,
-        approximate + approximate_error,
-        alpha=0.2,
-    )
-    if experimental_curves:
-        plot_experimental_curves(axis, experimental_curves, temperatures)
-    axis.axhline(0.0, color="black", linewidth=0.7, alpha=0.4)
-    axis.set(
-        xlabel="Temperature (K)",
-        ylabel=r"Heat capacity ($J\,g^{-1}\,K^{-1}$)",
-    )
-    axis.grid(alpha=0.2)
-    if experimental_curves:
-        axis.legend(fontsize=8, loc="center left", bbox_to_anchor=(1.01, 0.5))
-    else:
-        axis.legend(fontsize=9)
-    figure.suptitle(f"{mof}, {model_label}, {loading} {guest.upper()}")
-    if experimental_curves:
-        figure.text(
-            0.5, 0.01, experimental_note(mof, guest, loading, total_mass_amu),
-            ha="center", fontsize=8,
-        )
-    figure.tight_layout(rect=(0, 0.10 if experimental_curves else 0, 1, 1))
-    figure.savefig(path, dpi=180, bbox_inches="tight")
-    plt.close(figure)
 
 
 def _harmonic_corrections(
@@ -822,12 +727,6 @@ def run(args: argparse.Namespace) -> Path:
     approximate_combined_uncertainty_vol = np.hypot(
         approximate_error_vol, approximate_model_error_vol
     )
-    harmonic_combined_uncertainty = np.hypot(
-        correction_error, harmonic_model_error
-    )
-    harmonic_combined_uncertainty_vol = np.hypot(
-        correction_error_vol, harmonic_model_error_vol
-    )
     reported_model_error = (
         classical_model_error
         if model_uncertainty_record is not None
@@ -1059,34 +958,7 @@ def run(args: argparse.Namespace) -> Path:
         )
         + "\n"
     )
-    plot_path = output.with_suffix(".png")
-    plot_hybrid_heat_capacity(
-        plot_path,
-        model_label=args.model_label,
-        loading=args.loading,
-        mof=args.mof,
-        guest=args.guest,
-        temperatures=temperatures,
-        classical=classical_cp,
-        classical_error=classical_combined_uncertainty,
-        correction=correction,
-        correction_error=harmonic_combined_uncertainty,
-        approximate=approximate,
-        approximate_error=approximate_combined_uncertainty,
-        classical_vol=classical_cp_vol,
-        classical_error_vol=classical_combined_uncertainty_vol,
-        correction_vol=correction_vol,
-        correction_error_vol=harmonic_combined_uncertainty_vol,
-        approximate_vol=approximate_vol,
-        approximate_error_vol=approximate_combined_uncertainty_vol,
-        model_uncertainty_included=(
-            model_uncertainty_record is not None or correction_by_member is not None
-        ),
-        experimental_curves=experimental_curves,
-        total_mass_amu=mass_amu,
-    )
     print(f"Saved hybrid heat capacity: {output}")
-    print(f"Saved hybrid heat-capacity plot: {plot_path}")
     return output
 
 

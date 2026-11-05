@@ -202,16 +202,17 @@ Options:
                           submit_analysis.sh --model-uncertainty (default).
   --analysis-dir PATH     Trajectory-analysis root used to find that archive
                           (default: repository output/post-processing/trajectory-analysis).
-  --reference-root PATH   Experimental CSV root for plot overlays (default:
+  --reference-root PATH   Experimental CSV root for reference provenance (default:
                           <output-root>/reference_heat_capacity).
   --no-experimental-reference
-                          Omit experimental overlays from the hybrid plot.
+                          Omit experimental reference provenance from JSON.
   --slurm-output-dir PATH Slurm log directory (default: repository output/slurm).
   --dry-run               Print submissions without calling sbatch.
   -h, --help              Show this help.
 
 Selecting --model both submits two independent Slurm jobs, one per MLIP. They
-have separate model-specific outputs and may run concurrently.
+have separate model-specific data outputs and may run concurrently.
+Assembly writes NPZ, CSV, and JSON only; render figures separately in LaTeX.
 EOF
 }
 

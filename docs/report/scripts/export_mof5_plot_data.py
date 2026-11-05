@@ -45,7 +45,7 @@ def main():
         for row in csv.DictReader(handle):
             if row["method"] != "cea":
                 raise ValueError("Expected archived CEA uncertainties")
-            key = (row["model"], int(row["loading_CH4"]), float(row["temperature_K"]))
+            key = (row["model"], int(row["loading_CH4"] if "loading_CH4" in row else row["loading"]), float(row["temperature_K"]))
             if key in uncertainties:
                 raise ValueError(f"Duplicate CEA uncertainty: {key}")
             uncertainties[key] = row

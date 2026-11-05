@@ -265,45 +265,7 @@ def compare(args: argparse.Namespace) -> tuple[Path, Path]:
                 ]
             )
 
-    _plot_comparison(temperatures, cea_by_member, variance_by_member, central_variance, output_dir / f"{stem}.png")
     return csv_output, archive_output
-
-
-def _plot_comparison(
-    temperatures: np.ndarray,
-    cea_by_member: np.ndarray,
-    variance_by_member: np.ndarray,
-    central_variance: np.ndarray,
-    output_path: Path,
-) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    figure, axes = plt.subplots(2, 1, figsize=(7.5, 7), sharex=True)
-    cea_mean = cea_by_member.mean(axis=0)
-    cea_sd = cea_by_member.std(axis=0, ddof=1)
-    variance_mean = variance_by_member.mean(axis=0)
-    variance_sd = variance_by_member.std(axis=0, ddof=1)
-    axes[0].plot(temperatures, cea_mean, "o-", label="CEA + finite difference")
-    axes[0].fill_between(temperatures, cea_mean - cea_sd, cea_mean + cea_sd, alpha=0.18)
-    axes[0].plot(temperatures, variance_mean, "s-", label="Gaussian NPT variance")
-    axes[0].fill_between(
-        temperatures, variance_mean - variance_sd, variance_mean + variance_sd, alpha=0.18
-    )
-    axes[0].plot(temperatures, central_variance, "k--", label="Central-model variance")
-    axes[0].set_ylabel(r"Classical $C_P$ (J g$^{-1}$ K$^{-1}$)")
-    axes[0].legend(fontsize=8)
-    axes[1].plot(temperatures, cea_sd, "o-", label="CEA committee SD")
-    axes[1].plot(temperatures, variance_sd, "s-", label="Variance committee SD")
-    axes[1].set(xlabel="Temperature (K)", ylabel=r"LLPR model SD (J g$^{-1}$ K$^{-1}$)")
-    axes[1].legend(fontsize=8)
-    for axis in axes:
-        axis.grid(alpha=0.25)
-    figure.tight_layout()
-    figure.savefig(output_path, dpi=180)
-    plt.close(figure)
 
 
 def main() -> None:

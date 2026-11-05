@@ -75,26 +75,21 @@ $$C_{P,\mathrm{hyb},i}^{\mathrm{G}}=C_{P,i}^{\mathrm{G}}+\Delta C_{\mathrm{har},
 This retains classical–harmonic covariance. Adding their separate standard
 deviations in quadrature would lose that covariance.
 
-## What the current plots show
+## Exported uncertainty data
 
-The updated loading-comparison plots deliberately retain the original CEA
-central hybrid values and CEA sampling errors. DPOSE supplies the classical
-LLPR member spread; the same members' harmonic deviations are paired with it
-to obtain the hybrid model spread. The plotted band combines that spread with
-the retained sampling error. Thus the curve values do not change when the
-uncertainty method changes.
-
-`plot_uncertainty_components.py --uncertainty-method both` writes matching
-CEA and DPOSE figures with common axes and colors. It reads the same MD
-MD sampling and Hessian model errors for both methods, and checks that they
-match exactly. Hessian sampling uncertainty is excluded from these plots. See
-the [plotting command](../scripts/properties/README.md)
-for reproducible figures and companion CSVs.
+`export_uncertainty_components.py --uncertainty-method both` writes matching
+CEA and DPOSE CSV tables. Both retain the original CEA central hybrid values
+and sampling errors. DPOSE supplies the classical LLPR member spread; the
+same members' harmonic deviations are paired with it to obtain the hybrid
+model spread. The combined uncertainty includes the retained sampling error.
+Shared arrays are checked for exact agreement. Hessian sampling uncertainty
+is excluded. Figures are rendered separately with LaTeX/PGFPlots; see the
+[data-export commands](../../../scripts/properties/README.md).
 
 LLPR evaluation now defaults to every saved production frame (stride 1).
-The [all-frame workflow](../scripts/properties/README.md#reevaluate-llpr-on-every-saved-frame)
+The [all-frame workflow](../../../scripts/properties/README.md#reevaluate-llpr-on-every-saved-frame)
 shows how to rerun the CEA analysis, regenerate DPOSE from the same frames,
-and plot both with `--require-all-frames`. The plots read refreshed classical
+and export both with `--require-all-frames`. The tables read refreshed classical
 members while retaining the saved MD and Hessian errors, record actual frame
 counts, and reject stale comparisons. The current example trajectories have
 8,001 production coordinate frames, so a literal 10,000-frame calculation
@@ -103,7 +98,8 @@ requires a trajectory containing that many saved production frames.
 Rerun into the same analysis directory to reuse cached LLPR energies. The
 evaluator matches existing and interrupted rows by timestep, evaluates only
 the missing frames, and atomically updates the archive in trajectory order.
-Then regenerate DPOSE and the plots from the updated CEA aggregate.
+Then regenerate the DPOSE tables from the updated CEA aggregate and render
+the figures separately in LaTeX.
 
 The effect is case-dependent. In the saved 300 K diagnostic, the classical
 model SDs (J g$^{-1}$ K$^{-1}$) were:
@@ -130,14 +126,13 @@ python scripts/properties/compare_heat_capacity_estimators.py \\
   --model-label pet-mad-1.5-s-40nn --loading 100
 ```
 
-It writes comparison CSV, NPZ, and PNG files beside the trajectory analysis
-archives; it does not run MD. To plot the existing CEA central curves with
-Gaussian NPT uncertainty, use:
+It writes comparison CSV and NPZ files beside the trajectory analysis
+archives; it does not run MD or render figures. To export the existing CEA
+central curves with Gaussian NPT uncertainty, use:
 
 ```bash
-python scripts/properties/plot_hybrid_by_loading.py \\
-  --model-label pet-mad-1.5-s-40nn --loadings 0,50,100,150 \\
-  --uncertainty-method dpose --output comparison.png
+python scripts/properties/export_uncertainty_components.py \
+  --loadings 50,100,150 --uncertainty-method dpose --output comparison.csv
 ```
 
 The Gaussian approximation is exploratory for this NPT system. Stronger
@@ -150,5 +145,5 @@ the spread merely to make bands smaller, or divide it by the number of
 members.
 
 See [CEA.md](CEA.md) for the existing CEA error budget and
-[`scripts/properties/README.md`](../scripts/properties/README.md) for the
+[`scripts/properties/README.md`](../../../scripts/properties/README.md) for the
 analysis workflow.

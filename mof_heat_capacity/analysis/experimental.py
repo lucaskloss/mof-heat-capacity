@@ -1,4 +1,4 @@
-"""Experimental heat-capacity references for plotting loaded MOF results."""
+"""Experimental heat-capacity reference data and provenance for loaded MOFs."""
 
 from __future__ import annotations
 
@@ -87,26 +87,6 @@ def load_experimental_curves(root: Path, mof: str, guest: str) -> list[Experimen
             path, label, values[:, 0], values[:, 1], color, marker, uncertainty, doi
         ))
     return curves
-
-
-def plot_experimental_curves(axis, curves: list[ExperimentalCurve], temperatures) -> None:
-    """Show supplied data within the simulation range without extrapolation."""
-    lower, upper = min(temperatures), max(temperatures)
-    for curve in curves:
-        selected = (curve.temperatures >= lower) & (curve.temperatures <= upper)
-        if not selected.any():
-            continue
-        t, c = curve.temperatures[selected], curve.heat_capacity[selected]
-        style = dict(
-            label=curve.label, color=curve.color, marker=curve.marker,
-            markerfacecolor="white", markersize=4, linestyle="--", linewidth=1.1,
-            zorder=4,
-        )
-        if curve.relative_uncertainty is None:
-            axis.plot(t, c, **style)
-        else:
-            axis.errorbar(t, c, yerr=curve.relative_uncertainty * c,
-                          capsize=2, elinewidth=0.8, **style)
 
 
 def experimental_note(mof: str, guest: str, loading: int, total_mass_amu: float | None = None) -> str:

@@ -8,14 +8,10 @@ import unittest
 from unittest.mock import patch
 import warnings
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 
 from mof_heat_capacity.analysis.experimental import (
-    experimental_note, load_experimental_curves, plot_experimental_curves,
+    experimental_note, load_experimental_curves,
 )
 
 
@@ -33,20 +29,13 @@ class ExperimentalReferenceTests(unittest.TestCase):
             writer.writerow(header)
             writer.writerows(rows)
 
-    def test_mass_specific_data_are_not_converted_twice_or_extrapolated(self):
+    def test_mass_specific_data_and_measurement_uncertainty_are_preserved(self):
         self.write_rows(
             ["temperature_K", "heat_capacity_J_per_gK"],
             [(100, 0.4), (200, 0.8), (300, 1.0)],
         )
         curves = load_experimental_curves(self.root, "zif8_2x2x2", "co2")
         np.testing.assert_array_equal(curves[0].heat_capacity, [0.4, 0.8, 1.0])
-        figure, axis = plt.subplots()
-        self.addCleanup(plt.close, figure)
-        plot_experimental_curves(axis, curves, [175, 225, 325, 400])
-        np.testing.assert_array_equal(axis.lines[0].get_xdata(), [200, 300])
-        np.testing.assert_array_equal(axis.lines[0].get_ydata(), [0.8, 1.0])
-        bars = axis.containers[0].lines[2][0].get_segments()
-        np.testing.assert_allclose(bars[0][:, 1], [0.784, 0.816])
         record = curves[0].provenance()
         self.assertEqual(record["heat_capacity_unit"], "J/(g K)")
         self.assertEqual(record["relative_standard_uncertainty"], 0.02)
@@ -100,14 +89,16 @@ class ExperimentalReferenceTests(unittest.TestCase):
         with patch.object(hybrid, "_enthalpy_records", return_value=records), \
                 patch.object(hybrid, "_harmonic_corrections", return_value=(
                     np.zeros(9), np.zeros(9), None, None, []
-                )), patch.object(hybrid, "plot_hybrid_heat_capacity") as plot, redirect_stdout(StringIO()):
+                )), redirect_stdout(StringIO()):
             for disabled in (False, True):
                 args.no_experimental_reference = disabled
                 output = hybrid.run(args)
+                self.assertTrue(output.with_suffix(".csv").is_file())
+                self.assertFalse(list(output.parent.glob("*.png")))
+                self.assertFalse(list(output.parent.glob("*.pdf")))
                 with np.load(output, allow_pickle=False) as data:
                     outputs.append({key: data[key].copy() for key in data.files})
                 expected_count = 0 if disabled else 1
-                self.assertEqual(len(plot.call_args.kwargs["experimental_curves"]), expected_count)
                 metadata = json.loads(output.with_suffix(".json").read_text())
                 self.assertEqual(len(metadata["experimental_references"]), expected_count)
         self.assertEqual(outputs[0].keys(), outputs[1].keys())

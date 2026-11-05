@@ -152,8 +152,8 @@ class GaussianArchiveCoverageTest(unittest.TestCase):
                 analysis_dir=root, model_label="model", loading=100,
                 replicas=[1], output_dir=None, require_all_frames=True,
             )
-            with patch("scripts.properties.compare_heat_capacity_estimators._plot_comparison"):
-                _, output = compare(args)
+            _, output = compare(args)
+            self.assertFalse(list(output.parent.glob("*.png")))
             with np.load(output) as archive:
                 np.testing.assert_array_equal(archive["selected_frame_count"], [10000] * 3)
                 np.testing.assert_array_equal(archive["production_frame_count"], [10000] * 3)

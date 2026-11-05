@@ -120,14 +120,15 @@ and matching trajectory/Hessian LLPR checkpoint identities. It creates a
 separate compatibility archive under the ensemble's `hybrid-inputs` directory
 and calls the existing hybrid analysis without changing production Hessians.
 The loaded correction needs only loaded spectra; an empty spectrum is not
-required for this plot. Existing output prefixes are refused.
+required for this calculation. Existing output prefixes are refused.
 
 The result covers 200–400 K with 175/425 K MD padding. All 64 harmonic member
 corrections contribute to the uncertainty; classical and harmonic LLPR
 deviations are combined member by member by the existing hybrid routine.
 Unstable and near-zero modes are explicitly discarded for this exploratory
-product. Outputs include PNG/PDF heat-capacity plots in J/g/K, CSV/NPZ data,
-spectral-stability diagnostics and an ensemble-validation JSON file. Signed
+product. Outputs include CSV/NPZ heat-capacity data in J/g/K and an
+ensemble-validation JSON file. Render heat-capacity and spectral diagnostics
+separately with LaTeX/PGFPlots from the saved arrays. Signed
 input spectra and the original relaxation provenance are preserved. This
 assembly does not establish full-spectrum finite-difference convergence or
 correct the known trajectory-reweighting overlap limitations.

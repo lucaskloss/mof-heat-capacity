@@ -1,4 +1,4 @@
-"""Run the complete thermodynamic and structural analysis for MD trajectories."""
+"""Write thermodynamic and structural analysis data for MD trajectories."""
 
 from __future__ import annotations
 
@@ -137,7 +137,7 @@ def parse_args() -> argparse.Namespace:
         default=4,
         help="Structures per ensemble inference batch (default: 4)",
     )
-    parser.add_argument("--no-plots", action="store_true")
+    parser.add_argument("--no-plots", action="store_true", help=argparse.SUPPRESS)
     execution = parser.add_mutually_exclusive_group()
     execution.add_argument(
         "--run-only",
@@ -386,198 +386,6 @@ def enthalpy_convergence_rows(
                 )
     return rows
 
-
-def plot_enthalpy_convergence(path: Path, rows: list[dict]) -> None:
-    """Plot uncertainty estimates against accumulated production time."""
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    time = np.asarray([row["production_length_ps"] for row in rows])
-    figure, axes = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
-    axes[0].plot(
-        time,
-        [row["sampling_standard_error_eV"] for row in rows],
-        marker="o",
-        label="MD sampling SE",
-    )
-    if "llpr_model_standard_deviation_eV" in rows[-1]:
-        axes[0].plot(
-            time,
-            [row["combined_standard_uncertainty_eV"] for row in rows],
-            marker="o",
-            linestyle="--",
-            alpha=0.75,
-            label="quadrature combined",
-        )
-        axes[0].plot(
-            time,
-            [row["llpr_model_standard_deviation_eV"] for row in rows],
-            marker="o",
-            color="tab:orange",
-            linewidth=2.5,
-            zorder=3,
-            label="LLPR model SD",
-        )
-    axes[0].set_ylabel("Enthalpy uncertainty (eV)")
-    axes[0].legend(fontsize=8)
-    axes[1].plot(
-        time,
-        [row["central_mean_difference_from_full_eV"] for row in rows],
-        marker="o",
-    )
-    axes[1].axhline(0.0, color="black", linewidth=0.7)
-    axes[1].set(
-        xlabel="Accumulated production time (ps)",
-        ylabel="Mean minus full-run mean (eV)",
-    )
-    for axis in axes:
-        axis.grid(alpha=0.2)
-    figure.tight_layout()
-    figure.savefig(path, dpi=180)
-    plt.close(figure)
-
-
-def plot_run(
-    output_dir: Path,
-    series: dict[str, np.ndarray],
-    structural: dict[str, np.ndarray],
-    production_mask: np.ndarray,
-    correlations: dict[str, np.ndarray],
-    correlation_time_ps: np.ndarray,
-    msd_time_ps: np.ndarray,
-    msd_A2: np.ndarray,
-) -> None:
-    import os
-
-    matplotlib_cache = output_dir.parent / ".matplotlib"
-    matplotlib_cache.mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("MPLCONFIGDIR", str(matplotlib_cache))
-
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    time = series["time_ps"]
-    start = float(time[production_mask][0])
-    figure, axes = plt.subplots(3, 2, figsize=(12, 10), sharex=True)
-    panels = (
-        ("temperature_K", "Temperature (K)"),
-        ("potential_energy_eV", "Potential energy (eV)"),
-        ("total_energy_eV", "Total energy (eV)"),
-        ("density_g_cm3", r"Density (g cm$^{-3}$)"),
-        ("pressure_bar", "Diagnostic pressure (bar)"),
-        ("max_force_eV_A", r"Maximum force (eV $\AA^{-1}$)"),
-    )
-    for axis, (name, label) in zip(axes.flat, panels):
-        axis.plot(time, series[name], linewidth=0.7, alpha=0.65)
-        axis.plot(
-            time,
-            running_production_mean(series[name], production_mask),
-            linewidth=1.7,
-            label="production running mean",
-        )
-        axis.axvline(start, color="black", linestyle="--", linewidth=0.8)
-        axis.set_ylabel(label)
-        if np.ptp(series[name]) <= max(1.0, abs(float(np.mean(series[name])))) * 1e-10:
-            center = float(np.mean(series[name]))
-            half_width = max(abs(center) * 1e-5, 1e-6)
-            axis.set_ylim(center - half_width, center + half_width)
-            axis.text(
-                0.02, 0.08, "constant within numerical precision",
-                transform=axis.transAxes, fontsize=8,
-            )
-        axis.grid(alpha=0.2)
-    axes[-1, 0].set_xlabel("Time (ps)")
-    axes[-1, 1].set_xlabel("Time (ps)")
-    axes[0, 0].legend(fontsize=8)
-    figure.tight_layout()
-    figure.savefig(output_dir / "timeseries.png", dpi=180)
-    plt.close(figure)
-
-    figure, axes = plt.subplots(3, 2, figsize=(12, 10), sharex=True)
-    cell_panels = (
-        (("volume_A3",), r"Volume ($\AA^3$)"),
-        (("density_g_cm3",), r"Density (g cm$^{-3}$)"),
-        (("cell_a_A", "cell_b_A", "cell_c_A"), r"Cell length ($\AA$)"),
-        (
-            ("cell_alpha_deg", "cell_beta_deg", "cell_gamma_deg"),
-            "Cell angle (degree)",
-        ),
-        (("cell_xy_A", "cell_xz_A", "cell_yz_A"), r"Cell tilt ($\AA$)"),
-        (
-            ("pressure_xx_bar", "pressure_yy_bar", "pressure_zz_bar"),
-            "Normal pressure component (bar)",
-        ),
-    )
-    for axis, (names, label) in zip(axes.flat, cell_panels):
-        for name in names:
-            axis.plot(time, series[name], linewidth=0.7, alpha=0.7, label=name)
-        axis.axvline(start, color="black", linestyle="--", linewidth=0.8)
-        axis.set_ylabel(label)
-        axis.grid(alpha=0.2)
-        if len(names) > 1:
-            axis.legend(fontsize=7)
-    axes[-1, 0].set_xlabel("Time (ps)")
-    axes[-1, 1].set_xlabel("Time (ps)")
-    figure.tight_layout()
-    figure.savefig(output_dir / "cell.png", dpi=180)
-    plt.close(figure)
-
-    figure, axis = plt.subplots(figsize=(7, 4.5))
-    for name, values in correlations.items():
-        axis.plot(correlation_time_ps[: len(values)], values, label=name)
-    axis.axhline(0.0, color="black", linewidth=0.7)
-    axis.set(xlabel="Lag (ps)", ylabel="Normalized autocorrelation")
-    axis.legend(fontsize=8)
-    axis.grid(alpha=0.2)
-    figure.tight_layout()
-    figure.savefig(output_dir / "autocorrelation.png", dpi=180)
-    plt.close(figure)
-
-    figure, axes = plt.subplots(2, 2, figsize=(11, 8))
-    structural_time = structural["time_ps"]
-    axes[0, 0].plot(structural_time, structural["framework_rmsd_A"])
-    axes[0, 0].set(xlabel="Time (ps)", ylabel=r"Framework RMSD ($\AA$)")
-    has_guest = structural["guest_com_unwrapped_A"].shape[1] > 0
-    if has_guest:
-        axes[0, 1].plot(
-            structural_time, structural["minimum_host_guest_com_distance_A"]
-        )
-        axes[0, 1].set(
-            xlabel="Time (ps)",
-            ylabel=r"Minimum host--guest COM distance ($\AA$)",
-        )
-        axes[1, 0].plot(
-            structural["rdf_distance_A"], structural["host_guest_com_rdf"],
-            label=r"host atom--guest COM",
-        )
-        axes[1, 0].plot(
-            structural["rdf_distance_A"], structural["guest_com_rdf"],
-            label=r"guest COM--COM",
-        )
-        axes[1, 0].set(xlabel=r"Distance ($\AA$)", ylabel="g(r)")
-        axes[1, 0].legend(fontsize=8)
-        axes[1, 1].plot(msd_time_ps, msd_A2)
-        axes[1, 1].set(xlabel="Lag (ps)", ylabel=r"Guest COM MSD ($\AA^2$)")
-    else:
-        for axis in (axes[0, 1], axes[1, 0], axes[1, 1]):
-            axis.set_axis_off()
-            axis.text(
-                0.5,
-                0.5,
-                "Not applicable: pristine MOF-5",
-                ha="center",
-                va="center",
-                transform=axis.transAxes,
-            )
-    for axis in axes.flat:
-        axis.grid(alpha=0.2)
-    figure.tight_layout()
-    figure.savefig(output_dir / "structure.png", dpi=180)
-    plt.close(figure)
 
 def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
     parts = run_output_parts(config)
@@ -865,10 +673,6 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
         pressure_bar=config.pressure_bar,
     )
     write_rows(run_output / "enthalpy_convergence.csv", convergence_rows)
-    if not args.no_plots and convergence_rows:
-        plot_enthalpy_convergence(
-            run_output / "enthalpy_convergence.png", convergence_rows
-        )
 
     structural_rows = []
     plain_structural_names = [
@@ -898,11 +702,6 @@ def analyze_run(path, config, trajectory, args) -> tuple[dict, dict]:
             "methane_com_msd_A2": msd,
         } if config.guest == "ch4" else {}),
     )
-    if not args.no_plots:
-        plot_run(
-            run_output, series, structural, production_mask, correlations,
-            correlation_time, msd_time, msd,
-        )
 
     return summary, aggregate_from_summary(summary)
 
@@ -973,47 +772,6 @@ def workflow_requirements(summaries: list[dict]) -> dict:
         if item is not None
     ]
     return requirements
-
-
-def plot_sweep(path: Path, rows: list[dict]) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    figure, axes = plt.subplots(1, 2, figsize=(11, 4.2))
-    def identity(row):
-        return (row.get("mof", "mof5"), str(row["model"]), row.get("guest", "ch4"),
-                int(row.get("loading", row.get("methane_loading", 0))))
-
-    systems = sorted({identity(row) for row in rows})
-    for mof, model, guest, loading in systems:
-        selected = sorted(
-            (row for row in rows if identity(row) == (mof, model, guest, loading)),
-            key=lambda item: item["temperature_K"],
-        )
-        temperature = [row["temperature_K"] for row in selected]
-        axes[0].plot(
-            temperature,
-            [row["density_g_cm3"] for row in selected],
-            marker="o",
-            label=f"{mof}, {model}, {loading} {guest.upper()}",
-        )
-        axes[1].plot(
-            temperature,
-            [row["potential_energy_eV"] for row in selected],
-            marker="o",
-            label=f"{mof}, {model}, {loading} {guest.upper()}",
-        )
-    axes[0].set(xlabel="MD temperature (K)", ylabel=r"Density (g cm$^{-3}$)")
-    axes[1].set(xlabel="MD temperature (K)", ylabel="Potential energy (eV)")
-    for axis in axes:
-        axis.grid(alpha=0.2)
-        if axis.lines:
-            axis.legend(fontsize=7)
-    figure.tight_layout()
-    figure.savefig(path, dpi=180)
-    plt.close(figure)
 
 
 def write_model_uncertainty_outputs(
@@ -1173,80 +931,6 @@ def write_model_uncertainty_outputs(
     write_rows(args.analysis_dir / "model_uncertainty_heat_capacity.csv", rows)
     write_rows(args.analysis_dir / "model_uncertainty_enthalpy.csv", rows)
 
-    if not args.no_plots:
-        import matplotlib
-
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-
-        enthalpy_figure, enthalpy_axis = plt.subplots(figsize=(7, 4.5))
-        enthalpy_axis.plot(
-            temperatures,
-            cea_enthalpy_mean,
-            marker="o",
-            label="CEA committee mean",
-        )
-        enthalpy_axis.fill_between(
-            temperatures,
-            cea_enthalpy_mean - cea_enthalpy_model_error,
-            cea_enthalpy_mean + cea_enthalpy_model_error,
-            alpha=0.25,
-            label=r"CEA model $\pm 1\sigma$",
-        )
-        enthalpy_axis.plot(
-            temperatures,
-            direct_enthalpy_mean,
-            marker="o",
-            linestyle="--",
-            alpha=0.7,
-            label="Direct reweighting",
-        )
-        enthalpy_axis.fill_between(
-            temperatures,
-            direct_enthalpy_mean - direct_enthalpy_model_error,
-            direct_enthalpy_mean + direct_enthalpy_model_error,
-            alpha=0.15,
-            label=r"Direct model $\pm 1\sigma$",
-        )
-        enthalpy_axis.set(
-            xlabel="Temperature (K)",
-            ylabel="Mean enthalpy (eV)",
-        )
-        enthalpy_axis.grid(alpha=0.2)
-        enthalpy_axis.legend(fontsize=8)
-        enthalpy_figure.tight_layout()
-        enthalpy_figure.savefig(
-            args.analysis_dir / "model_uncertainty_enthalpy.png", dpi=180
-        )
-        plt.close(enthalpy_figure)
-
-        figure, axis = plt.subplots(figsize=(7, 4.5))
-        axis.plot(temperatures, cea_mean, marker="o", label="CEA committee mean")
-        axis.fill_between(
-            temperatures,
-            cea_mean - cea_model_error,
-            cea_mean + cea_model_error,
-            alpha=0.25,
-            label=r"CEA model $\pm 1\sigma$",
-        )
-        axis.plot(
-            temperatures,
-            direct_mean,
-            marker="o",
-            linestyle="--",
-            alpha=0.7,
-            label="Direct reweighting",
-        )
-        axis.set(
-            xlabel="Temperature (K)",
-            ylabel=r"Classical $C_P$ ($J\,g^{-1}\,K^{-1}$)",
-        )
-        axis.grid(alpha=0.2)
-        axis.legend(fontsize=8)
-        figure.tight_layout()
-        figure.savefig(args.analysis_dir / "model_uncertainty_heat_capacity.png", dpi=180)
-        plt.close(figure)
-
 
 def write_aggregate_outputs(
     args: argparse.Namespace,
@@ -1260,8 +944,6 @@ def write_aggregate_outputs(
         args.analysis_dir / "workflow_requirements.json",
         workflow_requirements(summaries),
     )
-    if not args.no_plots:
-        plot_sweep(args.analysis_dir / "temperature_sweep.png", aggregate_rows)
     manifest = {
         "analysis_directory": str(args.analysis_dir),
         "completed_runs": [item["run"] for item in summaries],

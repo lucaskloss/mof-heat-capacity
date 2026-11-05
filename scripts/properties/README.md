@@ -7,7 +7,7 @@ start or resume molecular dynamics.
 All three submission commands accept `--mof NAME`, `--guest ch4|co2|h2o`,
 and `--loading N`. Defaults remain `mof5`, `ch4`, and `100`. Use the same
 selection as MD; `submit_analysis.sh` also accepts a comma-separated loading
-list. The plotting, estimator-comparison, empty-curve, and reference-splitting
+list. The data-export, estimator-comparison, empty-curve, and reference-splitting
 Python scripts accept `--mof` and `--guest` as well.
 
 For a CO₂-loaded MOF-5 campaign, after the MD jobs complete:
@@ -38,7 +38,7 @@ post-processing/trajectory-analysis/<mof>/<model>/<N><guest>/<temperature>K/repN
 post-processing/trajectory-analysis/<mof>/<model>/<N><guest>/runs.csv
 post-processing/harmonic-correction/<mof>/<model>/<N><guest>/minima/...
 post-processing/harmonic-correction/<mof>/<model>/<N><guest>/hessians/...
-post-processing/harmonic-correction/<mof>/<model>/<N><guest>/heat-capacity*.{npz,csv,json,png}
+post-processing/harmonic-correction/<mof>/<model>/<N><guest>/heat-capacity*.{npz,csv,json}
 post-processing/harmonic-correction/<mof>/<model>/0<guest>/...
 ```
 
@@ -49,22 +49,35 @@ Explicit analysis-root overrides retain the system subdirectories. The direct
 `python -m mof_heat_capacity.analysis.results` command also groups selected
 systems before processing and aggregation.
 
-Plot exports with a required `--output` use the exact path supplied. Give each
-MOF/species comparison a distinct export filename or directory. Reference
-curves for other systems are read from `<reference-root>/<mof>/<N><guest>.csv`;
-the existing methane/MOF-5 reference paths remain unchanged.
+All calculation commands write data only (CSV, NPZ, JSON, structures, and
+spectra). They do not import Matplotlib or generate PNG/PDF figures. Render
+report figures with LaTeX/PGFPlots after exporting the archived values:
 
-### Experimental references in hybrid plots
+```bash
+python docs/report/scripts/export_mof5_plot_data.py
+python docs/report/scripts/export_mof5_additional_data.py
+python docs/report/scripts/export_framework_plot_data.py
+cd docs/report
+tectonic report.tex
+```
+
+The exporters copy numerical values and uncertainty bounds into versioned
+`figures/data/` tables and record source hashes in `results-provenance.json`.
+LaTeX draws the curves, uncertainty bands, and experimental error bars. All
+heat-capacity axes in these figures start at zero. The old standalone Python
+plotting commands have been removed. Statistical comparison tables remain
+available through `export_uncertainty_components.py` and
+`export_variance_hybrid_comparisons.py`.
+
+### Experimental reference provenance
 
 Hybrid assembly (`python -m mof_heat_capacity.analysis.hybrid`, including jobs
-submitted with `submit_hybrid_analysis.sh`) automatically overlays available
-experimental CSVs from `<output-root>/reference_heat_capacity`. The
-`plot_hybrid_by_loading.py` and `plot_hybrid_by_model.py` comparison scripts
-also use these experimental references, as does the separate PNG/PDF exporter
-in `mof_heat_capacity.analysis.hybrid_two_gpu`. Pass `--reference-root PATH` to select
-another reference directory or `--no-experimental-reference` to omit them.
-The loading-comparison script retains its existing reference-root default,
-`output/reference_heat_capacity` relative to the working directory.
+submitted with `submit_hybrid_analysis.sh`) records available experimental
+CSV provenance from `<output-root>/reference_heat_capacity` in its JSON metadata.
+The two-GPU adapter follows the same data-only path. Pass `--reference-root PATH`
+to select another reference directory or `--no-experimental-reference` to omit
+reference provenance. The report's LaTeX data exporters select experimental
+points separately.
 
 Supported experimental files:
 
@@ -78,15 +91,14 @@ files are already in K and J/(g K): **no further unit conversion is applied**.
 Missing optional references are reported and skipped; malformed existing CSVs
 raise an error. Files are selected by host and guest, independently of the
 integer simulation loading, and retain their experimental loading labels.
-The plot includes supplied points within the simulation temperature range,
+The LaTeX figures include supplied points within the simulation temperature range,
 with connecting dashed lines and no extrapolation. For ZIF-8, error bars show
 the SI's 2% standard uncertainty. The unlabeled `zif8/zif-8.csv` empty-host
 file is not read automatically.
 
 For the current cells, 50 H₂O in MOF-303 corresponds to 16.76% saturation and
-54 CO₂ in ZIF-8 to 0.5625 mol/mol. The per-run hybrid plot computes its loading
-note from the actual loaded-system mass. Experimental references are separate
-plot overlays; they do not alter the calculated hybrid NPZ/CSV values or
+54 CO₂ in ZIF-8 to 0.5625 mol/mol. Loading notes use the actual
+loaded-system mass. Experimental references are separate report overlays; they do not alter the calculated hybrid NPZ/CSV values or
 uncertainties. Their paths, SHA-256 hashes, units, and literature DOIs are
 recorded under `experimental_references` in the hybrid JSON metadata.
 The ZIF-8 caption distinguishes the sealed-cell experimental heat capacity
@@ -153,15 +165,16 @@ checks, and calibration guidance.
 
 Trajectory analysis submits one Slurm job per selected trajectory. A dependent
 summary job runs after every trajectory job succeeds and assembles the combined
-CSV, manifest, workflow requirements, and temperature-sweep plot. These jobs use
+CSV, manifest, and workflow requirements. These jobs use
 the production-appropriate `normal` QOS by default; the shorter `debug` QOS is
 reserved for testing. Output is grouped automatically by MLIP and loading; for
 example, `--model pet-mad --loading 100` writes below
 `/work/cosmo/dealmeid/mof-heat-capacity/output/post-processing/trajectory-analysis/pet-mad-1.5-s-40nn/100ch4/`. An explicit `--analysis-dir`
 changes the base directory while retaining the model/loading subdirectories.
 Each run is below `<temperature>K/repNN/`, with concise products such as
-`summary.json`, `timeseries.csv`, and `structure.png`.
-The analysis also writes `enthalpy_convergence.{csv,png}` at 25 ps cumulative
+`summary.json`, `timeseries.csv`, `structural_timeseries.csv`,
+`autocorrelation.npz`, and `structural_distributions.npz`.
+The analysis also writes `enthalpy_convergence.csv` at 25 ps cumulative
 production-time intervals. These files compare the autocorrelation-corrected
 sampling standard error with the LLPR committee standard deviation and show
 the prefix mean's deviation from the complete-run mean. Change the interval
@@ -189,13 +202,13 @@ reject a trajectory based on that diagnostic. Each run writes
 `model_uncertainty.npz` with
 the framewise central, analytical, and member energies plus exact-reweighting
 overlap diagnostics. The dependent summary job writes
-`model_uncertainty_heat_capacity.{npz,csv,png}` after averaging replicas and
+`model_uncertainty_heat_capacity.{npz,csv}` after averaging replicas and
 differentiating each persistent member's enthalpy curve. The CSV reports both
 direct and CEA results; use the CEA committee standard deviation as the primary
 large-system MLIP error bar and inspect `minimum_direct_effective_samples` and
 `maximum_dimensionless_delta_variance` before interpreting it.
-The same aggregate also writes `model_uncertainty_enthalpy.{csv,png}`; its CEA
-and direct enthalpy columns and plot include the corresponding member standard
+The same aggregate also writes `model_uncertainty_enthalpy.csv`; its CEA
+and direct enthalpy columns include the corresponding member standard
 deviations in eV at every temperature.
 
 To compare the CEA finite-difference heat capacity with the Gaussian NPT
@@ -206,54 +219,42 @@ python scripts/properties/compare_heat_capacity_estimators.py \\
   --model-label pet-mad-1.5-s-40nn --loading 100
 ```
 
-The command writes a CSV, member-resolved NPZ, and comparison plot beside the
+The command writes a CSV and member-resolved NPZ beside the
 aggregate uncertainty archive. It requires completed model-uncertainty
 trajectory analysis but does not run MD. The fluctuation estimate assumes the
 paper's Gaussian centered-moment approximation and is diagnostic until its
 sampling error and validity are checked; see [`docs/DPOSE.md`](../../docs/DPOSE.md).
 
-To assemble that variance-based classical result with the matching LLPR
-harmonic correction and make loading-comparison plots like the standard
-hybrid figures, run:
+To assemble the variance-based classical result with the matching LLPR
+harmonic correction and export loading-comparison tables, run:
 
 ```bash
-python scripts/properties/plot_variance_hybrid_comparisons.py
+python scripts/properties/export_variance_hybrid_comparisons.py
 ```
 
-This writes PET-MAD and PET-SOL hybrid curves, CSVs for each loading, and an
-uncertainty-component plot under
+This writes one CSV per model/loading under
 `output/post-processing/harmonic-correction/loading-comparisons/`. The
-combined band pairs classical and harmonic deviations by LLPR member, then
-combines their spread with the estimated Gaussian NPT sampling error. Hessian
-sampling uncertainty is not included in these plots.
+combined uncertainty pairs classical and harmonic deviations by LLPR member,
+then combines their spread with estimated Gaussian NPT sampling error.
+Hessian sampling uncertainty is excluded.
 
-To keep the existing CEA hybrid curve values while using the Gaussian NPT
-method only for the LLPR spread, pass `--uncertainty-method dpose` to
-`plot_hybrid_by_loading.py`. It retains each CEA central value and CEA
-sampling error, replaces the classical member spread with the Gaussian NPT
-member spread, and pairs those member deviations with the harmonic correction.
-The Gaussian method can increase the spread for some model/loading cases; it
-does not guarantee smaller error bars (see [`docs/DPOSE.md`](../../docs/DPOSE.md)).
-
-For matching CEA and DPOSE uncertainty-component plots, run:
+For matching CEA and DPOSE uncertainty-component tables, run:
 
 ```bash
-python scripts/properties/plot_uncertainty_components.py \
+python scripts/properties/export_uncertainty_components.py \
   --uncertainty-method both \
-  --output output/post-processing/harmonic-correction/loading-comparisons/hybrid-heat-capacity-uncertainty-components.png
+  --output output/post-processing/harmonic-correction/loading-comparisons/hybrid-heat-capacity-uncertainty-components.csv
 ```
 
-This writes separate `-cea.png` and `-dpose.png` figures and matching CSVs
-covering PET-MAD and PET-SOL at 50, 100, and 150 CH4. Both figures use the
-same colors, axis limits, and legend entries except for the classical model
-method. MD sampling, Hessian sampling, and Hessian LLPR spread come from the
-same hybrid archive; the command verifies that those arrays and the central
-values match exactly. MD sampling is shown separately from the model spreads.
-Hessian sampling uncertainty is excluded. Only the classical model spread and
-its paired combination with the harmonic members change. This comparison uses
-the original enthalpy-derivative sampling error; the variance estimator's own
+This writes separate `-cea.csv` and `-dpose.csv` tables for PET-MAD and PET-SOL
+at 50, 100, and 150 CH4. Both methods retain the CEA central values and
+enthalpy-derivative sampling errors, and use the same harmonic member spread.
+The command checks that shared arrays match exactly. DPOSE replaces the
+classical member spread with the Gaussian NPT spread and pairs it with the
+harmonic member deviations. The Gaussian approximation can increase the
+spread for some cases; it does not guarantee smaller error bars. Its own
 sampling error remains a separate diagnostic in
-`plot_variance_hybrid_comparisons.py`.
+`export_variance_hybrid_comparisons.py`.
 
 ## Reevaluate LLPR on every saved frame
 
@@ -323,37 +324,23 @@ for model in pet-mad-1.5-s-40nn pet-sol-s-best; do
 done
 ```
 
-Then generate both matching uncertainty plots:
+Then export both matching uncertainty tables:
 
 ```bash
-python scripts/properties/plot_uncertainty_components.py \
+python scripts/properties/export_uncertainty_components.py \
   --uncertainty-method both --require-all-frames \
   --analysis-root "$llpr_analysis_root" \
   --input-root output/post-processing/harmonic-correction \
-  --output output/post-processing/harmonic-correction/loading-comparisons/hybrid-heat-capacity-uncertainty-components.png
+  --output output/post-processing/harmonic-correction/loading-comparisons/hybrid-heat-capacity-uncertainty-components.csv
 ```
 
-The resulting `-cea.png` and `-dpose.png` figures and CSVs use the **refreshed
-classical members** from the dense analysis. They reuse the existing central
-hybrid values, MD sampling errors, and Hessian members from `--input-root`;
-no Hessian recomputation or hybrid assembly is needed for this comparison.
-The plots report the actual evaluated counts and reject sparse or stale
-archives with `--require-all-frames`. Rerun the Gaussian comparison whenever
-the CEA aggregate changes.
-
-For the loading curves with the dense uncertainty bands, run:
-
-```bash
-for model in pet-mad-1.5-s-40nn pet-sol-s-best; do
-  for method in cea dpose; do
-    python scripts/properties/plot_hybrid_by_loading.py \
-      --model-label "$model" --loadings 0,50,100,150 \
-      --uncertainty-method "$method" --require-all-frames \
-      --analysis-root "$llpr_analysis_root" \
-      --output "output/post-processing/harmonic-correction/loading-comparisons/${model}-${method}-hybrid-heat-capacity.png"
-  done
-done
-```
+The resulting `-cea.csv` and `-dpose.csv` tables use the **refreshed classical
+members** from the dense analysis, retaining existing central hybrid values,
+MD sampling errors, and Hessian members. No Hessian recomputation or hybrid
+assembly is needed. The export records actual evaluated counts and rejects
+sparse or stale archives with `--require-all-frames`. Rerun the Gaussian
+comparison whenever the CEA aggregate changes. Refresh the report's data
+tables with the LaTeX export commands above, then compile `report.tex`.
 
 The empty-MOF curve is reused unchanged because it has no MD trajectory.
 Using every frame can reduce sampling noise in the estimated model spread;
@@ -455,8 +442,8 @@ selected case.
 
 Hybrid NPZ and CSV outputs contain the classical term, harmonic correction,
 and final approximate $C_P$ in both gravimetric $J g^{-1} K^{-1}$ and
-volumetric $J cm^{-3} K^{-1}$ units. A matching PNG plots all three curves and
-their uncertainties against temperature in both unit systems. The volumetric
+volumetric $J cm^{-3} K^{-1}$ units. These data include uncertainty columns
+for rendering in LaTeX. The volumetric
 values use the loaded NPT mean volume and cell mass at each temperature; the
 accompanying JSON notes the uncertainty assumptions.
 

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Produce relaxed structures, Hessian spectra, and heat-capacity data only.
+# Figures are rendered separately in the LaTeX report.
+
 # Verify the GPU Hessian runtime, then submit relaxation and AD Hessian jobs.
 
 set -euo pipefail

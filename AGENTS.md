@@ -56,6 +56,12 @@ PET-JAX/SADMOF Hessians provide the harmonic quantum correction.
   as the hybrid dependency.
 - `scripts/properties/submit_hybrid_analysis.sh` submits and assembles the final hybrid
   curve without a separate worker script.
+- Property calculations and analysis write data only; do not add Matplotlib
+  rendering to trajectory, Hessian, hybrid, or estimator commands. Report figures
+  are native LaTeX/PGFPlots, using CSV tables exported by
+  `docs/report/scripts/export_*_data.py`. Comparison-table commands are
+  `scripts/properties/export_uncertainty_components.py` and
+  `scripts/properties/export_variance_hybrid_comparisons.py`.
 - `scripts/` contains every Bash entry point, grouped into `setup/`, `slurm/`,
   `md/`, and `properties/`; each workflow also has its own README.
 - `docs/` contains the scientific rationale, source paper, and Izar guide.
