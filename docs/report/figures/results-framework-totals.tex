@@ -27,24 +27,16 @@
   \addlegendentry{#4}
 }
 
-\newcommand{\mofthreethreetotals}{%
+\newcommand{\mofthreethreetotal}[4]{%
   \begin{tikzpicture}
-    \begin{groupplot}[frameworktotal,
-      group style={group size=2 by 1,horizontal sep=0.7cm,
-        xlabels at=edge bottom,ylabels at=edge left,yticklabels at=edge left},
-      scale only axis,width=\dimexpr(\textwidth-2.6cm)/2\relax,height=0.29\textwidth,
+    \begin{axis}[frameworktotal,
+      scale only axis,width=\dimexpr\textwidth-1.9cm\relax,height=0.29\textwidth,
     ]
-      \nextgroupplot
-      \frameworktotalcurve{mof303-total-50co2}{mofloadinghundred}{PET-MAD: 50 $\mathrm{CO_2}$, total $C_p$}
+      \frameworktotalcurve{mof303-total-#1}{#3}{PET-MAD: #2}
       \frameworktotalcurve{mof303-total-empty}{mofloadingzero}{PET-MAD: empty, harmonic $C_V$}
       \frameworkexperiment{mof303-experiment-dry}{black}{diamond*}{Experiment: dry MOF-303}
-      \nextgroupplot
-      \frameworktotalcurve{mof303-total-50h2o}{mofloadingfifty}{PET-MAD: 50 $\mathrm{H_2O}$ ($q=16.76\%$)}
-      \frameworktotalcurve{mof303-total-empty}{mofloadingzero}{PET-MAD: empty, harmonic $C_V$}
-      \frameworkexperiment{mof303-experiment-dry}{black}{diamond*}{Experiment: dry MOF-303}
-      \frameworkexperiment{mof303-experiment-water12}{frameworkexpwaterlow}{triangle*}{Experiment: $q=12.02\%$}
-      \frameworkexperiment{mof303-experiment-water34}{frameworkexpwaterhigh}{triangle*}{Experiment: $q=34.25\%$}
-    \end{groupplot}
+      #4
+    \end{axis}
   \end{tikzpicture}%
 }
 

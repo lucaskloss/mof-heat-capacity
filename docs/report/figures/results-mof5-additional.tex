@@ -1,11 +1,9 @@
 % Native PGFPlots; tables exported by scripts/export_mof5_additional_data.py.
-\newcommand{\moffiveadditional}{%
+\newcommand{\moffiveadditional}[3]{%
   \begin{tikzpicture}
-    \begin{groupplot}[
-      group style={group size=2 by 1,horizontal sep=0.7cm,
-        xlabels at=edge bottom,ylabels at=edge left,yticklabels at=edge left},
+    \begin{axis}[
       scale only axis,
-      width=\dimexpr(\textwidth-2.6cm)/2\relax,height=0.29\textwidth,
+      width=\dimexpr\textwidth-1.9cm\relax,height=0.29\textwidth,
       xmin=195,xmax=405,ymin=0,ymax=2,
       xtick={200,250,300,350,400},ytick={0,0.4,0.8,1.2,1.6,2},
       xlabel={$T$ [K]},ylabel={$C_p$ [J\,g$^{-1}$\,K$^{-1}$]},
@@ -13,14 +11,12 @@
       grid=major,grid style={black!10},
       legend style={font=\scriptsize,draw=none,fill=none,at={(0,1.03)},anchor=south west},
     ]
-      \moffiveadditionalpanel{50co2}{50 $\mathrm{CO_2}$}{mofloadinghundred}
-      \moffiveadditionalpanel{50h2o}{50 $\mathrm{H_2O}$}{mofloadingfifty}
-    \end{groupplot}
+      \moffiveadditionalpanel{#1}{#2}{#3}
+    \end{axis}
   \end{tikzpicture}%
 }
 
 \newcommand{\moffiveadditionalpanel}[3]{%
-  \nextgroupplot
   \addplot[name path=emptylower,draw=none,forget plot]
     table[x=temperature_K,y=lower,col sep=comma]{figures/data/mof5-additional-empty.csv};
   \addplot[name path=emptyupper,draw=none,forget plot]
