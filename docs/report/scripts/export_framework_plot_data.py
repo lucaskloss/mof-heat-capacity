@@ -10,7 +10,7 @@ from export_mof5_plot_data import BASE, REPORT, ROOT, read_rows, source_record, 
 
 
 def main():
-    destination = REPORT / "figures/data"
+    destination = REPORT / "data"
     destination.mkdir(parents=True, exist_ok=True)
     inputs, outputs = [], []
     fields = ("temperature_K", "heat_capacity", "lower", "upper")

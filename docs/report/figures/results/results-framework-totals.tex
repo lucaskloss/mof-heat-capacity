@@ -12,18 +12,18 @@
 
 \newcommand{\frameworktotalcurve}[3]{%
   \addplot[name path=lower,draw=none,forget plot]
-    table[x=temperature_K,y=lower,col sep=comma]{figures/data/#1.csv};
+    table[x=temperature_K,y=lower,col sep=comma]{data/#1.csv};
   \addplot[name path=upper,draw=none,forget plot]
-    table[x=temperature_K,y=upper,col sep=comma]{figures/data/#1.csv};
+    table[x=temperature_K,y=upper,col sep=comma]{data/#1.csv};
   \addplot[#2!18,draw=none,forget plot] fill between[of=lower and upper];
   \addplot[#2,thick,mark=*,mark size=1.5pt]
-    table[x=temperature_K,y=heat_capacity,col sep=comma]{figures/data/#1.csv};
+    table[x=temperature_K,y=heat_capacity,col sep=comma]{data/#1.csv};
   \addlegendentry{#3}
 }
 
 \newcommand{\frameworkexperiment}[4]{%
   \addplot[#2,dashed,mark=#3,mark size=2pt,mark options={solid,fill=white}]
-    table[x=temperature_K,y=heat_capacity,col sep=comma]{figures/data/#1.csv};
+    table[x=temperature_K,y=heat_capacity,col sep=comma]{data/#1.csv};
   \addlegendentry{#4}
 }
 
@@ -48,7 +48,7 @@
       \addplot[frameworkexpwaterlow,dashed,mark=diamond*,mark size=2pt,
         mark options={solid,fill=white},error bars/.cd,y dir=both,y explicit]
         table[x=temperature_K,y=heat_capacity,y error=uncertainty,col sep=comma]
-          {figures/data/zif8-experiment-co2.csv};
+          {data/zif8-experiment-co2.csv};
       \addlegendentry{Experiment: $X=0.56$ (2\% standard uncertainty)}
     \end{axis}
   \end{tikzpicture}%

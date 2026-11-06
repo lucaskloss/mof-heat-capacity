@@ -11,7 +11,7 @@ from export_mof5_plot_data import BASE, REPORT, ROOT, read_rows, source_record, 
 
 def main():
     directory = BASE / "mof5/pet-mad-1.5-s-40nn"
-    destination = REPORT / "figures/data"
+    destination = REPORT / "data"
     destination.mkdir(parents=True, exist_ok=True)
     fields = ("temperature_K", "heat_capacity", "lower", "upper")
     inputs, outputs = [], []

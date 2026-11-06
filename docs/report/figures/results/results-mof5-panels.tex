@@ -16,7 +16,7 @@
       ylabel={$C_p$ [J\,g$^{-1}$\,K$^{-1}$]},
       tick label style={font=\small},label style={font=\small},
       grid=major,grid style={black!10},
-      legend style={font=\scriptsize,draw=none,fill=none,at={(0,1.03)},anchor=south west},
+      legend style={font=\scriptsize,draw=none,fill=none,at={(0.04,0.97)},anchor=north west},
     ]
       \moffivepanel{#1}{#2}{50}{mofloadingfifty}
       \moffivepanel{#1}{#2}{100}{mofloadinghundred}
@@ -28,28 +28,26 @@
 \newcommand{\moffivepanel}[4]{%
   \nextgroupplot
   \addplot[name path=emptylower,draw=none,forget plot]
-    table[x=temperature_K,y=lower,col sep=comma]{figures/data/mof5-#1-0ch4.csv};
+    table[x=temperature_K,y=lower,col sep=comma]{data/mof5-#1-0ch4.csv};
   \addplot[name path=emptyupper,draw=none,forget plot]
-    table[x=temperature_K,y=upper,col sep=comma]{figures/data/mof5-#1-0ch4.csv};
+    table[x=temperature_K,y=upper,col sep=comma]{data/mof5-#1-0ch4.csv};
   \addplot[mofloadingzero!18,draw=none,forget plot]
     fill between[of=emptylower and emptyupper];
   \addplot[name path=lower,draw=none,forget plot]
-    table[x=temperature_K,y=lower,col sep=comma]{figures/data/mof5-#1-#3ch4.csv};
+    table[x=temperature_K,y=lower,col sep=comma]{data/mof5-#1-#3ch4.csv};
   \addplot[name path=upper,draw=none,forget plot]
-    table[x=temperature_K,y=upper,col sep=comma]{figures/data/mof5-#1-#3ch4.csv};
+    table[x=temperature_K,y=upper,col sep=comma]{data/mof5-#1-#3ch4.csv};
   \addplot[#4!18,draw=none,forget plot] fill between[of=lower and upper];
   \addplot[#4,thick,mark=*,mark size=1.5pt]
-    table[x=temperature_K,y=heat_capacity,col sep=comma]{figures/data/mof5-#1-#3ch4.csv};
-  \addlegendentry{#2: $N_{\mathrm{CH_4}}=#3$}
-  \addplot[#4,thick,dashed]
+    table[x=temperature_K,y=heat_capacity,col sep=comma]{data/mof5-#1-#3ch4.csv};
+  \addlegendentry{$N_{\mathrm{CH_4}}=#3$}
+  \addplot[#4,thick,dashed,forget plot]
     table[x=temperature_K,y=reference_heat_capacity_J_per_gK,col sep=comma]
-      {figures/data/mof5-reference-#3ch4.csv};
-  \addlegendentry{Kapil et al.: $N_{\mathrm{CH_4}}=#3$}
+      {data/mof5-reference-#3ch4.csv};
   \addplot[mofloadingzero,thick,mark=*,mark size=1.5pt]
-    table[x=temperature_K,y=heat_capacity,col sep=comma]{figures/data/mof5-#1-0ch4.csv};
-  \addlegendentry{#2: empty}
-  \addplot[mofloadingzero,thick,dashed]
+    table[x=temperature_K,y=heat_capacity,col sep=comma]{data/mof5-#1-0ch4.csv};
+  \addlegendentry{$N_{\mathrm{CH_4}}=0$}
+  \addplot[mofloadingzero,thick,dashed,forget plot]
     table[x=temperature_K,y=reference_heat_capacity_J_per_gK,col sep=comma]
-      {figures/data/mof5-reference-0ch4.csv};
-  \addlegendentry{Kapil et al.: empty}
+      {data/mof5-reference-0ch4.csv};
 }

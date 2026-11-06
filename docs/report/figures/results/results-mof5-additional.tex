@@ -18,20 +18,20 @@
 
 \newcommand{\moffiveadditionalpanel}[3]{%
   \addplot[name path=emptylower,draw=none,forget plot]
-    table[x=temperature_K,y=lower,col sep=comma]{figures/data/mof5-additional-empty.csv};
+    table[x=temperature_K,y=lower,col sep=comma]{data/mof5-additional-empty.csv};
   \addplot[name path=emptyupper,draw=none,forget plot]
-    table[x=temperature_K,y=upper,col sep=comma]{figures/data/mof5-additional-empty.csv};
+    table[x=temperature_K,y=upper,col sep=comma]{data/mof5-additional-empty.csv};
   \addplot[mofloadingzero!18,draw=none,forget plot]
     fill between[of=emptylower and emptyupper];
   \addplot[name path=lower,draw=none,forget plot]
-    table[x=temperature_K,y=lower,col sep=comma]{figures/data/mof5-additional-#1.csv};
+    table[x=temperature_K,y=lower,col sep=comma]{data/mof5-additional-#1.csv};
   \addplot[name path=upper,draw=none,forget plot]
-    table[x=temperature_K,y=upper,col sep=comma]{figures/data/mof5-additional-#1.csv};
+    table[x=temperature_K,y=upper,col sep=comma]{data/mof5-additional-#1.csv};
   \addplot[#3!18,draw=none,forget plot] fill between[of=lower and upper];
   \addplot[#3,thick,mark=*,mark size=1.5pt]
-    table[x=temperature_K,y=heat_capacity,col sep=comma]{figures/data/mof5-additional-#1.csv};
+    table[x=temperature_K,y=heat_capacity,col sep=comma]{data/mof5-additional-#1.csv};
   \addlegendentry{PET-MAD: #2, total hybrid $C_p$}
   \addplot[mofloadingzero,thick,dashed]
-    table[x=temperature_K,y=heat_capacity,col sep=comma]{figures/data/mof5-additional-empty.csv};
+    table[x=temperature_K,y=heat_capacity,col sep=comma]{data/mof5-additional-empty.csv};
   \addlegendentry{PET-MAD: empty, harmonic $C_V$}
 }

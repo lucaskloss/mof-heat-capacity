@@ -448,51 +448,51 @@
     ],
     "exported_data": [
       {
-        "source": "docs/report/figures/data/mof5-reference-0ch4.csv",
+        "source": "docs/report/data/mof5-reference-0ch4.csv",
         "sha256": "39846c8232e3312f4c8494441d8646786c28c7752cc9f72f1190850427cf724a"
       },
       {
-        "source": "docs/report/figures/data/mof5-pet-mad-0ch4.csv",
+        "source": "docs/report/data/mof5-pet-mad-0ch4.csv",
         "sha256": "11e15bd132748994c058a7cfde3e2f2211c2944cedfa7f9117de11e22fea2030"
       },
       {
-        "source": "docs/report/figures/data/mof5-pet-sol-0ch4.csv",
+        "source": "docs/report/data/mof5-pet-sol-0ch4.csv",
         "sha256": "555e50dac7cddab7c3335b34935e154f8275b8fb1b43a4b16f963cae07ed643d"
       },
       {
-        "source": "docs/report/figures/data/mof5-reference-50ch4.csv",
+        "source": "docs/report/data/mof5-reference-50ch4.csv",
         "sha256": "b7fdc7cfb3dfa46e873d08558dcc1b70dd80fb69e331c66261d6f2a898c6dccc"
       },
       {
-        "source": "docs/report/figures/data/mof5-pet-mad-50ch4.csv",
+        "source": "docs/report/data/mof5-pet-mad-50ch4.csv",
         "sha256": "5d89cb825f140059e2fb4ee5f08cca231f1fb9cd3903c710c26bf045fc4412ac"
       },
       {
-        "source": "docs/report/figures/data/mof5-pet-sol-50ch4.csv",
+        "source": "docs/report/data/mof5-pet-sol-50ch4.csv",
         "sha256": "c47ca118b4ac376385215f06353c3f808650f58f7f3a96efe620f00972779ab7"
       },
       {
-        "source": "docs/report/figures/data/mof5-reference-100ch4.csv",
+        "source": "docs/report/data/mof5-reference-100ch4.csv",
         "sha256": "12528b16f002bdb32e20cb6af8ee8c20ced87046882da5327f45f6200bc0d3c1"
       },
       {
-        "source": "docs/report/figures/data/mof5-pet-mad-100ch4.csv",
+        "source": "docs/report/data/mof5-pet-mad-100ch4.csv",
         "sha256": "76e25c7d1b1f5a81fd9b99b006747340cf11d47b520d167d0fe2f3519f2be636"
       },
       {
-        "source": "docs/report/figures/data/mof5-pet-sol-100ch4.csv",
+        "source": "docs/report/data/mof5-pet-sol-100ch4.csv",
         "sha256": "b3f43dc9a7508683b0fa49334ccfa4cb78e077156a589898b55b94b0e2d8d97e"
       },
       {
-        "source": "docs/report/figures/data/mof5-reference-150ch4.csv",
+        "source": "docs/report/data/mof5-reference-150ch4.csv",
         "sha256": "69eb633c8b765fb15ca41caf9c8c5246aefae9c5dae99e69aa116eac5e64cb51"
       },
       {
-        "source": "docs/report/figures/data/mof5-pet-mad-150ch4.csv",
+        "source": "docs/report/data/mof5-pet-mad-150ch4.csv",
         "sha256": "2297cc826bcfb723ebe6e5970c2debfb7f9ef3d307df790e21d6584e8fbe76f1"
       },
       {
-        "source": "docs/report/figures/data/mof5-pet-sol-150ch4.csv",
+        "source": "docs/report/data/mof5-pet-sol-150ch4.csv",
         "sha256": "51cf034f35b6576e6b68f1d82ba5decc0ee364e5e01d869b912713f02a7b7565"
       }
     ]
@@ -516,15 +516,15 @@
     ],
     "exported_data": [
       {
-        "source": "docs/report/figures/data/mof5-additional-50co2.csv",
+        "source": "docs/report/data/mof5-additional-50co2.csv",
         "sha256": "9b6dc6577087a8548d80112b6e625a27d62426258a9130a4e252e013c288d188"
       },
       {
-        "source": "docs/report/figures/data/mof5-additional-50h2o.csv",
+        "source": "docs/report/data/mof5-additional-50h2o.csv",
         "sha256": "5d405973da7e3a60c8f219f68e04ced6acb5480feced3f477d2801da0c3b0b0e"
       },
       {
-        "source": "docs/report/figures/data/mof5-additional-empty.csv",
+        "source": "docs/report/data/mof5-additional-empty.csv",
         "sha256": "4f72272a4ddf945577f7ce3207dbed7e23c6624649d8923d415d81700617b546"
       }
     ]
@@ -568,35 +568,35 @@
     ],
     "exported_data": [
       {
-        "source": "docs/report/figures/data/mof303-total-50co2.csv",
+        "source": "docs/report/data/mof303-total-50co2.csv",
         "sha256": "46ee8c1332742ebfe717c2310ae74d6d5b636413ee95280e231c6fd6cba25bbe"
       },
       {
-        "source": "docs/report/figures/data/mof303-total-50h2o.csv",
+        "source": "docs/report/data/mof303-total-50h2o.csv",
         "sha256": "628e396c566134ad800187fadfb23af2b65594868b70f8adf4c1dd633f772f5a"
       },
       {
-        "source": "docs/report/figures/data/mof303-total-empty.csv",
+        "source": "docs/report/data/mof303-total-empty.csv",
         "sha256": "4184be898e40c005fe1194b4df17d5831c002b4910f80017f28a94401e946785"
       },
       {
-        "source": "docs/report/figures/data/zif8-total-54co2.csv",
+        "source": "docs/report/data/zif8-total-54co2.csv",
         "sha256": "d6caf0542c5cd1ed754ca6ecf338a815a771e54d85d66042cbb771e6eaa1aed9"
       },
       {
-        "source": "docs/report/figures/data/mof303-experiment-dry.csv",
+        "source": "docs/report/data/mof303-experiment-dry.csv",
         "sha256": "884b35f70bad7cd4b143ddb6785ff22ab7e1f13f19387c8b4e956ad911c31dc6"
       },
       {
-        "source": "docs/report/figures/data/mof303-experiment-water12.csv",
+        "source": "docs/report/data/mof303-experiment-water12.csv",
         "sha256": "a70fd32579d52b87877dc23625f37645e04ec6e5be0510034b4d4dc6582c90b7"
       },
       {
-        "source": "docs/report/figures/data/mof303-experiment-water34.csv",
+        "source": "docs/report/data/mof303-experiment-water34.csv",
         "sha256": "91cdfd51692d4b1323ed5b79289eb591265c7d1fce03fd6710005d4f6b6a487d"
       },
       {
-        "source": "docs/report/figures/data/zif8-experiment-co2.csv",
+        "source": "docs/report/data/zif8-experiment-co2.csv",
         "sha256": "888bbf991745f7bc4fa5f9f59fe6785366f30b246a38266b021172c7e68db549"
       }
     ]

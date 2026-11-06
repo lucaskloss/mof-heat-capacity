@@ -37,7 +37,7 @@ def source_record(path):
 
 
 def main():
-    destination = REPORT / "figures/data"
+    destination = REPORT / "data"
     destination.mkdir(parents=True, exist_ok=True)
     uncertainty_path = BASE / "loading-comparisons/hybrid-heat-capacity-uncertainty-components-cea.csv"
     uncertainties = {}

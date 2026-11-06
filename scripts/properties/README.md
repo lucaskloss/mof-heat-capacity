@@ -62,7 +62,7 @@ tectonic report.tex
 ```
 
 The exporters copy numerical values and uncertainty bounds into versioned
-`figures/data/` tables and record source hashes in `results-provenance.json`.
+`docs/report/data/` tables and record source hashes in `results-provenance.json`.
 LaTeX draws the curves, uncertainty bands, and experimental error bars. All
 heat-capacity axes in these figures start at zero. The old standalone Python
 plotting commands have been removed. Statistical comparison tables remain
