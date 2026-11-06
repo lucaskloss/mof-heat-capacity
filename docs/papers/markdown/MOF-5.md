@@ -4,9 +4,9 @@ This document turns the conclusions of Kapil et al., *Modeling the Structural
 and Thermal Properties of Loaded Metal-Organic Frameworks: An Interplay of
 Quantum and Anharmonic Fluctuations*, J. Chem. Theory Comput. **15**,
 3237–3249 (2019), into a focused workflow for this project. The sources are the
-[supplied article PDF](MOF-5.pdf),
+[supplied article PDF](../pdf/MOF-5.pdf),
 the [open preprint](https://arxiv.org/abs/1901.03770), and the
-[supplied Supporting Information](MOF-5_APPENDIX.pdf), also available from
+[supplied Supporting Information](../pdf/MOF-5_APPENDIX.pdf), also available from
 the [ACS data record](https://acs.figshare.com/articles/journal_contribution/Modeling_the_Structural_and_Thermal_Properties_of_Loaded_Metal_Organic_Frameworks_An_Interplay_of_Quantum_and_Anharmonic_Fluctuations/8061587).
 
 The objective is **not** to reproduce every simulation in the paper with an
@@ -161,195 +161,87 @@ hybrid approximation implemented here:
   temperature is a result of its force field and loading, not a target that
   this MLIP calculation is required to reproduce.
 
-## Focused production workflow
+## QuickFF and PET: main ideas
 
-### 1. Lock and validate the MLIP
+[Appendix Section S4, pp. S-24–S-29](../pdf/MOF-5_APPENDIX.pdf#page=24)
+describes the paper's **QuickFF/MM3–MBIS** model. QuickFF fits an analytical
+force field to first-principles geometries and Hessians of molecular building
+blocks. Matching the Hessian helps reproduce vibrational frequencies, which
+determine harmonic heat capacity. Once fitted, the force field evaluates
+energies and forces without further electronic-structure calculations.
 
-Use one model identity for insertion relaxation, MD, geometry optimization, and
-all Hessians. Record the checkpoint, metatomic export, PET-JAX conversion,
-precision, and software versions. Verify stable energies and forces for the
-MOF, methane, and short-range host–guest contacts. Validate stress separately
-before choosing NPT.
+The complete model combines three ingredients:
 
-Changing the model between MD and Hessian calculations invalidates the
-additive correction, because the terms would refer to different potential
-energy surfaces.
+- **QuickFF bonded terms:** bond stretching, angle bending, torsions,
+  out-of-plane motion, and coupling between bonds and angles. Framework bonds
+  and angles include anharmonic terms; methane bonds and angles are harmonic.
+- **MBIS electrostatics:** interactions between fixed Gaussian charge
+  distributions derived from electronic densities.
+- **MM3 van der Waals terms:** empirical repulsion and dispersion parameters,
+  including host–guest interactions. These are not fitted by QuickFF.
 
-### 2. Empty MOF-5: Hessian only
+**PET** learns the energy as a many-body function of atomic species and
+geometric environments, using attention and message passing. Forces and
+Hessians follow by differentiation of this learned energy. PET-MAD and
+PET-SOL are trained potentials using this architecture; this project uses
+them without fitting to the heat-capacity results. See [PET.md](PET.md).
 
-Use the equilibrated empty MOF-5 structure already available to the project.
-No empty-framework MD campaign is required.
+| Aspect | Paper's QuickFF/MM3–MBIS | Project's PET models |
+| --- | --- | --- |
+| Energy representation | Prescribed bonded and nonbonded formulas with fitted or assigned parameters. | Learned many-body function of atomic environments. |
+| Bonding | Fixed chemical topology. | Geometric neighbor graph without a prescribed bond list. |
+| Anharmonicity | Explicit anharmonic terms and nonbonded interactions. | Nonlinear learned energy surface. |
+| Nonbonded physics | Explicit electrostatics and dispersion. | Finite-range message passing; this workflow adds no explicit long-range electrostatic or dispersion model. |
+| New systems | Check parameter transfer and derive missing parameters. | Reuse pretrained weights, then validate the new environments. |
 
-1. Confirm the composition, periodic cell, and provenance of the structure.
-2. With the selected MLIP, minimize the atomic coordinates at the intended
-   fixed cell unless the supplied structure already meets the chosen force
-   tolerance with that exact MLIP.
-3. Record the maximum residual force and optimization convergence.
-4. Compute one AD Hessian and the quantum-harmonic $C_V(T)$ curve.
-5. Inspect the frequencies. A periodic stable minimum should have only the
-   expected translational acoustic modes near zero; extra imaginary modes
-   indicate a non-minimum, a numerical problem, or a genuine instability.
+Neither model is automatically more accurate. QuickFF targets the local
+structure and vibrations of particular building blocks, while pretrained PET
+aims for broader chemical coverage. Their reference data also differ:
+the paper combines B3LYP bonded references, MBIS charges from B3LYP/PBE
+densities, and MM3 parameters; PET-MAD-1.5 uses
+[r²SCAN training data](https://arxiv.org/abs/2603.02089). Both require a
+separate treatment of nuclear quantum effects.
 
-This is the pristine reference and an end-to-end validation of the AD Hessian
-machinery. It is not a precursor MD stage for the loaded runs.
+## Comparing heat-capacity results
 
-### 3. Prepare independent loaded configurations
+Match loading, pressure, temperature, and mass normalization. Compare
+**classical with classical** and **hybrid with hybrid** to assess the effect
+of changing the potential. Comparing PET-hybrid with QuickFF-PIMD changes
+both the potential and the treatment of nuclear motion. Agreement in that
+comparison supports the combined prediction, but does not independently
+validate either component. QuickFF results are a simulation reference;
+experimental accuracy requires comparison with experiment.
 
-For each loading, prepare several defensible methane arrangements. Random
-non-overlapping insertion is only an initial condition, not adsorption
-equilibration. Use adsorption/Monte Carlo equilibration when available, or
-demonstrate that classical MD loses memory of the initial placements.
+A concise description for the report is:
 
-The paper optimized five Monte Carlo snapshots of the 100-CH4 system into
-different local minima and found little sensitivity in their harmonic curves.
-Use this as a starting convergence design, not as proof that one MLIP minimum
-is enough. Start with two or three independent minima, compare their quantum
-corrections, and expand only if the spread is material.
+> The QuickFF/MM3–MBIS reference combines system-specific bonded terms fitted
+> to first-principles geometries and Hessians with explicit electrostatic and
+> van der Waals interactions. PET instead uses a pretrained many-body energy
+> model. Both descriptions include anharmonicity. We compare their
+> heat capacities at matching loadings and distinguish changes in the
+> potential from changes in the nuclear treatment. Agreement indicates
+> consistency for the thermal response over the tested range, rather than
+> identical underlying interactions.
 
-### 4. Run classical MD only for loaded MOF-5
+Support any claim of quantitative agreement with numerical deviations and
+uncertainties. The paper's methane results do not validate PET for CO₂ or H₂O.
 
-Classical MD supplies the part that Hessians cannot: anharmonic guest motion.
-Run it at each target loading and over a temperature grid dense enough to
-resolve the heat-capacity curve. Include independent methane placements and
-velocity seeds. Determine equilibration and production lengths from energy,
-temperature, methane-site occupancy/diffusion, and autocorrelation diagnostics,
-not from the short repository smoke test.
+## Speed and efficiency
 
-The default campaign uses 200, 225, 250, 275, 300, 325, 350, 375, and 400 K.
-This keeps the reported range at and above the approximate 200 K reliability
-boundary found for the paper's 100-methane system and provides a uniform 25 K
-enthalpy grid. This range is still a project choice rather than a validation of
-the hybrid approximation for a different MLIP or loading.
+**A PET speed advantage over QuickFF has not been demonstrated here.** An
+optimized analytical force field would generally be expected to cost less
+per evaluation; actual performance depends on hardware and implementation.
+PET's practical advantage is reuse across systems without deriving a new
+force field, provided its predictions are validated. Published
+[PET-MAD speed benchmarks](https://doi.org/10.1038/s41467-025-65662-7)
+compare neural potentials and do not establish superiority over QuickFF.
 
-For fixed-cell NVT, obtain
+For context, the archived [924-atom PET-MAD run at 300 K](../../../output/md/production/pet-mad-1.5-s-40nn/100ch4/300K/rep01/md.lammps.log)
+achieved **0.254 ns/day**, taking **47.2 hours for 500 ps**, excluding Hessians.
+There is no matching QuickFF timing. A useful efficiency comparison would
+measure total compute time to the same heat-capacity uncertainty.
 
-$$C^{\mathrm{anh}}_{V,\mathrm{cl}} = \frac{\langle E^2\rangle-\langle E\rangle^2}{k_BT^2}, $$
-
-with the correct treatment of constrained or removed degrees of freedom. As a
-cross-check, fit the replica-averaged $\langle E\rangle(T)$ and differentiate
-it.
-
-For NPT, use $H=E+P_{\mathrm{ext}}V$ and estimate
-
-$$C^{\mathrm{anh}}_{P,\mathrm{cl}}(T) = \frac{d\langle H\rangle}{dT}. $$
-
-A centered difference requires simulations at $T-\Delta T$ and
-$T+\Delta T$. Kapil et al. used $\Delta T=25$ K for their PIMD enthalpy
-derivative, but this spacing is a convergence parameter for the MLIP campaign,
-not a value to copy blindly. A smooth local fit to several temperatures can be
-more statistically stable. Propagate uncertainty by resampling independent
-replicas or correlation-aware blocks before refitting or differentiating.
-
-### 5. Optimize loaded minima and calculate AD Hessians
-
-Do not calculate Hessians indiscriminately along the finite-temperature MD
-trajectory. A raw thermal frame is generally not a stationary point, and its
-instantaneous Hessian is not the normal-mode object used in the paper's
-formula.
-
-Instead:
-
-1. select independent, representative loaded configurations;
-2. quench each one to a local minimum with the same MLIP and cell convention;
-3. verify force convergence and inspect imaginary and near-zero modes;
-4. compute the loaded AD Hessian for each accepted minimum;
-5. use exactly the same accepted-mode mask for
-   $C^{\mathrm{har}}_{\mathrm{qn}}$ and
-   $C^{\mathrm{har}}_{\mathrm{cl}}$;
-6. average the resulting **quantum corrections**, and report their spread.
-
-Converge PET-JAX precision, graph `hops`, sparse reconstruction, acoustic
-sum-rule handling, and finite-size effects on the correction. Do not repair a
-poor minimum by silently deleting imaginary frequencies or raising a frequency
-cutoff until the result looks smooth.
-
-The property workflow described in
-[`scripts/properties/README.md`](../scripts/properties/README.md) writes the
-quantum-harmonic $C_V$ and frequencies, then assembles the final hybrid curve.
-It differentiates the replica-averaged classical NPT enthalpies,
-recomputes the quantum and classical harmonic terms with one common mode mask,
-and propagates MD and minimum-to-minimum uncertainty into the final curve.
-
-### 6. Assemble and normalize the result
-
-For every loading and temperature:
-
-1. combine extensive heat capacities first;
-2. add the mean loaded-Hessian quantum correction to the classical loaded-MD
-   result;
-3. only then divide by the total mass of that loaded simulation cell for
-   $J g^{-1} K^{-1}$, or use its NPT mean volume for a volumetric result;
-4. retain the empty harmonic curve as a separately normalized reference;
-5. report statistical uncertainty from MD and sensitivity to the optimized
-   minimum and numerical Hessian settings.
-
-The mode bookkeeping in $C^{\mathrm{har}}_{\mathrm{cl}}$ must match the MD
-degrees of freedom. Account consistently for removed center-of-mass motion,
-constraints, frozen atoms, and excluded zero modes. Otherwise the classical
-term will not cancel correctly and the hybrid result will have a constant
-offset.
-
-## Minimum useful campaign
-
-A cost-conscious first campaign should contain:
-
-- one optimized empty structure and one converged empty AD Hessian;
-- one scientifically relevant loading, preferably 100 CH4 to compare with the
-  paper's best documented test;
-- a classical loaded-MD temperature grid with enough independent replicas to
-  estimate uncertainty;
-- two or three independently prepared and optimized loaded minima;
-- one converged AD Hessian per loaded minimum;
-- the hybrid curve and uncertainty, compared with classical-only,
-  loaded-harmonic-only, and empty-harmonic curves.
-
-Only after this is stable should the workflow expand to 50 and 150 CH4 or to a
-denser temperature grid. There is no scientific need to reproduce the paper's
-empty classical-MD or empty PIMD campaigns for this objective.
-
-## Validation and limits
-
-The hybrid expression is empirical. In the paper it qualitatively recovered
-the heat-capacity minimum for 100 CH4 and became quantitatively accurate above
-about 200 K. Below that range, localized methane and the tail of a confined-
-methane transition near 60 K make a classical treatment less reliable. The
-result may also depend on loading, guest species, cell size, and MLIP.
-
-Validation should therefore include, in order of increasing cost:
-
-1. reproduce a sensible empty-MOF harmonic curve and check against experiment
-   and the paper;
-2. compare quantum corrections across independently optimized loaded minima;
-3. check whether loaded classical MD reproduces the expected change in methane
-   mobility and host–guest energy with temperature;
-4. compare the final hybrid curve with experiment or published results while
-   clearly identifying the different potential;
-5. treat results below 200 K as outside the present classical-hybrid production
-   scope rather than extrapolating the approximation into that regime.
-
-Agreement with the paper is not expected numerically merely because its
-temperatures or loadings are reused: PET-MAD and QuickFF define different
-potential-energy surfaces.
-
-## Required provenance record
-
-Record the following with every reported curve:
-
-- definition of the reported quantity ($C_V$ or $C_P$) and normalization;
-- host structure, cell, loading, methane-placement method, and seeds;
-- complete MLIP/PET-JAX identity and stress-validation status;
-- ensemble, temperature grid, timestep, thermostat/barostat, equilibration,
-  production length, output stride, and independent MD replicas;
-- energy or enthalpy estimator, derivative/fit method, correlation treatment,
-  and statistical uncertainty;
-- source and optimization of every Hessian structure, final maximum force, and
-  any imaginary modes;
-- Hessian precision, `hops`, chunk size, rematerialization, acoustic sum rule,
-  zero-mode policy, and finite-size checks;
-- the separate values of $C^{\mathrm{anh}}_{\mathrm{cl}}$,
-  $C^{\mathrm{har}}_{\mathrm{qn}}$,
-  $C^{\mathrm{har}}_{\mathrm{cl}}$, and their final sum.
-
-The central deliverable is therefore a **Hessian-corrected classical-MD heat
-capacity for loaded MOF-5**, not a reproduction of the paper's entire PIMD
-workflow.
+The savings from using classical MD plus a harmonic quantum correction
+instead of full PIMD arise from the **hybrid approximation**, which can be
+used with either potential. Sparse PET Hessians accelerate the MLIP analysis;
+they do not by themselves establish an advantage over QuickFF derivatives.

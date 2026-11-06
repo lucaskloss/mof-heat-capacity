@@ -531,8 +531,12 @@
   },
   "results-framework-totals.tex": {
     "generator": "docs/report/scripts/export_framework_plot_data.py",
-    "description": "Native LaTeX total hybrid heat capacities with archived combined standard uncertainty. MOF-303 includes empty harmonic cV with sample LLPR spread and dry/water experimental references. ZIF-8 retains measured CO2 reference points and 2% standard uncertainty. Measurements are restricted to 195\u2013405 K without extrapolation. All y-axes start at zero; negative band bounds are preserved in tables and clipped visually.",
+    "description": "Native LaTeX total hybrid heat capacities with archived combined standard uncertainty. MOF-303 includes 50 CH4, 50 CO2, and 50 H2O, empty harmonic cV with sample LLPR spread, and dry/water experimental references. The methane panel uses its own 0ch4 empty-framework Hessian. ZIF-8 retains measured CO2 reference points and 2% standard uncertainty. Measurements are restricted to 195\u2013405 K without extrapolation. All y-axes start at zero; negative band bounds are preserved in tables and clipped visually.",
     "inputs": [
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/50ch4/heat-capacity.exploratory-discard-imaginary.csv",
+        "sha256": "dab685db6db6774b8c5d19a01b2bce945de2c3ba18270a435b18a655611d162c"
+      },
       {
         "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/50co2/heat-capacity.exploratory-discard-imaginary.csv",
         "sha256": "4e2da531086da80ae7f3179f4d0e651e2344485335d4100acd1ce427088836b0"
@@ -544,6 +548,10 @@
       {
         "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/0co2/hessians/hessian.npz",
         "sha256": "9cd2dd7347d7844a9cadb323f3c1b9d1bc6893bda495eaf7b16094d5ad10415f"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/0ch4/hessians/hessian.npz",
+        "sha256": "9f95343cd52d960dd4d181de17f7c59afc1dece17e026e7ae6170dcff43100d7"
       },
       {
         "source": "output/post-processing/harmonic-correction/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/heat-capacity.fd-two-gpu.exploratory-discard-imaginary.csv",
@@ -568,6 +576,10 @@
     ],
     "exported_data": [
       {
+        "source": "docs/report/data/mof303-total-50ch4.csv",
+        "sha256": "bbe2999dd5c22fdfd44ce4525362771be91f9ae112d0f388bf742e47c16459ad"
+      },
+      {
         "source": "docs/report/data/mof303-total-50co2.csv",
         "sha256": "46ee8c1332742ebfe717c2310ae74d6d5b636413ee95280e231c6fd6cba25bbe"
       },
@@ -578,6 +590,10 @@
       {
         "source": "docs/report/data/mof303-total-empty.csv",
         "sha256": "4184be898e40c005fe1194b4df17d5831c002b4910f80017f28a94401e946785"
+      },
+      {
+        "source": "docs/report/data/mof303-total-empty-ch4.csv",
+        "sha256": "82be364817dda1a139f78ccd4a202be6b40c8d7b43f7fe063be1731e6333adc6"
       },
       {
         "source": "docs/report/data/zif8-total-54co2.csv",

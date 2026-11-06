@@ -1840,16 +1840,6 @@ The total uncertainty of the hybrid heat capacity is then obtained by combining 
 
 \section{Results}
 \label{sec:results}
-\label{sec:results-scope}
-
-Results are grouped by framework and then by guest loading. A loading
-counts molecules per simulated cell: the conventional MOF-5 cell or the
-$2\times2\times2$ MOF-303 and ZIF-8 supercells. Equal molecule counts
-therefore do not imply equal concentrations across hosts. Specific heat
-capacities use the total host-plus-guest mass; empty references use the
-host mass. Hybrid curves cover 200--\SI{400}{K} in \SI{25}{K} steps.
-These estimates remain exploratory; supporting checks and detailed
-uncertainty analysis are provided in Appendix~\ref{sec:capacity-diagnostics}.
 
 \subsection{MOF-5}
 \label{sec:mof-5-results}
@@ -1860,142 +1850,136 @@ uncertainty analysis are provided in Appendix~\ref{sec:capacity-diagnostics}.
 \begin{figure}[htbp]
   \centering
   \moffivepanels{pet-mad}{PET-MAD}
-  \caption{PET-MAD heat capacities for methane-loaded MOF-5.
-  Panels show 50, 100, and 150 methane molecules from left to right,
-  each with its matching reference and both empty-framework curves.
-  Distinct colors identify each loading and the empty framework; results and
-  their matching references share a color. Solid loaded curves show hybrid $c_P$; the empty-framework curve is
-  harmonic $c_V$. Dashed curves are digitized Kapil \emph{et al.}\ data
+  \caption{MOF-5 $C_P$ with 50, 100, and 150 $CH_4$ molecules per cell using PET-MAD.
+  The dashed lines are from Kapil \emph{et al.}\
   \cite{kapil2019}. Shading denotes standard uncertainty; details are in
   Appendix~\ref{sec:results-uncertainty}.}
   \label{fig:results-cp-mad}
 \end{figure}
 
+The potential used in \ref.~\cite{kapil2019} is called QuickFF, which was specially designed for MOFs and trained on DFT data.
+We can see that using PET-MAD gives very similar results to the QuickFF potential,
+with differences of at most \SI{0.043}{J\per g\per K} at \SI{300}{K}.
+In other words, PET-MAD, which is a more general-purpose potential, is able to reproduce the results of a specialized potential for MOFs.
+If it is faster and more efficient than QuickFF, it could be a better choice for simulating other MOFs in the future.
+Especially if we want to simulate larger MOFs or use larger supercells,
+PET could be a better choice because it is more general and can be used for other systems as well.
+What is even more surprising is that the reference data was obtained using PIMD, which is significantly more expensive than classical MD.
+But even using classical MD with PET-MAD, we are able to reproduce very close results to waht we get with PIMD with QuickFF.
+Thus by using PET-MAD, classical MD, and the hybrid method,
+we can obtain very accurate results for the heat capacity of MOFs with a much lower computational cost than using PIMD with QuickFF.
 
+The major difference between our results and those of Kapil \emph{et al.}\ is how the uncertainty is calculated.
+There is an uncertainty with the MD simulation itself, but on top of that, there is also an uncertainty with the model itself.
+Using 64 committee members yields the uncertainty bands shown in Figure~\ref{fig:results-cp-mad}.
+Because the uncertainty bands would be overlapping, we split the three loadings into separate panels for clarity.
+Something that stands out is the fact that the uncertainty bands for the empty framework are much smaller than those for the loaded systems.
+This is because no MD simulation was required to compute its heat capacity,
+the uncertainty is only given by \ref{eq:llpr-cp-total-uncertainty}, which is much smaller than the uncertainty of the MD simulation.
+Furthermore, the uncertainty bands also get larger as the loading increases.
+This could be explained by the fact that for an empty framework, the atoms are already in a stable configuration,
+evaluating the energy of the system with the different committee members does not yield very different results.
+For the loaded systems, the guest molecules are not in a stable configuration.
+By changing the last layer of the model, the energy of the system is more sensitive to the guest molecules.
+The guest-guest and guest-host interactions are more sensitive to the model, which is why the uncertainty bands are larger for the loaded systems.
 
 \begin{figure}[htbp]
   \centering
   \moffivepanels{pet-sol}{PET-SOL}
-  \caption{PET-SOL heat capacities for methane-loaded MOF-5,
-  with the same definitions as Figure~\ref{fig:results-cp-mad}.}
+  \caption{MOF-5 $C_P$ with 50, 100, and 150 $CH_4$ molecules per cell using PET-SOL.
+  The dashed lines are from Kapil \emph{et al.}\
+  \cite{kapil2019}. Shading denotes standard uncertainty; details are in
+  Appendix~\ref{sec:results-uncertainty}.}
   \label{fig:results-cp-sol}
 \end{figure}
 
-The dashed curves in Figures~\ref{fig:results-cp-mad}
-and~\ref{fig:results-cp-sol} are digitized Kapil \emph{et al.}\ data
-\cite{kapil2019}. Their \SI{300}{K} values are approximately 0.788,
-0.944, 1.037, and \SI{1.151}{J\per g\per K} at 0, 50, 100, and
-150 guests. Loaded differences from this work are at most
-\SI{0.043}{J\per g\per K}. The comparison uses different force fields
-and preparation protocols. The present temperature grid does not bracket
-the reference low-temperature minimum.
+Here, we can arrive at a similar conclusion as with PET-MAD, which is that PET-SOL reproduces accurately the results of QuickFF,
+with differences of at most \SI{0.043}{J\per g\per K} at \SI{300}{K}.
+PET-SOL was specifically trained on solvents, but it offers no advantage over PET-MAD, which was trained on a more general dataset.
+The error obtained with PET-SOL is actually slightly larger than the one obtained with PET-MAD.
+After having validated that both PET-MAD and PET-SOL are able to reproduce the results of QuickFF,
+we can carry out simulations using classical MD and the hybrid method to obtain the heat capacity of other MOFs and different guest molecules.
+To save computational resources, we will only use PET-MAD for the rest of the simulations,
+since it is more general and has showed smaller errors than PET-SOL.
 
 \clearpage
-\subsubsection{CO$_2$}
+\subsubsection{CO$_2$ and H$_2$O}
 \label{sec:mof5-co2-results}
 
-At \SI{300}{K}, PET-MAD gives $c_{\mathrm{cl}}=1.792$ and
-$\Delta c_{\mathrm{har}}=-0.837$, yielding
-$c_{\mathrm{hyb}}=0.955\pm0.127\,\mathrm{J\,g^{-1}\,K^{-1}}$.
-The hybrid curve increases overall from 0.852 at \SI{200}{K} to
-\SI{1.032}{J\per g\per K} at \SI{400}{K}
-(Figure~\ref{fig:results-mof5-co2}).
-
 \begin{figure}[htbp]
   \centering
-  \moffiveadditional{50co2}{50 $\mathrm{CO_2}$}{mofloadinghundred}
-  \caption{PET-MAD heat capacities for MOF-5 with
-  50 CO$_2$ molecules per cell. The plot shows
-  the total hybrid $c_P$ and the empty-framework harmonic $c_V$ reference,
-  with standard uncertainty bands. Loaded curves use the total host-plus-guest
-  mass; the empty reference uses the host mass. The y-axis starts at zero.}
+  \moffiveadditional
+  \caption{MOF-5 heat capacities with 50 CO$_2$ molecules (left) and
+  50 H$_2$O molecules (right) per cell using PET-MAD. Each panel shows the
+  total hybrid $c_P$ and the empty-framework harmonic $c_V$ reference.
+  Loaded curves use the host-plus-guest mass; empty references use the host
+  mass. Shading denotes standard uncertainty; details are in
+  Appendix~\ref{sec:results-uncertainty}. Both y-axes start at zero;
+  uncertainty bands extending below zero are clipped at the axis boundary.}
+  \label{fig:results-mof5-additional}
   \label{fig:results-mof5-co2}
-\end{figure}
-
-\FloatBarrier
-\subsubsection{H$_2$O}
-\label{sec:mof5-h2o-results}
-
-At \SI{300}{K}, PET-MAD gives $c_{\mathrm{cl}}=2.295$ and
-$\Delta c_{\mathrm{har}}=-1.086$, yielding
-$c_{\mathrm{hyb}}=1.209\pm0.088\,\mathrm{J\,g^{-1}\,K^{-1}}$.
-The curve increases overall but is irregular: it gives 0.218 at
-\SI{200}{K}, 1.150 at \SI{250}{K}, 0.872 at \SI{275}{K}, and
-\SI{1.578}{J\per g\per K} at \SI{400}{K}.
-
-\begin{figure}[htbp]
-  \centering
-  \moffiveadditional{50h2o}{50 $\mathrm{H_2O}$}{mofloadingfifty}
-  \caption{PET-MAD heat capacities for MOF-5 with 50 H$_2$O molecules
-  per cell. The total hybrid $c_P$ and empty-framework harmonic $c_V$
-  reference use the definitions and mass normalizations of
-  Figure~\ref{fig:results-mof5-co2}. Shading denotes standard uncertainty.
-  The y-axis starts at zero; uncertainty bands extending below zero are
-  clipped at the axis boundary.}
   \label{fig:results-mof5-h2o}
 \end{figure}
+
+No experimental data is available for the heat capacity of MOF-5 with CO$_2$ molecules and this calculation was not carried out by \cite{kapil2019}.
+However, we can see that the qualitative behavior of the heat capacity curve is similar to that of $CH_4$.
+The only difference being that the curve seems to plateau and at 400 K, the heat capacity is very close to that of the empty framework.
+If we kept increasing the temperature, the empty framework heat capacity would eventually be larger than the loaded system,
+which is not physically correct. So for $CO_2$ loading, we need to be careful when interpreting the results at high temperatures.
+Something that was done in \cite{kapil2019} is running multiple MD simulations for each temperature.
+The results were then averaged to obtain a more accurate heat capacity curve.
+Due to a lack of time for this project, only one MD simulation was run for each temperature, so there is still room for improvement.
+
+Here, for 200 K, the heat capacity of the 50 $\mathrm{H_2O}$ loading is below the empty framework reference,
+which is contrary to what we would expect.
+Since the heat capacity should increase with the number of molecules in the system,
+this could indicate that something was wrong with the simulation at lower temperatures.
+Furthermore, we should keep in mind that in the temperature range of 200--\SI{400}{K},
+the $\mathrm{H_2O}$ should be in three different phases: solid, liquid, and gas.
+In particular, between 250 and \SI{275}{K}, a phase transition should occur between solid and liquid.
+In the plot, the heat capacity decreases significantly.
+This could indicate a discontinuity in the enthalpy, which is a signature of a phase transition.
+While usually, we would expect the heat capacity to increase at each temperature step.
+The same comments can be made for temperatures between 350 and \SI{375}{K},
+where the water molecules should undergo another phase transition between liquid and gas.
+There is a slightly smaller discontinuity in the heat capacity, which could indicate a phase transition.
+However, capturing phase transitions with MD simulations is notoriously difficult and we should be careful when interpreting these results.
+In particular, further analysis is required to determine whether PET is capable of capturing phase transitions.
+We would need experimental data to compare with our results, but not much experimental data is available for water in MOF-5.
 
 \clearpage
 \subsection{MOF-303}
 \label{sec:mof303-results}
 
 These PET-MAD calculations use a $2\times2\times2$ supercell containing
-50 CO$_2$ or 50 H$_2$O molecules. The guest-specific plots below show
+50 CH$_4$, 50 CO$_2$, or 50 H$_2$O molecules. The guest-specific plots below show
 total heat capacities alongside the empty-framework reference and relevant
 experimental measurements~\cite{abuelmaaty2025}.
 
-\subsubsection{CO$_2$}
-\label{sec:mof303-co2-results}
-
-At \SI{300}{K}, $c_{\mathrm{cl}}=2.026$ and
-$\Delta c_{\mathrm{har}}=-0.991$ give
-$c_{\mathrm{hyb}}=1.035\pm0.053\,\mathrm{J\,g^{-1}\,K^{-1}}$.
-The curve increases overall from 0.877 at \SI{200}{K} to
-\SI{1.200}{J\per g\per K} at \SI{400}{K}.
+\subsubsection{CH$_4$, CO$_2$, and H$_2$O}
+\label{sec:mof303-results}
 
 \begin{figure}[htbp]
   \centering
-  \mofthreethreetotal{50co2}{50 $\mathrm{CO_2}$, total $C_p$}{mofloadinghundred}{}
-  \caption{PET-MAD heat capacities for MOF-303 with 50 CO$_2$ molecules
-  per $2\times2\times2$ supercell. The total hybrid $c_P$ and empty-framework
-  harmonic $c_V$ reference use the definitions and mass normalizations of
-  Figure~\ref{fig:results-mof5-co2}. Shading denotes simulation standard
-  uncertainty. Dashed lines connect experimental dry-MOF-303 points,
-  for which uncertainties were not supplied~\cite{abuelmaaty2025}.
-  These dry measurements are a reference for the empty framework, not a
-  loading-matched benchmark for CO$_2$. The y-axis starts at zero.}
+  \mofthreethreetotals
+  \caption{PET-MAD heat capacities for MOF-303 with 50 CH$_4$ (left),
+  50 CO$_2$ (middle), and 50 H$_2$O (right) molecules per
+  $2\times2\times2$ supercell. Each panel shows the total hybrid $c_P$
+  and empty-framework harmonic $c_V$ reference. Loaded curves use the
+  host-plus-guest mass; empty references use the host mass. The methane
+  panel uses its campaign-specific empty Hessian. Shading denotes standard
+  uncertainty. Dashed experimental curves connect dry-MOF-303 measurements
+  in each panel and water loadings $q=12.02\%$ and $34.25\%$ in the right
+  panel~\cite{abuelmaaty2025}; experimental uncertainties were not supplied.
+  Here $q$ is the fraction of saturated water loading, and the simulation
+  corresponds to $q=16.76\%$. Dry measurements refer to the empty framework.
+  All y-axes start at zero.}
+  \label{fig:results-mof303-additional}
+  \label{fig:results-mof303-ch4}
   \label{fig:results-mof303-co2}
-\end{figure}
-
-\clearpage
-\subsubsection{H$_2$O}
-\label{sec:mof303-h2o-results}
-
-At \SI{300}{K}, $c_{\mathrm{cl}}=2.247$ and
-$\Delta c_{\mathrm{har}}=-1.141$ give
-$c_{\mathrm{hyb}}=1.106\pm0.133\,\mathrm{J\,g^{-1}\,K^{-1}}$.
-The curve increases overall from 0.386 at \SI{200}{K} to
-\SI{1.452}{J\per g\per K} at \SI{400}{K}, with local decreases
-at 250 and \SI{325}{K}.
-
-\begin{figure}[htbp]
-  \centering
-  \mofthreethreetotal{50h2o}{50 $\mathrm{H_2O}$ ($q=16.76\%$)}{mofloadingfifty}{%
-    \frameworkexperiment{mof303-experiment-water12}{frameworkexpwaterlow}{triangle*}{Experiment: $q=12.02\%$}
-    \frameworkexperiment{mof303-experiment-water34}{frameworkexpwaterhigh}{triangle*}{Experiment: $q=34.25\%$}}
-  \caption{PET-MAD heat capacities for MOF-303 with 50 H$_2$O molecules
-  per $2\times2\times2$ supercell, with the same curve definitions and mass
-  normalizations as Figure~\ref{fig:results-mof303-co2}. Experimental points
-  include dry MOF-303 and water loadings $q=12.02\%$ and
-  $34.25\%$~\cite{abuelmaaty2025}. Here $q$ is the water mass relative to the
-  saturated water amount; the simulation corresponds to $q=16.76\%$.
-  Dashed experimental curves connect digitized points, for which uncertainties
-  were not supplied. Shading denotes simulation standard uncertainty.
-  The y-axis starts at zero.}
   \label{fig:results-mof303-h2o}
 \end{figure}
 
-\paragraph{Comparison with experimental water loadings.}
 The experimental loading variable is
 $q=m_{\mathrm{water}}/m_{\mathrm{water,sat}}$.
 The reported dry and saturated sample masses, 7.3990 and
@@ -2660,7 +2644,8 @@ For instance, if $(\bm A^{(2)})_{ij}=1$, atoms $i$ and $j$ are connected by a pa
   \centering
   \includegraphics[width=0.8\textwidth]{figures/pet/overview.pdf}
   \caption{Truncation error in the Hessian. The blue blocks are retained, and the orange blocks are discarded.
-  The retained blocks are contaminated by the omitted couplings, which are still present in the energy function.}
+  The retained blocks are contaminated by the omitted couplings, which are still present in the energy function.
+  Figure adapted from \cite{sadmof}.}
   \label{fig:asd-truncation-error}
 \end{figure}
 
@@ -2671,7 +2656,7 @@ Therefore, $\bm A^{(7)}$ tell us which entries are nonzero and we can use it to 
 The higher $K$ is, the more nonzero entries we have in the Hessian, and the more evaluations we need to recover it.
 If we truncate the Hessian to a smaller number of hops $k<K$,
 $\bm A^{(k)}$ becomes sparser and fewer HVPs are needed to recover the truncated Hessian.
-It has been shown in \cite{hill2025asd} that this is a reasonable approximation, since the Hessian entries decay with distance
+It has been shown in \cite{sadMof} that this is a reasonable approximation, since the Hessian entries decay with distance
 and it allows for a more efficient computation.
 We can see this in Fig.~\ref{fig:asd-truncation-error} on plot (b), where we have the atoms around the central atom,
 each having a color corresponding to the number of hops from the central atom.
@@ -2920,9 +2905,9 @@ ICLR Blogposts (2025),
 \bibitem{sadMof}
 M. F. Langer, A. Hill, and M. Ceriotti,
 \emph{Truncated automatic sparse differentiation for machine learning
-interatomic potentials}, supplied preprint,
-\href{../SADMOF.pdf}{local paper (SADMOF.pdf)}.
-Sections 4--5 and Appendices A--E and H.
+interatomic potentials},
+\href{https://arxiv.org/abs/2609.20510}{arXiv:2609.20510} (2026),
+\href{https://doi.org/10.48550/arXiv.2609.20510}{doi:10.48550/arXiv.2609.20510}.
 
 \end{thebibliography}
 

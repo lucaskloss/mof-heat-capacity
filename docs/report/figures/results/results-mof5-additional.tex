@@ -1,18 +1,23 @@
 % Native PGFPlots; tables exported by scripts/export_mof5_additional_data.py.
-\newcommand{\moffiveadditional}[3]{%
+\newcommand{\moffiveadditional}{%
   \begin{tikzpicture}
-    \begin{axis}[
+    \begin{groupplot}[
+      group style={group size=2 by 1,horizontal sep=0.7cm,
+        xlabels at=edge bottom,ylabels at=edge left,yticklabels at=edge left},
       scale only axis,
-      width=\dimexpr\textwidth-1.9cm\relax,height=0.29\textwidth,
+      width=\dimexpr(\textwidth-2.8cm)/2\relax,height=0.29\textwidth,
       xmin=195,xmax=405,ymin=0,ymax=2,
       xtick={200,250,300,350,400},ytick={0,0.4,0.8,1.2,1.6,2},
       xlabel={$T$ [K]},ylabel={$C_p$ [J\,g$^{-1}$\,K$^{-1}$]},
       tick label style={font=\small},label style={font=\small},
       grid=major,grid style={black!10},
-      legend style={font=\scriptsize,draw=none,fill=none,at={(0,1.03)},anchor=south west},
+      legend style={font=\scriptsize,draw=none,fill=none,at={(0.04,0.97)},anchor=north west},
     ]
-      \moffiveadditionalpanel{#1}{#2}{#3}
-    \end{axis}
+      \nextgroupplot
+      \moffiveadditionalpanel{50co2}{CO_2}{mofloadinghundred}
+      \nextgroupplot
+      \moffiveadditionalpanel{50h2o}{H_2O}{mofloadingfifty}
+    \end{groupplot}
   \end{tikzpicture}%
 }
 
@@ -30,8 +35,8 @@
   \addplot[#3!18,draw=none,forget plot] fill between[of=lower and upper];
   \addplot[#3,thick,mark=*,mark size=1.5pt]
     table[x=temperature_K,y=heat_capacity,col sep=comma]{data/mof5-additional-#1.csv};
-  \addlegendentry{PET-MAD: #2, total hybrid $C_p$}
+  \addlegendentry{$N_{\mathrm{#2}}=50$}
   \addplot[mofloadingzero,thick,dashed]
     table[x=temperature_K,y=heat_capacity,col sep=comma]{data/mof5-additional-empty.csv};
-  \addlegendentry{PET-MAD: empty, harmonic $C_V$}
+  \addlegendentry{$N_{\mathrm{#2}}=0$}
 }

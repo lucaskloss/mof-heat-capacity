@@ -25,7 +25,7 @@ def main():
         outputs.append(source_record(path))
 
     for host, short, loadings in (
-        ("mof303_2x2x2", "mof303", ("50co2", "50h2o")),
+        ("mof303_2x2x2", "mof303", ("50ch4", "50co2", "50h2o")),
         ("zif8_2x2x2", "zif8", ("54co2",)),
     ):
         directory = BASE / host / "pet-mad-1.5-s-40nn"
@@ -42,15 +42,17 @@ def main():
                 rows.append(dict(zip(fields, (float(row["temperature_K"]), central,
                                               central-spread, central+spread))))
             export(source, f"{short}-total-{loading}.csv", rows)
-        source = directory / "0co2/hessians/hessian.npz"
-        if source.is_file():
-            with np.load(source, allow_pickle=False) as data:
-                temperatures = data["temperatures_K"]
-                central = data["cv_J_per_gK"][0]
-                spread = data["llpr_cv_J_per_gK"][0].std(axis=0, ddof=1)
-            rows = [dict(zip(fields, (t, c, c-s, c+s)))
-                    for t, c, s in zip(temperatures, central, spread, strict=True)]
-            export(source, f"{short}-total-empty.csv", rows)
+        empty_references = (("co2", "empty"), ("ch4", "empty-ch4")) if short == "mof303" else (("co2", "empty"),)
+        for guest, name in empty_references:
+            source = directory / f"0{guest}/hessians/hessian.npz"
+            if source.is_file():
+                with np.load(source, allow_pickle=False) as data:
+                    temperatures = data["temperatures_K"]
+                    central = data["cv_J_per_gK"][0]
+                    spread = data["llpr_cv_J_per_gK"][0].std(axis=0, ddof=1)
+                rows = [dict(zip(fields, (t, c, c-s, c+s)))
+                        for t, c, s in zip(temperatures, central, spread, strict=True)]
+                export(source, f"{short}-total-{name}.csv", rows)
 
     references = (
         ("mof303/mof-303_h20_0pct.csv", "mof303-experiment-dry.csv", 0),
@@ -72,7 +74,7 @@ def main():
     provenance = json.loads(provenance_path.read_text())
     provenance["results-framework-totals.tex"] = {
         "generator": str(Path(__file__).resolve().relative_to(ROOT)),
-        "description": "Native LaTeX total hybrid heat capacities with archived combined standard uncertainty. MOF-303 includes empty harmonic cV with sample LLPR spread and dry/water experimental references. ZIF-8 retains measured CO2 reference points and 2% standard uncertainty. Measurements are restricted to 195–405 K without extrapolation. All y-axes start at zero; negative band bounds are preserved in tables and clipped visually.",
+        "description": "Native LaTeX total hybrid heat capacities with archived combined standard uncertainty. MOF-303 includes 50 CH4, 50 CO2, and 50 H2O, empty harmonic cV with sample LLPR spread, and dry/water experimental references. The methane panel uses its own 0ch4 empty-framework Hessian. ZIF-8 retains measured CO2 reference points and 2% standard uncertainty. Measurements are restricted to 195–405 K without extrapolation. All y-axes start at zero; negative band bounds are preserved in tables and clipped visually.",
         "inputs": inputs, "exported_data": outputs,
     }
     provenance_path.write_text(json.dumps(provenance, indent=2) + "\n")
