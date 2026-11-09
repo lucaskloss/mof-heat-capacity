@@ -495,7 +495,25 @@
         "source": "docs/report/data/mof5-pet-sol-150ch4.csv",
         "sha256": "51cf034f35b6576e6b68f1d82ba5decc0ee364e5e01d869b912713f02a7b7565"
       }
-    ]
+    ],
+    "empty_experimental_reference": {
+      "source": "output/reference_heat_capacity/mof5/exp_mof-5.csv",
+      "sha256": "6b56adeb5e5b6a8d455357e91d198c37f37248b831469aeed0c3c46af33430e7",
+      "doi": "10.1016/j.micromeso.2013.11.015",
+      "citation_key": "ming2014mof5",
+      "loading": 0,
+      "temperature_unit": "K",
+      "input_heat_capacity_unit": "J/(g K)",
+      "output_heat_capacity_unit": "J/(g K)",
+      "mass_basis": "dry framework",
+      "molar_mass_g_per_mol": null,
+      "normalization": "unchanged",
+      "uncertainty": "Not supplied in the digitized CSV; no error bars inferred.",
+      "exported_data": {
+        "source": "docs/report/data/mof5-experiment-empty.csv",
+        "sha256": "5f58fbddb64bf8c41a0e071f49372df61589db95fd8b55048d8f776c23e98bc2"
+      }
+    }
   },
   "results-mof5-additional.tex": {
     "generator": "docs/report/scripts/export_mof5_additional_data.py",
@@ -527,7 +545,25 @@
         "source": "docs/report/data/mof5-additional-empty.csv",
         "sha256": "4f72272a4ddf945577f7ce3207dbed7e23c6624649d8923d415d81700617b546"
       }
-    ]
+    ],
+    "empty_experimental_reference": {
+      "source": "output/reference_heat_capacity/mof5/exp_mof-5.csv",
+      "sha256": "6b56adeb5e5b6a8d455357e91d198c37f37248b831469aeed0c3c46af33430e7",
+      "doi": "10.1016/j.micromeso.2013.11.015",
+      "citation_key": "ming2014mof5",
+      "loading": 0,
+      "temperature_unit": "K",
+      "input_heat_capacity_unit": "J/(g K)",
+      "output_heat_capacity_unit": "J/(g K)",
+      "mass_basis": "dry framework",
+      "molar_mass_g_per_mol": null,
+      "normalization": "unchanged",
+      "uncertainty": "Not supplied in the digitized CSV; no error bars inferred.",
+      "exported_data": {
+        "source": "docs/report/data/mof5-experiment-empty.csv",
+        "sha256": "5f58fbddb64bf8c41a0e071f49372df61589db95fd8b55048d8f776c23e98bc2"
+      }
+    }
   },
   "results-framework-totals.tex": {
     "generator": "docs/report/scripts/export_framework_plot_data.py",
@@ -614,6 +650,68 @@
       {
         "source": "docs/report/data/zif8-experiment-co2.csv",
         "sha256": "888bbf991745f7bc4fa5f9f59fe6785366f30b246a38266b021172c7e68db549"
+      }
+    ],
+    "empty_experimental_reference": {
+      "source": "output/reference_heat_capacity/zif8/exp_zif-8.csv",
+      "sha256": "7c5dde504737972e7ae08c9f4da9ad19f36ac4913a807d4c72b793e66955aeaa",
+      "doi": "10.1016/j.jct.2019.05.008",
+      "citation_key": "rosen2019zif8",
+      "loading": 0,
+      "temperature_unit": "K",
+      "input_heat_capacity_unit": "J/(mol K)",
+      "output_heat_capacity_unit": "J/(g K)",
+      "mass_basis": "dry framework",
+      "molar_mass_g_per_mol": 227.576,
+      "normalization": "divide molar heat capacity by molar mass",
+      "uncertainty": "Not supplied in the digitized CSV; no error bars inferred.",
+      "exported_data": {
+        "source": "docs/report/data/zif8-experiment-empty.csv",
+        "sha256": "431b8eef27821362cb25a1e5f1b668150c69fc68b15f3c18837daef617d4cc1d"
+      }
+    }
+  },
+  "empty-experimental-references": {
+    "generator": "docs/report/scripts/export_empty_experimental_data.py",
+    "description": "User-supplied digitized empty MOF-5 powder and ZIF-8 SOD measurements. Source temperatures are preserved and restricted to 195\u2013405 K without interpolation or extrapolation. MOF-5 is already mass-specific; ZIF-8 is converted from molar units using the dry framework molar mass, not the loaded-sample mass.",
+    "inputs": [
+      {
+        "source": "output/reference_heat_capacity/mof5/exp_mof-5.csv",
+        "sha256": "6b56adeb5e5b6a8d455357e91d198c37f37248b831469aeed0c3c46af33430e7",
+        "doi": "10.1016/j.micromeso.2013.11.015",
+        "citation_key": "ming2014mof5",
+        "loading": 0,
+        "temperature_unit": "K",
+        "input_heat_capacity_unit": "J/(g K)",
+        "output_heat_capacity_unit": "J/(g K)",
+        "mass_basis": "dry framework",
+        "molar_mass_g_per_mol": null,
+        "normalization": "unchanged",
+        "uncertainty": "Not supplied in the digitized CSV; no error bars inferred."
+      },
+      {
+        "source": "output/reference_heat_capacity/zif8/exp_zif-8.csv",
+        "sha256": "7c5dde504737972e7ae08c9f4da9ad19f36ac4913a807d4c72b793e66955aeaa",
+        "doi": "10.1016/j.jct.2019.05.008",
+        "citation_key": "rosen2019zif8",
+        "loading": 0,
+        "temperature_unit": "K",
+        "input_heat_capacity_unit": "J/(mol K)",
+        "output_heat_capacity_unit": "J/(g K)",
+        "mass_basis": "dry framework",
+        "molar_mass_g_per_mol": 227.576,
+        "normalization": "divide molar heat capacity by molar mass",
+        "uncertainty": "Not supplied in the digitized CSV; no error bars inferred."
+      }
+    ],
+    "exported_data": [
+      {
+        "source": "docs/report/data/mof5-experiment-empty.csv",
+        "sha256": "5f58fbddb64bf8c41a0e071f49372df61589db95fd8b55048d8f776c23e98bc2"
+      },
+      {
+        "source": "docs/report/data/zif8-experiment-empty.csv",
+        "sha256": "431b8eef27821362cb25a1e5f1b668150c69fc68b15f3c18837daef617d4cc1d"
       }
     ]
   }

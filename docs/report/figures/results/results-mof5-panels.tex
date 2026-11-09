@@ -50,4 +50,12 @@
   \addplot[mofloadingzero,thick,dashed,forget plot]
     table[x=temperature_K,y=reference_heat_capacity_J_per_gK,col sep=comma]
       {data/mof5-reference-0ch4.csv};
+  \moffiveemptyexperiment
+}
+
+\newcommand{\moffiveemptyexperiment}{%
+  \addplot[black,only marks,mark=square*,mark size=1.6pt,
+    mark options={solid,fill=white}]
+    table[x=temperature_K,y=heat_capacity,col sep=comma]{data/mof5-experiment-empty.csv};
+  \addlegendentry{Exp.: $N=0$}
 }

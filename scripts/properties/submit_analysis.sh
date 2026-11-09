@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#SBATCH --exclude=i39
 
 # Validate and submit one CPU-based analysis job per classical trajectory.
 

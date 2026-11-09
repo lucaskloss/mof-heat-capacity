@@ -52,6 +52,11 @@
 \section*{Acknowledgments}
 \addcontentsline{toc}{section}{Acknowledgments}
 \textit{[Add acknowledgments here.]}
+
+\subsection*{Use of artificial intelligence}
+\addcontentsline{toc}{subsection}{Use of artificial intelligence}
+Artificial intelligence (AI) tools were used to assist with code generation
+and syntax correction in the project code and the LaTeX report.
 \clearpage
 
 \tableofcontents
@@ -60,8 +65,8 @@
 
 \begin{abstract}
 Methane-loaded MOF-5 heat capacity is estimated by combining classical NPT
-molecular dynamics with a loaded-system harmonic quantum correction from
-PET-JAX/SADMOF Hessians. PET-MAD and PET-SOL calculations at 50, 100, and
+molecular dynamics with a loaded-system harmonic quantum correction from Hessians.
+PET-MAD and PET-SOL calculations at 50, 100, and
 150 methane molecules give exploratory room-temperature values of about
 0.93, 1.07--1.08, and \SI{1.16}{J\per g\per K}. Sampling errors and paired
 last-layer prediction-rigidity (LLPR) model uncertainties are propagated
@@ -118,263 +123,168 @@ carbon-dioxide-loaded ZIF-8.
 \subsection{Quantum Mechanics}
 \label{sec:qm}
 
-\subsubsection{States, eigenstates, and observables}
+In order to better understand the methods used in this work, we briefly review some important quantum mechanics concepts.
+These are necessary to understand the Born--Oppenheimer approximation,
+which is what allows us to run classical molecular dynamics simulations with a potential energy surface generated.
+But also density functional theory,
+which is the method used to generate the reference energies, forces, and stresses for the machine-learned potentials.
 
-A quantum state is represented by a ket $|\Psi\rangle$ in a Hilbert space;
-its Hermitian conjugate is the bra $\langle\Psi|$. The inner product
-$\langle\Phi|\Psi\rangle$ is a complex probability amplitude, and a normalized
-state satisfies $\langle\Psi|\Psi\rangle=1$. Observables are represented by
-Hermitian operators, denoted with a hat \cite{cohen-tannoudji2020}.
-For an observable $\hat A$, an
-orthonormal eigenbasis satisfies
+\subsubsection{Schrödinger's equation}
+
+In (non-relativistic) quantum mechanics, the fundamental equation that describes a quantum system is the Schrödinger equation \cite{cohen-tannoudji2020}.
+Let $\hat H$ be a Hermitian operator called Hamiltonian, and $|\Psi\rangle$ a vector in a Hilbert space called a state vector.
+The Schrödinger equation can be written as an eigenvalue problem for the Hamiltonian operator
+
 \begin{equation}
-  \hat A|a_n\rangle=a_n|a_n\rangle,\qquad
-  \langle a_m|a_n\rangle=\delta_{mn},\qquad
-  \sum_n|a_n\rangle\langle a_n|=\hat I.
+  \hat H|\Psi_n\rangle=E_n|\Psi_n\rangle,
+  \label{eq:schrodinger}
 \end{equation}
-The eigenvalue $a_n$ is a possible measurement result. Expanding
-$|\Psi\rangle=\sum_n c_n|a_n\rangle$ gives probabilities
-$|c_n|^2=|\langle a_n|\Psi\rangle|^2$ and the expectation value
+
+where the eigenvalues $E_n$ are real numbers and correspond to the energy of the state $|\Psi_n\rangle$.
+More generally, if $|\Psi(t)\rangle$ or $\hat H(t)$ are time-dependent,
+the Schrödinger equation can be written as
+
 \begin{equation}
-  \langle A\rangle_\Psi
-    =\langle\Psi|\hat A|\Psi\rangle
-    =\sum_n |c_n|^2a_n.
-  \label{eq:pure-state-average}
-\end{equation}
-Here sums refer to a discrete spectrum; continuous labels require integrals.
-We denote the Hamiltonian operator by $\hat E$, consistently reserving $H$
-for enthalpy. For a time-independent Hamiltonian, its energy eigenstates and
-the evolution of a general state obey
-\begin{equation}
-  \hat E|\Psi_n\rangle=E_n|\Psi_n\rangle,\qquad
   i\hbar\frac{\partial}{\partial t}|\Psi(t)\rangle
-    =\hat E|\Psi(t)\rangle.
-  \label{eq:abstract-schrodinger}
+    =\hat H|\Psi(t)\rangle,
+  \label{eq:time-dependent-schrodinger}
 \end{equation}
-These equations do not depend on a choice of basis.
 
-\subsubsection{The position representation}
+where $\hbar$ is the reduced Planck constant and $i$ is the imaginary unit.
+The position representation is a way of expressing the state of a quantum system in terms of the position.
+For instance, consider the Hermitian position operator $\hat{\bm x}$.
+It posesses eigenstates $\hat{\bm x}|\bm x\rangle=\bm x|\bm x\rangle$,
+with eigenvalues $\bm x$, which is a real number corresponding to the position of the particle.
+If we project $|\Psi(t)\rangle$ onto $|\bm x\rangle$, we obtain the wavefunction $\Psi(\bm x,t)=\langle\bm x|\Psi(t)\rangle$,
+which is a complex-valued function of position and time.
+In this representation, the momentum operator $\hat{\bm p}$ is also a Hermitian operator, and it's given by $\hat{\bm p}=-i\hbar\nabla_{\bm x}$.
+If we write $\hat H=\hat p^2/2m + \hat V$ in the position representation,
+we have $\hat H(\bm x)=-\frac{\hbar^2}{2m}\nabla_{\bm x}^2+V(\bm x)$.
+The Schrödinger equation in the position representation is then
 
-For the electron and nuclear positions collected in $\bm r$ and $\bm R$,
-the position eigenkets $|\bm r,\bm R\rangle$ form a continuous basis.
-Spin labels are suppressed. The wavefunction is the projection of the
-abstract state onto this basis:
 \begin{equation}
-  \Psi(\bm r,\bm R,t)=\langle\bm r,\bm R|\Psi(t)\rangle,\qquad
-  |\Psi(t)\rangle=\int\mathrm d\bm r\,\mathrm d\bm R\,
-    |\bm r,\bm R\rangle\Psi(\bm r,\bm R,t).
-  \label{eq:position-wavefunction}
-\end{equation}
-The integration covers all particle coordinates, and the bra has
-wavefunction $\langle\Psi|\bm r,\bm R\rangle=\Psi^*(\bm r,\bm R)$.
-Position acts by
-multiplication and momentum by differentiation; for nucleus $i$,
-\begin{equation}
-  \langle\bm r,\bm R|\hat{\bm R}_i|\Psi\rangle
-    =\bm R_i\Psi(\bm r,\bm R),\qquad
-  \langle\bm r,\bm R|\hat{\bm p}_i|\Psi\rangle
-    =-i\hbar\nabla_{\bm R_i}\Psi(\bm r,\bm R).
-\end{equation}
-For example, the pure-state expectation in Eq.~\eqref{eq:pure-state-average}
-becomes
-\begin{equation}
-  \langle A\rangle_\Psi
-    =\int\mathrm d\bm r\,\mathrm d\bm R\,
-       \Psi^*(\bm r,\bm R)\,A_{\mathrm{pos}}\Psi(\bm r,\bm R),
-\end{equation}
-where $A_{\mathrm{pos}}$ denotes the operator acting on wavefunctions in
-this basis. Neglecting relativistic effects, the electron--nuclear Hamiltonian is
-\begin{equation}
-  \hat E_{\mathrm{tot}}
-    =\hat T_{\mathrm n}+\hat T_{\mathrm e}
-      +\hat V_{\mathrm{ee}}+\hat V_{\mathrm{en}}+\hat V_{\mathrm{nn}}.
-  \label{eq:electron-nuclear-hamiltonian}
-\end{equation}
-Projecting its Schrödinger equation with $\langle\bm r,\bm R|$ gives the
-position-space differential equation
-\begin{equation}
-  i\hbar\frac{\partial\Psi}{\partial t}
-   =\left[-\sum_i\frac{\hbar^2}{2m_i}\nabla_{\bm R_i}^2
-          -\sum_a\frac{\hbar^2}{2m_{\mathrm e}}\nabla_{\bm r_a}^2
-          +V_{\mathrm{ee}}+V_{\mathrm{en}}+V_{\mathrm{nn}}\right]\Psi.
+  i\hbar\frac{\partial\Psi(\bm x,t)}{\partial t}
+   =\left[-\frac{\hbar^2}{2m}\nabla_{\bm x}^2+V(\bm x)\right]\Psi(\bm x,t).
   \label{eq:full-schrodinger}
 \end{equation}
-The $V$ terms here are coordinate-dependent Coulomb potentials. Thus a ket
-and its wavefunction describe the same state, while the differential
-operator is the position representation of the Hamiltonian. Solving the
-coupled many-electron and nuclear problem requires approximations; the
-first used here is the Born--Oppenheimer separation \cite{born1927,martin}.
 
 \subsubsection{The Born--Oppenheimer approximation}
 \label{sec:bo}
 
-Because nuclei are much heavier than electrons, we approximate their
-motion on a single electronic ground-state potential-energy surface.
-At each fixed nuclear configuration $\bm R$, solve the electronic
-\emph{operator} eigenvalue problem
-\begin{align}
-  \hat E_{\mathrm{el}}(\bm R)
-    &=\hat T_{\mathrm e}+\hat V_{\mathrm{ee}}+\hat V_{\mathrm{en}}(\bm R),
-    \label{eq:bo-potential}\\
-  \hat E_{\mathrm{el}}(\bm R)|\psi_0(\bm R)\rangle
-    &=\varepsilon_0(\bm R)|\psi_0(\bm R)\rangle.
-    \label{eq:electronic-ground-state}
-\end{align}
-Here $\bm R$ is a parameter, while $|\psi_0(\bm R)\rangle$ is a state in
-the electronic Hilbert space. Its position representation is
-$\psi_0(\bm r;\bm R)=\langle\bm r|\psi_0(\bm R)\rangle$.
-Projecting with $\langle\bm r|$ gives the equivalent equation
+Let us now consider a system of $N_{\mathrm e}$ electrons and $N_{\mathrm n}$ nuclei with coordinates $\bm r$ and $\bm R$ respectively.
+The Hamiltonian of this system in the position representation can be written as
+
+\begin{equation}
+  \hat H(\bm r,\bm R)
+    =\hat T_{\mathrm e}+\hat T_{\mathrm n}+\hat V_{\mathrm{ee}}(\bm r)
+      +\hat V_{\mathrm{en}}(\bm r;\bm R)+\hat V_{\mathrm{nn}}(\bm R),
+  \label{eq:full-hamiltonian}
+\end{equation}
+
+where $\hat T_{\mathrm e}$ and $\hat T_{\mathrm n}$ are the kinetic energy operators for the electrons and nuclei,
+and $\hat V_{\mathrm{ee}}$, $\hat V_{\mathrm{en}}$, and $\hat V_{\mathrm{nn}}$ are the electron--electron,
+electron--nuclear, and nuclear--nuclear interaction potentials.
+Because the mass of the nuclei is much larger than that of the electrons,
+we can decouple the electronic and nuclear motions using the Born--Oppenheimer approximation \cite{born1927}.
+This approximation consits in separating the electronic part of the Hamiltonian
+$\hat H_{\mathrm{el}}(\bm R)=\hat T_{\mathrm e}+\hat V_{\mathrm{ee}}+\hat V_{\mathrm{en}}(\bm R)$
+from the nuclear part of the Hamiltonian $\hat H_{\mathrm{nuc}}=\hat T_{\mathrm n}+\hat V_{\mathrm{nn}}(\bm R)$.
+We then solve the electronic Schrödinger equation by treating $\bm R$ as a fixed parameter:
+
 \begin{equation}
   \left[-\sum_a\frac{\hbar^2}{2m_{\mathrm e}}\nabla_{\bm r_a}^2
          +V_{\mathrm{ee}}(\bm r)+V_{\mathrm{en}}(\bm r;\bm R)\right]
        \psi_0(\bm r;\bm R)
     =\varepsilon_0(\bm R)\psi_0(\bm r;\bm R).
+  \label{eq:bo-electronic-schrodinger}
 \end{equation}
-The semicolon distinguishes the electronic coordinates from the nuclear
-parameters. Adding nuclear repulsion defines the potential-energy surface
+
+By solving this equation at $\bm R$,
+we obtain the electronic ground-state wavefunction $\psi_0(\bm r;\bm R)$ and its ground-state energy $\varepsilon_0(\bm R)$.
+We can then use $\varepsilon_0(\bm R)$ in the potential of the nuclear system, which is given by
 $U(\bm R)=\varepsilon_0(\bm R)+V_{\mathrm{nn}}(\bm R)$.
-Neglecting derivative couplings associated with the nuclear dependence of
-the electronic state gives the nuclear Hamiltonian
-\begin{equation}
-  \hat E_{\mathrm{nuc}}
-    =\sum_i\frac{|\hat{\bm p}_i|^2}{2m_i}+U(\hat{\bm R}).
-  \label{eq:bo-hamiltonian}
-\end{equation}
-Its eigenstates $|\chi_\nu\rangle$ and their nuclear wavefunctions
-$\chi_\nu(\bm R)=\langle\bm R|\chi_\nu\rangle$ satisfy, respectively,
+The nuclear Schrödinger equation is then given by
+
 \begin{align}
-  \hat E_{\mathrm{nuc}}|\chi_\nu\rangle
-    &=E_\nu|\chi_\nu\rangle,\\
   \left[-\sum_i\frac{\hbar^2}{2m_i}\nabla_{\bm R_i}^2+U(\bm R)\right]
        \chi_\nu(\bm R)
     &=E_\nu\chi_\nu(\bm R).
     \label{eq:bo-nuclear-schrödinger}
 \end{align}
-The corresponding approximation to the total wavefunction is a product
-\emph{in the position representation}:
+
+When solving this equation, we obtain the nuclear wavefunction $\chi_\nu(\bm R)$ and its energy $E_\nu$.
+The total wavefunction of the system can then be approximated as a product of the electronic and nuclear wavefunctions
+
 \begin{equation}
   \Psi_\nu(\bm r,\bm R)
     \approx\psi_0(\bm r;\bm R)\chi_\nu(\bm R).
   \label{eq:bo-total-wavefunction}
 \end{equation}
-The electronic factor still depends on the nuclear configuration.
-Classical MD later replaces this quantum nuclear evolution by motion of
-positions and momenta on the same surface $U$.
 
 \subsection{Density Functional Theory}
 \label{sec:dft}
 
-At fixed nuclear positions, density functional theory (DFT) expresses the
-electronic ground-state energy in terms of the electron density
-$n(\bm r)$ rather than the many-electron wavefunction. This provides the
-Born--Oppenheimer potential-energy surface used to generate reference
-energies, forces, and stresses for machine-learned potentials.
+Within the Born--Oppenheimer approximation, the electronic ground-state
+energy $\varepsilon_0(\bm R)$ must be determined for fixed nuclear
+coordinates $\bm R$. Solving Eq.~\eqref{eq:bo-electronic-schrodinger}
+directly is computationally demanding because the many-electron
+wavefunction depends on all electronic coordinates. Density functional
+theory (DFT) instead uses the electron density $n(\bm r)$, a function of
+only three spatial coordinates \cite{hohenberg1964,kohn1965}.
 
 \subsubsection{The Hohenberg--Kohn theorems}
 
-For a fixed electron number $N_{\mathrm e}$ and external potential
-$v_{\mathrm{ext}}(\bm r;\bm R)$, which corresponds to the potential generated by the nuclei, the electronic Hamiltonian is
-
+The Hohenberg--Kohn theorems establish that the ground-state density
+determines the external potential, up to an additive constant, and hence
+the electronic Hamiltonian. They also provide a variational principle:
+the ground-state density minimizes the electronic energy functional at
+fixed electron number \cite{hohenberg1964}:
 \begin{equation}
-  \hat E_{\mathrm{el}}
-    =\hat T_{\mathrm e}+\hat V_{\mathrm{ee}}
-      +\sum_{a=1}^{N_{\mathrm e}}v_{\mathrm{ext}}(\hat{\bm r}_a;\bm R).
-  \label{eq:dft-electronic-hamiltonian}
-\end{equation}
-The Hohenberg--Kohn (HK) theorems establish the basis of ground-state DFT
-\cite{hohenberg1964}:
-\begin{enumerate}
-  \item The ground-state density $n_0(\bm r)$ determines the external
-    potential up to an additive constant, and hence the electronic
-    Hamiltonian and ground-state properties.
-  \item The ground-state energy is the minimum of the density functional
-    $E_v[n]$, attained at $n_0$, over admissible densities with
-    $\int n(\bm r)\,\mathrm d\bm r=N_{\mathrm e}$.
-\end{enumerate}
-Writing the universal functional $F[n]$ in constrained-search form makes
-this variational principle explicit \cite{martin}:
-\begin{align}
-  F[n]&=\min_{\psi\to n}
-    \langle\psi|\hat T_{\mathrm e}+\hat V_{\mathrm{ee}}|\psi\rangle,\\
-  E_v[n]&=F[n]+\int v_{\mathrm{ext}}(\bm r;\bm R)n(\bm r)\,\mathrm d\bm r,
-  \qquad E_0=\min_{n\ \mathrm{admissible}}E_v[n].
+  \varepsilon_0(\bm R)
+    =\min_{n\ \mathrm{admissible}}
+      \left\{F[n]+\int v_{\mathrm{ext}}(\bm r;\bm R)n(\bm r)
+      \,\mathrm d\bm r\right\},
+  \qquad \int n(\bm r)\,\mathrm d\bm r=N_{\mathrm e}.
   \label{eq:hk-variational-principle}
-\end{align}
-HK therefore turns the electronic problem into a density minimization,
-but does not supply a practical expression for $F[n]$.
+\end{equation}
+Here $v_{\mathrm{ext}}$ is the electron--nuclear potential introduced in
+Section~\ref{sec:bo}, and the universal functional $F[n]$ contains the
+electronic kinetic and electron--electron interaction energies. The
+theorems establish this density formulation but do not give a practical
+expression for $F[n]$.
 
-\subsubsection{From HK to the Kohn--Sham equations}
+\subsubsection{The Kohn--Sham equations}
 
-Kohn--Sham (KS) theory introduces an auxiliary system of noninteracting
-electrons with the same density \cite{kohn1965}. Its orthonormal orbitals
-$|\phi_a\rangle$, written as $\phi_a(\bm r)=\langle\bm r|\phi_a\rangle$
-in the one-electron position basis, and occupations $f_a$ give
+The HK theorems do not provide a method for finding the ground-state density.
+The Kohn--Sham (KS) approach introduces a system of noninteracting electrons with the same $n(\bm r)$ as the interacting system \cite{kohn1965}
+
 \begin{equation}
   n(\bm r)=\sum_a f_a|\phi_a(\bm r)|^2,
-  \qquad \sum_a f_a=N_{\mathrm e}.
+  \qquad \sum_a f_a=N_{\mathrm e},
   \label{eq:kohn-sham-density}
 \end{equation}
-The occupations include spin multiplicity; for a periodic solid the sum
-also includes band indices and wavevector weights. The unknown HK
-functional is decomposed as
-\begin{align}
-  F[n]&=T_{\mathrm s}[n]+E_{\mathrm H}[n]+E_{\mathrm{xc}}[n],\\
-  T_{\mathrm s}[n]&=\sum_a f_a\int\phi_a^*(\bm r)
-    \left(-\frac{\hbar^2}{2m_{\mathrm e}}\nabla^2\right)
-    \phi_a(\bm r)\,\mathrm d\bm r,\\
-  E_{\mathrm H}[n]&=\frac12\iint n(\bm r)w(\bm r,\bm r')n(\bm r')
-    \,\mathrm d\bm r\,\mathrm d\bm r'.
-  \label{eq:dft-ks-decomposition}
-\end{align}
-Here $T_{\mathrm s}$ is the noninteracting kinetic energy and
-$E_{\mathrm H}$ is the classical electron--electron electrostatic energy.
-For the periodic MOF, $w$ is the periodic Coulomb kernel.
-The exchange--correlation functional $E_{\mathrm{xc}}$ contains the
-remaining interaction energy and the correction to $T_{\mathrm s}$.
-Thus the electronic energy functional becomes
-\begin{equation}
-  E_{\mathrm{el}}[n;\bm R]
-    =T_{\mathrm s}[n]+\int v_{\mathrm{ext}}(\bm r;\bm R)n(\bm r)
-      \,\mathrm d\bm r+E_{\mathrm H}[n]+E_{\mathrm{xc}}[n].
-  \label{eq:dft-energy-functional}
-\end{equation}
-Minimizing this energy with respect to the orbitals while preserving their
-orthonormality gives the one-electron KS equations:
-\begin{align}
-  \left[-\frac{\hbar^2}{2m_{\mathrm e}}\nabla^2
-    +v_{\mathrm{eff}}[n](\bm r)\right]\phi_a(\bm r)
-    &=\epsilon_a\phi_a(\bm r),
-    \label{eq:kohn-sham-equations}\\
-  v_{\mathrm{eff}}[n](\bm r)
-    &=v_{\mathrm{ext}}(\bm r)+v_{\mathrm H}[n](\bm r)
-      +v_{\mathrm{xc}}[n](\bm r),
-    \label{eq:kohn-sham-potential}\\
-  v_{\mathrm H}[n](\bm r)
-    &=\int w(\bm r,\bm r')n(\bm r')\,\mathrm d\bm r',
-  \qquad v_{\mathrm{xc}}[n](\bm r)
-    =\frac{\delta E_{\mathrm{xc}}}{\delta n(\bm r)}.
-    \label{eq:ks-functional-derivatives}
-\end{align}
-The decomposition is formally exact when the auxiliary system can
-reproduce the density; practical DFT approximates $E_{\mathrm{xc}}$.
-Because $v_{\mathrm{eff}}$ depends on $n$, the equations are solved
-self-consistently: start from a trial density, solve for the orbitals,
-rebuild the density, and iterate until both density and energy converge.
 
-At the converged density $n_0$, adding nuclear repulsion gives the
-potential energy and its derivatives give the reference forces:
+where $\phi_a(\bm r)$ are the KS orbitals and $f_a$ are their occupation numbers.
+The universal functional is written as $F[n]=T_{\mathrm s}[n]+E_{\mathrm H}[n]+E_{\mathrm{xc}}[n]$,
+where $T_{\mathrm s}$ is the noninteracting kinetic energy,
+$E_{\mathrm H}$ is the classical electrostatic energy of the electron
+density, and $E_{\mathrm{xc}}$ contains the remaining interaction and
+kinetic-energy contributions. Minimizing the energy with respect to the
+orbitals gives
+
 \begin{equation}
-  U_{\mathrm{DFT}}(\bm R)
-    =E_{\mathrm{el}}[n_0;\bm R]+V_{\mathrm{nn}}(\bm R),
-  \qquad
-  \bm F_i^{\mathrm{DFT}}
-    =-\left.\nabla_{\bm R_i}U_{\mathrm{DFT}}\right|_{\bm h}.
-  \label{eq:dft-reference-energy-forces}
+  \left[-\frac{\hbar^2}{2m_{\mathrm e}}\nabla^2
+    +v_{\mathrm{ext}}(\bm r;\bm R)
+    +v_{\mathrm H}[n](\bm r)+v_{\mathrm{xc}}[n](\bm r)\right]
+    \phi_a(\bm r)=\epsilon_a\phi_a(\bm r),
+  \label{eq:kohn-sham-equations}
 \end{equation}
-Cell-strain derivatives similarly provide stresses. These quantities
-supply training labels for MLIPs such as PET-MAD \cite{petmad}. In this
-project, the MLIP then evaluates the potential-energy surface during MD
-and Hessian calculations without repeating the electronic calculation.
+
+with $v_{\mathrm H}=\delta E_{\mathrm H}/\delta n$ and
+$v_{\mathrm{xc}}=\delta E_{\mathrm{xc}}/\delta n$. Because these potentials
+depend on the density, the equations are solved self-consistently by
+alternating orbital and density updates until convergence.
+The challenge to having good DFT results is to find a good approximation for the exchange-correlation functional $E_{\mathrm{xc}}[n]$.
 
 \subsection{Statistical Mechanics}
 \label{sec:sm}
@@ -1844,6 +1754,11 @@ The total uncertainty of the hybrid heat capacity is then obtained by combining 
 \subsection{MOF-5}
 \label{sec:mof-5-results}
 
+Open squares in the MOF-5 plots show the supplied experimental data for
+empty MOF-5 powders from Ming \emph{et al.}~\cite{ming2014mof5}. These
+mass-specific measurements provide a zero-loading reference and are shown
+only at the supplied temperatures, without extrapolation.
+
 \subsubsection{CH$_4$}
 \label{sec:mof5-ch4-results}
 
@@ -1852,7 +1767,8 @@ The total uncertainty of the hybrid heat capacity is then obtained by combining 
   \moffivepanels{pet-mad}{PET-MAD}
   \caption{MOF-5 $C_P$ with 50, 100, and 150 $CH_4$ molecules per cell using PET-MAD.
   The dashed lines are from Kapil \emph{et al.}\
-  \cite{kapil2019}. Shading denotes standard uncertainty; details are in
+  \cite{kapil2019}. Open squares are experimental empty-MOF-5 data from
+  Ming \emph{et al.}~\cite{ming2014mof5}. Shading denotes standard uncertainty; details are in
   Appendix~\ref{sec:results-uncertainty}.}
   \label{fig:results-cp-mad}
 \end{figure}
@@ -1888,7 +1804,8 @@ The guest-guest and guest-host interactions are more sensitive to the model, whi
   \moffivepanels{pet-sol}{PET-SOL}
   \caption{MOF-5 $C_P$ with 50, 100, and 150 $CH_4$ molecules per cell using PET-SOL.
   The dashed lines are from Kapil \emph{et al.}\
-  \cite{kapil2019}. Shading denotes standard uncertainty; details are in
+  \cite{kapil2019}. Open squares are experimental empty-MOF-5 data from
+  Ming \emph{et al.}~\cite{ming2014mof5}. Shading denotes standard uncertainty; details are in
   Appendix~\ref{sec:results-uncertainty}.}
   \label{fig:results-cp-sol}
 \end{figure}
@@ -1913,7 +1830,8 @@ since it is more general and has showed smaller errors than PET-SOL.
   50 H$_2$O molecules (right) per cell using PET-MAD. Each panel shows the
   total hybrid $c_P$ and the empty-framework harmonic $c_V$ reference.
   Loaded curves use the host-plus-guest mass; empty references use the host
-  mass. Shading denotes standard uncertainty; details are in
+  mass. Open squares show the experimental empty-MOF-5 data of
+  Ming \emph{et al.}~\cite{ming2014mof5}. Shading denotes standard uncertainty; details are in
   Appendix~\ref{sec:results-uncertainty}. Both y-axes start at zero;
   uncertainty bands extending below zero are clipped at the axis boundary.}
   \label{fig:results-mof5-additional}
@@ -1980,32 +1898,19 @@ experimental measurements~\cite{abuelmaaty2025}.
   \label{fig:results-mof303-h2o}
 \end{figure}
 
-The experimental loading variable is
-$q=m_{\mathrm{water}}/m_{\mathrm{water,sat}}$.
-The reported dry and saturated sample masses, 7.3990 and
-\SI{10.5358}{mg}, give a saturated water-to-dry-framework mass ratio of
-0.42395~\cite{abuelmaaty2025}. The 50 water molecules in the present
-1024-atom host give a water-to-host mass ratio of 0.07106 and hence
-$q=0.16761$. This composition lies between the measured $q=0.1202$ and
-$q=0.3425$ samples. These experimental curves provide composition
-references; neither is an exact loading match to the simulation.
-
-The experimental temperatures were rounded to the nearest integer in
-degrees Celsius before conversion to kelvin, giving a displayed range of
-283.15--\SI{368.15}{K}. Heat capacities in
-$\mathrm{J\,g^{-1}\,{}^{\circ}C^{-1}}$ retain their numerical values in
-$\mathrm{J\,g^{-1}\,K^{-1}}$. Linear interpolation in temperature between
-the digitized points gives approximately 1.285 and
-\SI{1.607}{J\per g\per K} at \SI{300}{K} for the lower and higher
-water loadings, respectively. The simulated value of
-\SI{1.106}{J\per g\per K} lies below both curves. This comparison assumes
-that the reported experimental specific heats use the current hydrated
-sample mass; that normalization is not explicitly documented in the main
-experimental text. Drift in the water-loaded MD, the exploratory Hessian
-treatment, and possible thermal redistribution of water in the sealed DSC
-sample limit interpretation of the discrepancy. The water measurements
-provide no experimental benchmark for the MOF-303/CO$_2$ curve in
-Figure~\ref{fig:results-mof303-co2}.
+The experimental loading in \cite{abuelmaaty2025} is reported as the ratio of the saturated water loading,
+$q=m_{\mathrm{water}}/m_{\mathrm{water,sat}}$. The reported dry and saturated sample masses, 7.3990 and \SI{10.5358}{mg},
+give a saturated water-to-dry-framework mass ratio of 0.42395~\cite{abuelmaaty2025}.
+The 50 water molecules in the present 1024-atom host give a water-to-host mass ratio of 0.07106 and hence $q=0.16761$.
+This composition lies between the measured $q=0.1202$ and $q=0.3425$ samples.
+However, our results lie below both of them, while it should be between them.
+It is hard to accurately reproduce the experimental results, because we cannot be sure of the exact loading of water in the MOF-303 sample.
+Whereas in the simulations, we select an exact number of guest molecules inside the MOF.
+Once again, the heat capacity with loaded $H_2O$ is below the empty-framework at lower temperatures.
+The curve is overall not strictly monotonic, and the low-temperature behavior is not physically reasonable.
+For $H_2O$ loaded MOFs, it might be better idea to try to simulate it with PIMD, which is more expensive but could give more accurate results.
+Testing with another potential might give better results.
+In any case, we should be careful when interpreting the results for $H_2O$ loaded MOFs, especially at low temperatures.
 
 \clearpage
 \subsection{ZIF-8}
@@ -2016,13 +1921,7 @@ $2\times2\times2$ supercell, containing 96 Zn(MeIm)$_2$ formula units.
 Its molar loading is therefore $X=54/96=0.5625$, close to the experimental
 $X=0.56$ sample of Rosen \emph{et al.}~\cite{rosen2020co2}.
 
-\subsubsection{Zero loading: empty framework}
-\label{sec:zif8-empty-results}
-
-No completed empty-ZIF-8 harmonic heat-capacity curve is available in the
-campaign archive.
-
-\subsubsection{CO$_2$}
+\subsubsection{CH$_4$ and CO$_2$}
 \label{sec:zif8-co2-results}
 
 At \SI{300}{K}, $c_{\mathrm{cl}}=2.426$ and
@@ -2047,16 +1946,15 @@ with the other frameworks.
   simulation. Experimental error bars show 2\% standard uncertainty in
   this temperature range; dashed lines connect measured points. The
   experiment reports sealed-cell $C$, whereas the simulation estimates
-  $C_P$. The y-axis starts at zero.}
+  $C_P$. Open squares show independent experimental empty-ZIF-8 (SOD)
+  data~\cite{rosen2019zif8}, converted from molar units using
+  \SI{227.576}{g\per mol}. The new digitized empty-framework datasets do
+  not include uncertainty values, so no error bars are inferred for them.
+  The y-axis starts at zero.}
   \label{fig:results-zif8-additional}
 \end{figure}
 
-\paragraph{Comparison with the matched experimental composition.}
-The experimental data are tabulated measurements rather than digitized
-points. They cover nominally 1.8--\SI{300}{K}; the final tabulated point
-for $X=0.56$ is at \SI{302.71}{K}. Only measured points within the plotted
-temperature range are shown, without extrapolation to the higher
-simulation temperatures. On the common 200--\SI{300}{K} grid, linear
+On the common 200--\SI{300}{K} grid, linear
 interpolation between neighboring experimental temperatures gives signed
 simulation differences ranging from approximately $+2.2\%$ to $-4.0\%$.
 At \SI{300}{K}, the interpolated experimental value is approximately
@@ -2075,13 +1973,17 @@ contains all 54 CO$_2$ molecules inside the framework. The initial
 experimental sealing pressure is not a pressure maintained throughout
 the temperature scan. In addition, the existing 200--\SI{400}{K}
 simulation curve samples only the upper tail of the reported
-70--\SI{220}{K} structural anomaly. The overlay therefore does not
-validate the gate-opening mechanism or the low-temperature peak shape.
-Imaginary-mode removal and incomplete reference relaxation remain
-systematic limitations outside the plotted statistical uncertainty.
+70--\SI{220}{K} structural anomaly.
+We see that our results are surprisingly close to the experimental measurements.
 
 \section{Conclusion}
 
+We saw that the PET architecture is able to reproduce the results of a specialized potential for MOFs like QuickFF.
+As a result, we can use more general purpose potentials like PET-MAD to simulate the heat capacity of MOFs with different guest molecules.
+For some cases, like $H_2O$ loaded MOFs, the results are not physically reasonable at low temperatures.
+We may need to further validate the results with PIMD simulations or other potentials to ensure that the results are accurate.
+Given that carrying out experiments for measuring the heat capacity of MOFs is complicated,
+using MD simulations and the hybrid method is a good alternative to obtain the heat capacity of MOFs with different guest molecules.
 PET-MAD and PET-SOL give exploratory room-temperature heat capacities rising
 from about 0.93 to \SI{1.16}{J\per g\per K} with methane loading. Harmonic
 quantization removes 59--63\% of the classical term; guest mobility supports
@@ -2108,13 +2010,20 @@ are needed before interpreting these curves as converged predictions.
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.5\textwidth]{figures/transformer/ModalNet-21.png}
-  \caption{Transformer architecture developed in Ref.~\cite{pet}.
-  The input matrix $\bm X$ contains the center and neighbor tokens.
-  The query, key, and value matrices $\bm Q$, $\bm K$, and $\bm V$ are computed by learned linear projections.
-  The attention weights $\bm A$ are computed from the scaled dot product of queries and keys, followed by a softmax normalization.
-  The output $\bm Y$ is a weighted sum of the values, which is then passed through a feedforward network and residual connections.}
+  \caption{Transformer architecture developed in Ref.~\cite{vaswani2017}. The attention mechanism is the part in gray.
+  The part of the transformer on the left is called the encoder, and the part on the right is called the decoder.
+  The encoder takes a sequence of tokens as input and produces a set of vectors,
+  whose representations capture the meaning of the input tokens and their context.
+  The decoder uses these vectors to generate an output sequence and guesses the next token in the sequence.}
   \label{fig:transformer}
 \end{figure}
+
+The transformer architecture has been revolutionary in the field of AI as a whole.
+It was initially developed for natural language processing (NLP) tasks, in particular for translation.
+But it has since been applied to a wide range of other domains,
+including computer vision, speech processing, code generation, protein folding.
+It is a state-of-the-art architecture that has been used to build some of the most powerful AI models, such as GPT-3 and GPT-4.
+It has also been applied to material science, in particular in MLIPs, where it has been used to predict the properties of materials and molecules.
 
 \subsection{Tokenization and embedding}
 
@@ -2141,11 +2050,10 @@ So what is relevant for us is to understand the next step in the transformer arc
   \centering
   \includegraphics[width=0.2\textwidth]{figures/transformer/ModalNet-20.png}
   \includegraphics[width=0.2\textwidth]{figures/transformer/ModalNet-19.png}
-  \caption{One attention head computes queries, keys, and values from the
-  input token matrix $\bm X$ using learned linear projections. The queries
-  $\bm Q$ are compared with the keys $\bm K$ to produce attention weights
-  $\bm A$, which are then used to compute a weighted sum of the values
-  $\bm V$ to produce the output $\bm Y$.}
+  \caption{On the left, we have a multi-head attention mechanism,
+  which is the orange part of the transformer architecture in Figure~\ref{fig:transformer}.
+  On the right, we see the scaled dot-product attention mechanism, which is the blue part on the left figure.
+  Pictures are taken from Ref.~\cite{vaswani2017}.}
   \label{fig:transformer-qkv}
 \end{figure}
 
@@ -2226,78 +2134,14 @@ A common choice is $d_k=d_v=d/H$ for $d=256$ and eight heads this gives 32 compo
 head. These dimensions describe attention projections, rather than the
 width of a later energy readout head.
 
-\subsection{Feedforward operations, residual paths, and normalization}
-
-Once the attention is computed, the output $\bm Y$ is passed through a feedforward network (FFN) to produce the final output of the transformer block.
-Attention exchanges information across token rows. A feedforward network
-then applies the same nonlinear map to each row independently. With row
-vectors and an intermediate width $d_{\mathrm{ff}}$, it can be written as
-
-\begin{equation}
-  \operatorname{FFN}(\bm X)
-   =\sigma\!\left(\bm X\bm W_1+\bm 1\bm b_1^{\mathrm T}\right)
-      \bm W_2+\bm 1\bm b_2^{\mathrm T},
-  \label{eq:transformer-ffn}
-\end{equation}
-
-where $\bm W_1\in\mathbb R^{d\times d_{\mathrm{ff}}}$,
-$\bm W_2\in\mathbb R^{d_{\mathrm{ff}}\times d}$,
-$\bm b_1\in\mathbb R^{d_{\mathrm{ff}}}$, and
-$\bm b_2\in\mathbb R^d$. The vector $\bm 1\in\mathbb R^n$ broadcasts
-the same biases over rows, and $\sigma$ acts componentwise. The expanded
-intermediate features and nonlinearity let the layer transform the
-information collected by attention.
-
-Residual connections add a sublayer's output to its input, preserving a
-direct path for features and gradients. Their addition requires matching
-feature widths, explaining the final projection in
-Eq.~\eqref{eq:transformer-multihead}. Layer normalization controls feature
-scales within each token. For a row $\bm x_a$ with components $x_{ap}$, a
-standard form is
-\begin{equation}
-  \begin{aligned}
-    \mu_a&=\frac1d\sum_{p=1}^d x_{ap},
-    &v_a&=\frac1d\sum_{p=1}^d(x_{ap}-\mu_a)^2,\\
-    \operatorname{LN}(\bm x_a)_p
-      &=\gamma_p\frac{x_{ap}-\mu_a}{\sqrt{v_a+\epsilon}}+\beta_p,
-    &\epsilon&>0.
-  \end{aligned}
-  \label{eq:transformer-layernorm}
-\end{equation}
-The learned scales $\gamma_p$ and shifts $\beta_p$ are shared across token
-rows. The mean and variance are over feature components of one token,
-rather than over its neighbors. Here $v_a$ is a scalar variance, distinct
-from the attention value vector $\bm v_a$.
-
-For example, the original transformer's post-normalization arrangement is
-
-\begin{equation}
-  \begin{aligned}
-    \bm X'&=\operatorname{LN}\!\left(\bm X+\operatorname{MHA}(\bm X)\right),\\
-    \bm X''&=\operatorname{LN}\!\left(\bm X'+\operatorname{FFN}(\bm X')\right).
-  \end{aligned}
-  \label{eq:transformer-block}
-\end{equation}
-
-A pre-normalization variant instead normalizes the input to each sublayer
-before adding its output to the residual stream. These are different
-architectural choices. Equation~\eqref{eq:transformer-block} illustrates
-the components, not a guarantee that every PET checkpoint uses that
-normalization order. The PET paper refers to a classical transformer;
-checkpoint implementations determine the exact order and projection details.
-
 \section{Sparse automatic differentiation}
-\label{sec:graph-coloring}
+\label{sec:sparse-automatic-differentiation}
 
-This appendix explains how to recover a large derivative matrix with fewer
-automatic differentiation (AD) evaluations. The presentation takes
-inspiration from the progression in Hill, Dalle, and Montoison's
-illustrated guide~\cite{hill2025asd}: understand derivative products,
-identify possible nonzero entries, group columns, and recover their
-values. We develop an explicit small example before treating symmetric
-Hessians and the PET/SADMOF workflow. General AD and backpropagation are
-introduced in Section~\ref{sec:backpropagation} within the deep learning
-section.
+Automatic sparse differentiation (ASD) is a method for efficiently computing derivatives of neural networks.
+It makes use of the sparsity of the Jacobian (or Hessian) matrix to reduce the memory usage of these matrices, by storing only the non-zero elements.
+The sparsity pattern of these matrices also allows us to compute the derivatives more efficiently, by avoiding unnecessary computations of zero elements.
+This method provides an exact computation of the derivatives, but we can make some approximations to further reduce the computations.
+The approximation is explained in the Hessian truncation section.
 
 \subsection{The Jacobian, JVPs, and VJPs}
 
@@ -2797,6 +2641,22 @@ MOF-303 at different water vapor loading and various temperatures},
 International Communications in Heat and Mass Transfer \textbf{165},
 109088 (2025),
 \href{https://doi.org/10.1016/j.icheatmasstransfer.2025.109088}{doi:10.1016/j.icheatmasstransfer.2025.109088}.
+
+\bibitem{ming2014mof5}
+Y. Ming, J. Purewal, D. Liu, A. Sudik, C. Xu, J. Yang, M. Veenstra,
+K. Rhodes, R. Soltis, J. Warner, M. Gaab, U. M\"uller, and D. J. Siegel,
+\emph{Thermophysical properties of MOF-5 powders},
+Microporous and Mesoporous Materials \textbf{185}, 235--244 (2014),
+\href{https://doi.org/10.1016/j.micromeso.2013.11.015}{doi:10.1016/j.micromeso.2013.11.015}.
+
+\bibitem{rosen2019zif8}
+P. F. Rosen, J. J. Calvin, M. S. Dickson, A. D. Katsenis,
+T. Fri\v{s}\v{c}i\'c, A. Navrotsky, N. L. Ross, A. I. Kolesnikov,
+and B. F. Woodfield,
+\emph{Heat capacity and thermodynamic functions of crystalline forms of the
+metal-organic framework zinc 2-methylimidazolate, Zn(MeIm)$_2$},
+The Journal of Chemical Thermodynamics \textbf{136}, 160--169 (2019),
+\href{https://doi.org/10.1016/j.jct.2019.05.008}{doi:10.1016/j.jct.2019.05.008}.
 
 \bibitem{rosen2020co2}
 P. F. Rosen, M. S. Dickson, J. J. Calvin, N. L. Ross,

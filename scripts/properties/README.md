@@ -1,5 +1,7 @@
 # Property calculations
 
+Trajectory-analysis workers and aggregate summaries exclude node `i39`, where previous jobs stalled.
+
 This folder contains the user-facing property-calculation Bash commands and
 guide. They read existing configurations and simulation results and never
 start or resume molecular dynamics.
@@ -57,12 +59,20 @@ report figures with LaTeX/PGFPlots after exporting the archived values:
 python docs/report/scripts/export_mof5_plot_data.py
 python docs/report/scripts/export_mof5_additional_data.py
 python docs/report/scripts/export_framework_plot_data.py
+python docs/report/scripts/export_empty_experimental_data.py
 cd docs/report
 tectonic report.tex
 ```
 
 The exporters copy numerical values and uncertainty bounds into versioned
 `docs/report/data/` tables and record source hashes in `results-provenance.json`.
+The empty-experiment exporter reads `mof5/exp_mof-5.csv` and
+`zif8/exp_zif-8.csv` from the reference root. Their digitized `x,y` columns
+are explicitly interpreted as K and J/(g K) for MOF-5, and K and J/(mol K)
+for ZIF-8. ZIF-8 is divided by the dry-framework molar mass, 227.576 g/mol;
+the loaded-sample mass used for the separate CO2 experiment is not applied.
+No error bars are inferred from the empty-framework CSVs. The exporter
+preserves measured temperatures and does not extrapolate.
 LaTeX draws the curves, uncertainty bands, and experimental error bars. All
 heat-capacity axes in these figures start at zero. The old standalone Python
 plotting commands have been removed. Statistical comparison tables remain
