@@ -132,21 +132,21 @@ which is the method used to generate the reference energies, forces, and stresse
 \subsubsection{Schrödinger's equation}
 
 In (non-relativistic) quantum mechanics, the fundamental equation that describes a quantum system is the Schrödinger equation \cite{cohen-tannoudji2020}.
-Let $\hat H$ be a Hermitian operator called Hamiltonian, and $|\Psi\rangle$ a vector in a Hilbert space called a state vector.
+Let $\hat{\mathcal H}$ be a Hermitian operator called Hamiltonian, and $|\Psi\rangle$ a vector in a Hilbert space called a state vector.
 The Schrödinger equation can be written as an eigenvalue problem for the Hamiltonian operator
 
 \begin{equation}
-  \hat H|\Psi_n\rangle=E_n|\Psi_n\rangle,
+  \hat{\mathcal H}|\Psi_n\rangle=E_n|\Psi_n\rangle,
   \label{eq:schrodinger}
 \end{equation}
 
 where the eigenvalues $E_n$ are real numbers and correspond to the energy of the state $|\Psi_n\rangle$.
-More generally, if $|\Psi(t)\rangle$ or $\hat H(t)$ are time-dependent,
+More generally, if $|\Psi(t)\rangle$ or $\hat{\mathcal H}(t)$ are time-dependent,
 the Schrödinger equation can be written as
 
 \begin{equation}
   i\hbar\frac{\partial}{\partial t}|\Psi(t)\rangle
-    =\hat H|\Psi(t)\rangle,
+    =\hat{\mathcal H}|\Psi(t)\rangle,
   \label{eq:time-dependent-schrodinger}
 \end{equation}
 
@@ -158,8 +158,8 @@ with eigenvalues $\bm x$, which is a real number corresponding to the position o
 If we project $|\Psi(t)\rangle$ onto $|\bm x\rangle$, we obtain the wavefunction $\Psi(\bm x,t)=\langle\bm x|\Psi(t)\rangle$,
 which is a complex-valued function of position and time.
 In this representation, the momentum operator $\hat{\bm p}$ is also a Hermitian operator, and it's given by $\hat{\bm p}=-i\hbar\nabla_{\bm x}$.
-If we write $\hat H=\hat p^2/2m + \hat V$ in the position representation,
-we have $\hat H(\bm x)=-\frac{\hbar^2}{2m}\nabla_{\bm x}^2+V(\bm x)$.
+If we write $\hat{\mathcal H}=\hat p^2/2m + \hat V$ in the position representation,
+we have $\hat{\mathcal H}(\bm x)=-\frac{\hbar^2}{2m}\nabla_{\bm x}^2+V(\bm x)$.
 The Schrödinger equation in the position representation is then
 
 \begin{equation}
@@ -175,7 +175,7 @@ Let us now consider a system of $N_{\mathrm e}$ electrons and $N_{\mathrm n}$ nu
 The Hamiltonian of this system in the position representation can be written as
 
 \begin{equation}
-  \hat H(\bm r,\bm R)
+  \hat{\mathcal H}(\bm r,\bm R)
     =\hat T_{\mathrm e}+\hat T_{\mathrm n}+\hat V_{\mathrm{ee}}(\bm r)
       +\hat V_{\mathrm{en}}(\bm r;\bm R)+\hat V_{\mathrm{nn}}(\bm R),
   \label{eq:full-hamiltonian}
@@ -187,8 +187,8 @@ electron--nuclear, and nuclear--nuclear interaction potentials.
 Because the mass of the nuclei is much larger than that of the electrons,
 we can decouple the electronic and nuclear motions using the Born--Oppenheimer approximation \cite{born1927}.
 This approximation consits in separating the electronic part of the Hamiltonian
-$\hat H_{\mathrm{el}}(\bm R)=\hat T_{\mathrm e}+\hat V_{\mathrm{ee}}+\hat V_{\mathrm{en}}(\bm R)$
-from the nuclear part of the Hamiltonian $\hat H_{\mathrm{nuc}}=\hat T_{\mathrm n}+\hat V_{\mathrm{nn}}(\bm R)$.
+$\hat{\mathcal H}_{\mathrm{el}}(\bm R)=\hat T_{\mathrm e}+\hat V_{\mathrm{ee}}+\hat V_{\mathrm{en}}(\bm R)$
+from the nuclear part of the Hamiltonian $\hat{\mathcal H}_{\mathrm{nuc}}=\hat T_{\mathrm n}+\hat V_{\mathrm{nn}}(\bm R)$.
 We then solve the electronic Schrödinger equation by treating $\bm R$ as a fixed parameter:
 
 \begin{equation}
@@ -206,7 +206,7 @@ $U(\bm R)=\varepsilon_0(\bm R)+V_{\mathrm{nn}}(\bm R)$.
 The nuclear Schrödinger equation is then given by
 
 \begin{align}
-  \left[-\sum_i\frac{\hbar^2}{2m_i}\nabla_{\bm R_i}^2+U(\bm R)\right]
+  \left[-\sum_i\frac{\hbar^2}{2M_i}\nabla_{\bm R_i}^2+U(\bm R)\right]
        \chi_\nu(\bm R)
     &=E_\nu\chi_\nu(\bm R).
     \label{eq:bo-nuclear-schrödinger}
@@ -286,97 +286,89 @@ depend on the density, the equations are solved self-consistently by
 alternating orbital and density updates until convergence.
 The challenge to having good DFT results is to find a good approximation for the exchange-correlation functional $E_{\mathrm{xc}}[n]$.
 
-\subsection{Statistical Mechanics}
-\label{sec:sm}
+\subsection{Molecular dynamics}
+\label{sec:molecular-dynamics}
 
-The classical simulations in this project use the isothermal--isobaric
-($NPT$) ensemble. The numbers of framework atoms and guest molecules are
-fixed, while the system exchanges energy and volume with reservoirs at
-temperature $T$ and imposed hydrostatic pressure $P$.
-Allowing the periodic cell to fluctuate captures the volume response of
-the loaded framework. The quantity of interest is therefore the
-constant-pressure heat capacity at fixed loading
-\cite{allen2017,tuckerman2023}.
+The potential $U(\bm R^N)$ appearing in the nuclear Schrödinger equation \eqref{eq:bo-nuclear-schrödinger}
+is the Born-Oppenheimer potential energy surface.
+To know how the system evolves over time, we should solve this equation.
+However, because nuclei are much heavier than electrons, they can be treated as classical particles.
+Therefore, we can model their dynamics using classical mechanics, which is the basis of molecular dynamics (MD) simulations.
+Let $\bm R^N=(\bm R_1,\ldots,\bm R_N)$ and $\bm P^N=(\bm P_1,\ldots,\bm P_N)$ be the positions and momenta of the $N$ nuclei in the system.
+The classical Hamiltonian is then given by
 
-For $N$ classical atoms, write the positions and momenta explicitly as
-$\bm r^N=(\bm r_1,\ldots,\bm r_N)$ and
-$\bm p^N=(\bm p_1,\ldots,\bm p_N)$.
-The cell dependence of functions is left implicit throughout this section:
-they are evaluated in the instantaneous periodic cell, with $V=\det\bm h$.
-The cell remains an independent fluctuating variable; positions and momenta
-alone do not determine its volume. We denote the physical Hamiltonian by
-$E$, reserving $H$ for enthalpy:
 \begin{equation}
-  E(\bm r^N,\bm p^N)
-    =K(\bm p^N)+U(\bm r^N)
-    =\sum_{i=1}^{N}\frac{|\bm p_i|^2}{2m_i}+U(\bm r^N),
+  \mathcal H(\bm R^N,\bm P^N)
+    =\sum_{i=1}^{N}\frac{|\bm P_i|^2}{2M_i}+U(\bm R^N),
   \label{eq:classical-hamiltonian}
 \end{equation}
-where $U$ is the MLIP potential energy. The instantaneous physical
-enthalpy is
+
+Once we know the electronic ground-state energy $\varepsilon_0(\bm R)$, the dynamics of the nuclei can be treated classically.
+Using Hamilton's equations, we can derive the equations of motion for the nuclei:
+
+\begin{align}
+  \dot{\bm R}_i=\frac{\partial\mathcal H}{\partial \bm P_i}=\frac{\bm P_i}{M_i}, \qquad
+  \dot{\bm P}_i=-\frac{\partial\mathcal H}{\partial \bm R_i}=-\nabla_{\bm R_i}U(\bm R^N).
+  \label{eq:classical-hamiltons-equations}
+\end{align}
+
+Since analytically solving a system of $6N$ coupled ordinary differential equations is impossible,
+we need to use numerical methods to integrate these equations of motion in order to find the trajectories of the nuclei.
+One of the most popular methods is the Runge--Kutta method, which is a family of iterative methods for solving ordinary differential equations.
+However, in molecular dynamics, the most commonly used method is the velocity Verlet algorithm \cite{swope1982}.
+The velocity Verlet algorithm is a symplectic integrator,
+which means that it preserves the geometric structure of the phase space and conserves energy over long timescales.
+By writing the velocities as $\bm V_i(t)=\dot{\bm R}_i(t)$ and accelarations as $\bm A_i(t)=\dot{\bm P}_i(t)/M_i$,
+we can update the positions of the particles using
+
 \begin{equation}
-  H(\bm r^N,\bm p^N)
-    =E(\bm r^N,\bm p^N)+PV
-    =\sum_{i=1}^{N}\frac{|\bm p_i|^2}{2m_i}+U(\bm r^N)+PV.
+  \bm R_i(t+\Delta t)=\bm R_i(t)+\bm V_i(t)\Delta t+\frac{1}{2}\bm A_i(t)\Delta t^2,
+  \label{eq:verlet-position-update}
+\end{equation}
+
+Using this new position, we can calculate $\bm A_i(t+\Delta t)$ and update the velocities using
+
+\begin{equation}
+  \bm V_i(t+\Delta t)=\bm V_i(t)+\frac{1}{2}\left[\bm A_i(t)+\bm A_i(t+\Delta t)\right]\Delta t.
+  \label{eq:verlet-velocity-update}
+\end{equation}
+
+If we want to simulate a system with constant N, V and E, we can use the velocity Verlet algorithm to integrate the equations of motion.
+However, in this project we want to simulate a system with constant N, P and T, which aims to reproduce the conditions of a laboratory experiment.
+We have therefore to make use of statistical mechanics to sample the appropriate ensemble.
+
+\subsubsection{Statistical Mechanics}
+\label{sec:sm}
+
+The goal of statistical mechanics is to relate the microscopic properties of a system to its macroscopic behavior.
+In the context of molecular dynamics, we are interested in the properties of the NPT ensemble,
+which is characterized by constant number of particles $N$, pressure $P_\mathrm{ext}$, and temperature $T$.
+The quantity of interest in this case is the enthalpy,
+which is defined as $H=E+PV$, where $E$ is the internal energy, $P$ is the pressure, and $V$ is the volume.
+The internal energy $E$ being the Hamiltonian $\mathcal{H}(\bm R^N,\bm P^N)$, the enthalpy is then given by
+
+\begin{equation}
+  H(\bm R^N,\bm P^N)=\sum_{i=1}^{N}\frac{|\bm P_i|^2}{2m_i}+U(\bm R^N)+PV.
   \label{eq:physical-enthalpy}
 \end{equation}
-It uses the imposed pressure and excludes thermostat and barostat energies.
 
-With $\beta=(k_{\mathrm B}T)^{-1}$, the NPT partition function and
-probability density are
-\begin{align}
-  \Delta(N,P,T)
-    &=\mathcal C\int_0^\infty\frac{\mathrm dV}{V_0}
-       \int_{\mathrm{cell}(V)}\mathrm d^{3N}r
-       \int\mathrm d^{3N}p\,
-       e^{-\beta H(\bm r^N,\bm p^N)},
-       \label{eq:npt-partition-function}\\
-  \rho(\bm r^N,\bm p^N)
-    &=\Delta^{-1}e^{-\beta H(\bm r^N,\bm p^N)}.
-       \label{eq:npt-density}
-\end{align}
-Here $V_0$ is a fixed, temperature- and pressure-independent reference
-volume, and $\mathcal C$ contains the fixed phase-space normalization
-factors needed to make $\Delta$ dimensionless.
-The position integral covers the instantaneous cell for every atom, and
-the momentum integral covers the allowed momenta.
-The volume integral is retained because the cell fluctuates in NPT.
-Although the cell argument is suppressed in $\rho$, this is the joint
-density of atomic positions, momenta, and cell volume, rather than a
-density with the volume already integrated out. Every equilibrium
-observable is averaged as
+When simulating a system in the NPT ensemble, the enthalpy is the quantity that should be conserved, rather than the internal energy.
+In this ensemble, a macroscopic observable $A$ is given by the ensemble average of its microscopic observable $A(\bm R^N,\bm P^N)$ as
 
 \begin{equation}
   \langle A\rangle
-    =\mathcal C\int_0^\infty\frac{\mathrm dV}{V_0}
-       \int_{\mathrm{cell}(V)}\mathrm d^{3N}r
-       \int\mathrm d^{3N}p\,
-       \rho(\bm r^N,\bm p^N)A(\bm r^N,\bm p^N),
+    =\int_0^\infty\mathrm dV\int_{\mathrm{cell}(V)}\mathrm d^{3N}R\int\mathrm d^{3N}P
+    A(\bm R^N,\bm P^N)e^{-\beta[\mathcal{H}(\bm R^N,\bm P^N)+PV]},
   \label{eq:ensemble-average}
 \end{equation}
 
-Throughout this report, $P$ denotes the imposed hydrostatic pressure,
-and equilibrium averages, variances, and covariances refer to the NPT
-ensemble unless stated otherwise. Ensemble subscripts are omitted.
-
-The volume integral above displays the scalar-volume formulation. In the
-actual simulations the cell matrix $\bm h$ also permits anisotropic strain
-under hydrostatic external pressure, with $V=\det\bm h$.
-Fractional coordinates $\bm s_i=\bm h^{-1}\bm r_i$ give
-$\mathrm d^{3N}r=V^N\mathrm d^{3N}s$; integrating out the momenta therefore
-gives a configurational weight proportional to
-$V^N e^{-\beta[U+PV]}$ in fractional coordinates.
-Flexible-cell sampling must include the appropriate cell measure and
-extended-system corrections \cite{mtk}.
-
+The particles are confined to a periodic simulation cell of volume $V$ and shape $\bm h$.
 Additionally, we assume the ergodic hypothesis,
 which states that the infinite time average of an observable along a trajectory is equal to its ensemble average.
-So the integral in Eq.~\eqref{eq:ensemble-average} can be replaced by a time average along a sufficiently long trajectory:
+So the integral \eqref{eq:ensemble-average} can be replaced by a time average along a sufficiently long trajectory
 
 \begin{equation}
-  \langle A\rangle
-  =\lim_{\tau\to\infty}\frac{1}{\tau}
-   \int_0^\tau A\bigl(\bm r^N(t),\bm p^N(t)\bigr)\,\mathrm dt.
+  \langle A\rangle=\lim_{\tau\to\infty}\frac{1}{\tau}\int_0^\tau A\bigl(\bm R^N(t),\bm P^N(t)\bigr)\,\mathrm dt.
   \label{eq:ergodic-average}
 \end{equation}
 
@@ -386,9 +378,135 @@ We can then replace the integral by a finite sum over the trajectory frames, giv
 
 \begin{equation}
   \langle A\rangle
-  \approx\frac{1}{M}\sum_{j=1}^{M}A\bigl(\bm r^N(t_j),\bm p^N(t_j)\bigr),
+  \approx\frac{1}{M}\sum_{j=1}^{M}A\bigl(\bm R^N(t_j),\bm P^N(t_j)\bigr),
   \label{eq:time-average}
 \end{equation}
+
+\subsubsection{Thermostats and barostats}
+
+The Hamilton equations \eqref{eq:classical-hamiltons-equations} conserve the physical energy $E$ and sample the microcanonical ensemble (NVE).
+However, we want to sample the NPT ensemble, which requires keeping the temperature and pressure constant.
+To do so, we need to introduce additional terms to the Hamiltonian that couple the system to a heat and pressure reservoir.
+
+\begin{equation}
+  \dot{\bm P}_i=\bm F_i-\xi\bm P_i,\qquad
+  \dot\xi=\frac{2K-fk_{\mathrm B}T}{Q},\qquad
+  Q\sim f k_{\mathrm B}T\tau_T^2.
+\end{equation}
+
+Here $f$ is the number of active kinetic degrees of freedom, $Q$ is the
+thermostat inertia, and $\tau_T$ is its characteristic response time.
+The sign of the feedback removes excess kinetic energy or restores it.
+For example, $2K>fk_{\mathrm B}T$ increases $\xi$, producing friction.
+Nos\'e--Hoover chains also thermostat the auxiliary variables, improving
+sampling of nearly harmonic systems \cite{nhc}. The target temperature
+sets an equilibrium distribution, so instantaneous temperature should
+fluctuate rather than remain exactly fixed.
+
+The physical potential $U$ is unchanged, but the atomic system now exchanges
+energy with additional degrees of freedom. Introduce a dimensionless
+thermostat coordinate $\eta$ and its momentum $p_\eta=Q\dot\eta=Q\xi$.
+The corresponding extended energy is
+\begin{equation}
+  E_{\mathrm{ext},T}(\bm R,\bm P,\eta,p_\eta)
+    =\underbrace{\sum_i\frac{|\bm P_i|^2}{2m_i}+U(\bm R)}_{E}
+     +\underbrace{\frac{p_\eta^2}{2Q}}_{\text{reservoir kinetic energy}}
+     +\underbrace{fk_{\mathrm B}T\eta}_{\text{reservoir potential}}.
+  \label{eq:thermostat-extended-energy}
+\end{equation}
+Energy lost by the atoms is gained by the reservoir, giving
+$\mathrm dE_{\mathrm{ext},T}/\mathrm dt=0$ for the continuous equations.
+This quantity is often called an extended Hamiltonian. In the physical-time
+Nos\'e--Hoover formulation used here, it is a conserved energy rather than
+a canonical Hamiltonian generating all the equations through ordinary
+Hamilton equations \cite{nhc,lammps-npt}.
+
+The barostat responds to instantaneous pressure, which contains kinetic
+and configurational contributions:
+\begin{equation}
+  \bm P_{\mathrm{inst}}
+    =\frac{1}{V}\left[\sum_i\frac{\bm P_i\otimes\bm P_i}{m_i}+\bm W\right],
+  \qquad P_{\mathrm{inst}}=\frac13\operatorname{tr}\bm P_{\mathrm{inst}}.
+  \label{eq:pressure-virial}
+\end{equation}
+For the many-body model, the virial follows from the energy response to
+strain at fixed fractional positions:
+\begin{equation}
+  W_{\alpha\beta}=-\left.\frac{\partial U}{\partial\epsilon_{\alpha\beta}}
+    \right|_{\bm\epsilon=0,\{\bm s_i\}},
+  \qquad \bm h\mapsto(\bm I+\bm\epsilon)\bm h.
+\end{equation}
+The model's configurational stress excludes the kinetic term; tensile-positive
+stress has the opposite sign to pressure \cite{lammps-pressure}.
+Hydrostatic loading imposes $P\bm I$ with zero shear target. A flexible
+barostat permits independent cell lengths and tilts, so an isotropic
+pressure need not produce isotropic deformation. Cell changes carry atoms
+through $\bm R_i=\bm h\bm s_i$, alongside their motion within the cell.
+The Martyna--Tobias--Klein (MTK) barostat treats the cell as a dynamical
+variable with fictitious inertia, analogous to a piston coupled to the
+atoms. Its motion changes the cell and couples to atomic coordinates and
+momenta, allowing compression and expansion to exchange mechanical work
+with the system \cite{mtk}.
+
+The MTK correction accounts for the change in phase-space volume caused by
+this coupled motion, so that the intended NPT distribution is stationary.
+Without it, the original Hoover barostat gives a volume distribution with
+an extra factor of $1/V$. Thus pressure control must reproduce the
+appropriate equilibrium fluctuations as well as the mean pressure;
+instantaneous pressure is allowed to fluctuate \cite{mtk,lammps-npt}.
+
+The barostat adds the cell matrix $\bm h$ and six generalized cell momenta
+$\pi_a=W_a\nu_a$, where $\nu_a$ are the three normal and three shear
+strain-rate variables and $W_a$ their fictitious inertias. Pressure imbalance
+drives these variables: excess internal pressure drives expansion, while
+pressure below the target drives contraction. Thermostat chains introduce
+coordinates and momenta $(\eta_j,p_{\eta_j})$ for the atoms and
+$(\zeta_j,p_{\zeta_j})$ for the barostat, with inertias $Q_j$ and $Q'_j$.
+For the project's two chains of length three and six independently
+barostatted cell components, the extended energy becomes
+\begin{equation}
+  \begin{aligned}
+  E_{\mathrm{ext},TP}
+    ={}&\underbrace{\sum_i\frac{|\bm P_i|^2}{2m_i}
+          +U(\bm R;\bm h)}_{E}
+       +\underbrace{P\det\bm h}_{PV}
+       +\underbrace{\sum_{a=1}^{6}\frac{\pi_a^2}{2W_a}}
+                    _{\text{cell kinetic energy}}\\
+     &+\sum_{j=1}^{3}\left(\frac{p_{\eta_j}^2}{2Q_j}
+                         +\frac{p_{\zeta_j}^2}{2Q'_j}\right)\\
+     &+k_{\mathrm B}T\left(f\eta_1+\eta_2+\eta_3
+                           +6\zeta_1+\zeta_2+\zeta_3\right).
+  \end{aligned}
+  \label{eq:npt-extended-energy}
+\end{equation}
+Here $p_{\eta_j}=Q_j\dot\eta_j$ and
+$p_{\zeta_j}=Q'_j\dot\zeta_j$. The coefficients $f$ and $6$ count the
+atomic and cell degrees of freedom coupled to each first thermostat; each
+later thermostat controls one preceding chain variable. The $PV$ term
+accounts for work against the imposed pressure. Under the constant
+hydrostatic target, this expression agrees with the LAMMPS reservoir-energy
+terms up to an additive constant \cite{lammps-nh-source}. It is conserved
+by the continuous extended equations, while numerical integration introduces
+a timestep-dependent error. The cell and reservoir momenta are extended
+dynamical variables; ordinary Hamilton equations applied to this expression
+alone do not reproduce the implemented MTK dynamics.
+
+Production uses LAMMPS \texttt{fix npt}: Nos\'e--Hoover chains of length
+three thermostat both the atoms and the barostat. Its flexible-cell
+equations follow Shinoda's formulation combining the MTK hydrostatic
+equations with Parrinello--Rahman strain dynamics
+\cite{shinoda2004,lammps-npt}. The \texttt{tri} option
+allows all six cell degrees of freedom to vary independently, with equal
+normal-pressure targets and zero shear targets; \texttt{mtk yes} enables
+the ensemble-measure correction \cite{lammps-npt}. The configured response
+times are $\tau_T=\SI{100}{fs}$ and $\tau_P=\SI{1000}{fs}$, at a target
+pressure of \SI{1}{bar} (Section~\ref{sec:md-method}).
+
+Thermostat and barostat damping times set their response rates. Excessively
+fast coupling can excite oscillations, while slow coupling delays
+relaxation. The physical energy $E$ fluctuates as the reservoirs exchange
+energy and volume with the system; auxiliary reservoir energies are excluded
+from the physical enthalpy $H=E+PV$.
 
 \subsubsection{Equipartition and temperature}
 
@@ -446,30 +564,6 @@ the kinetic-energy target of the thermostat, and provide a check on sampled
 temperature fluctuations. Their application to heat capacity is discussed
 in Section~\ref{sec:heat-capacity}.
 
-\subsubsection{Classical MD and quantum nuclear statistics}
-
-On the Born--Oppenheimer surface introduced in Section~\ref{sec:bo},
-classical MD replaces nuclear operators by positions and momenta,
-giving the Hamiltonian in Eq.~\eqref{eq:classical-hamiltonian} and Newtonian
-forces $m_i\ddot{\bm R}_i=-\nabla_iU$. A useful harmonic criterion and
-thermal length scale are
-\begin{equation}
-  \beta\hbar\omega\ll1,
-  \qquad
-  \lambda_i=\sqrt{\frac{2\pi\hbar^2}{m_i k_{\mathrm B}T}},
-  \qquad \beta=(k_{\mathrm B}T)^{-1}.
-  \label{eq:nuclear-classical-limit}
-\end{equation}
-Classical sampling is appropriate when quantum level spacing is small
-relative to thermal energy and nuclear delocalization is negligible on
-relevant structural scales. A hydrogen-containing system can satisfy these
-conditions for slow collective modes while violating them for bond vibrations.
-
-The harmonic derivation in Section~\ref{sec:quantum-statistical-mechanics}
-provides the quantum nuclear populations used in this project, while MD
-samples the classical anharmonic surface. Quantum anharmonic sampling is
-an extension beyond the reported calculations.
-
 \subsubsection{Trajectory analysis and error estimation}
 
 Only equilibrated trajectory segments are used for averages. Energy,
@@ -509,199 +603,6 @@ capacities require errors of squared fluctuations, not merely errors of the
 mean enthalpy. Sampling error, finite-size effects, integration bias, and
 potential error need separate checks.
 
-\subsection{Molecular dynamics}
-\label{sec:molecular-dynamics}
-\label{sec:classical-md-theory}
-
-MD turns the potential-energy surface into a trajectory of atomic positions
-and momenta. The framework and guests evolve together, sampling vibrations,
-guest rearrangements, and cell deformation. Evaluating the full potential
-at every step includes classical anharmonic motion. Its equilibrium
-averages provide the enthalpies needed for $C_P$; the separate harmonic
-calculation supplies the quantum correction \cite{allen2017,tuckerman2023}.
-
-\subsubsection{Forces and time integration}
-
-At fixed cell, Newton's equations are
-\begin{equation}
-  \dot{\bm R}_i=\frac{\bm p_i}{m_i},\qquad
-  \dot{\bm p}_i=\bm F_i,\qquad
-  \bm F_i=-\nabla_{\bm R_i}U(\bm R;\bm h).
-  \label{eq:classical-md-equations}
-\end{equation}
-Here $\bm R$ collects all atomic positions, using the same coordinates
-written as $\bm r^N$ in Section~\ref{sec:sm}. A force evaluation supplies
-the accelerations, which advance the system to its next configuration.
-Velocity Verlet implements this cycle with two momentum half steps:
-\begin{align}
-  \bm p_i^{n+1/2}&=\bm p_i^n+\frac{\Delta t}{2}\bm F_i(\bm R^n),\\
-  \bm R_i^{n+1}&=\bm R_i^n+\Delta t\frac{\bm p_i^{n+1/2}}{m_i},\\
-  \bm p_i^{n+1}&=\bm p_i^{n+1/2}
-                  +\frac{\Delta t}{2}\bm F_i(\bm R^{n+1}).
-  \label{eq:velocity-verlet}
-\end{align}
-The method is second order, reversible, and symplectic for the fixed-cell
-Hamiltonian problem, requiring one new force evaluation per step.
-The production integrator adds thermostat and cell updates to this
-splitting. Its timestep must resolve the fastest flexible vibrations,
-particularly X--H stretches. For a harmonic mode,
-$\omega_{\max}\Delta t<2$ is a stability condition, not an accuracy test:
-enthalpies and structural observables must also converge with timestep.
-Short fixed-cell energy-conservation tests help detect integration errors
-that a thermostat could otherwise mask.
-
-\subsubsection{Temperature and pressure control}
-
-Newtonian dynamics in a fixed periodic cell conserves the physical
-Hamiltonian $E=K+U$: it describes an isolated system at fixed volume.
-Assigning initial velocities sets an initial kinetic temperature, but does
-not maintain the desired temperature as potential and kinetic energy
-interconvert. For this project, we instead need equilibrium averages at
-prescribed $T$ and $P$, including thermal expansion of the porous framework.
-A thermostat represents heat exchange with a reservoir; a barostat allows
-the cell to exchange mechanical work with its surroundings. Together they
-sample the distribution proportional to $\exp[-\beta(E+PV)]$ introduced
-in Section~\ref{sec:sm}.
-
-A thermostat couples the atomic momenta to auxiliary dynamical variables.
-A single Nos\'e--Hoover
-thermostat introduces an auxiliary friction variable:
-\begin{equation}
-  \dot{\bm p}_i=\bm F_i-\xi\bm p_i,\qquad
-  \dot\xi=\frac{2K-fk_{\mathrm B}T}{Q},\qquad
-  Q\sim f k_{\mathrm B}T\tau_T^2.
-\end{equation}
-Here $f$ is the number of active kinetic degrees of freedom, $Q$ is the
-thermostat inertia, and $\tau_T$ is its characteristic response time.
-The sign of the feedback removes excess kinetic energy or restores it.
-For example, $2K>fk_{\mathrm B}T$ increases $\xi$, producing friction.
-Nos\'e--Hoover chains also thermostat the auxiliary variables, improving
-sampling of nearly harmonic systems \cite{nhc}. The target temperature
-sets an equilibrium distribution, so instantaneous temperature should
-fluctuate rather than remain exactly fixed.
-
-The physical potential $U$ is unchanged, but the atomic system now exchanges
-energy with additional degrees of freedom. Introduce a dimensionless
-thermostat coordinate $\eta$ and its momentum $p_\eta=Q\dot\eta=Q\xi$.
-The corresponding extended energy is
-\begin{equation}
-  E_{\mathrm{ext},T}(\bm R,\bm p,\eta,p_\eta)
-    =\underbrace{\sum_i\frac{|\bm p_i|^2}{2m_i}+U(\bm R)}_{E}
-     +\underbrace{\frac{p_\eta^2}{2Q}}_{\text{reservoir kinetic energy}}
-     +\underbrace{fk_{\mathrm B}T\eta}_{\text{reservoir potential}}.
-  \label{eq:thermostat-extended-energy}
-\end{equation}
-Energy lost by the atoms is gained by the reservoir, giving
-$\mathrm dE_{\mathrm{ext},T}/\mathrm dt=0$ for the continuous equations.
-This quantity is often called an extended Hamiltonian. In the physical-time
-Nos\'e--Hoover formulation used here, it is a conserved energy rather than
-a canonical Hamiltonian generating all the equations through ordinary
-Hamilton equations \cite{nhc,lammps-npt}.
-
-The barostat responds to instantaneous pressure, which contains kinetic
-and configurational contributions:
-\begin{equation}
-  \bm P_{\mathrm{inst}}
-    =\frac{1}{V}\left[\sum_i\frac{\bm p_i\otimes\bm p_i}{m_i}+\bm W\right],
-  \qquad P_{\mathrm{inst}}=\frac13\operatorname{tr}\bm P_{\mathrm{inst}}.
-  \label{eq:pressure-virial}
-\end{equation}
-For the many-body model, the virial follows from the energy response to
-strain at fixed fractional positions:
-\begin{equation}
-  W_{\alpha\beta}=-\left.\frac{\partial U}{\partial\epsilon_{\alpha\beta}}
-    \right|_{\bm\epsilon=0,\{\bm s_i\}},
-  \qquad \bm h\mapsto(\bm I+\bm\epsilon)\bm h.
-\end{equation}
-The model's configurational stress excludes the kinetic term; tensile-positive
-stress has the opposite sign to pressure \cite{lammps-pressure}.
-Hydrostatic loading imposes $P\bm I$ with zero shear target. A flexible
-barostat permits independent cell lengths and tilts, so an isotropic
-pressure need not produce isotropic deformation. Cell changes carry atoms
-through $\bm R_i=\bm h\bm s_i$, alongside their motion within the cell.
-The Martyna--Tobias--Klein (MTK) barostat treats the cell as a dynamical
-variable with fictitious inertia, analogous to a piston coupled to the
-atoms. Its motion changes the cell and couples to atomic coordinates and
-momenta, allowing compression and expansion to exchange mechanical work
-with the system \cite{mtk}.
-
-The MTK correction accounts for the change in phase-space volume caused by
-this coupled motion, so that the intended NPT distribution is stationary.
-Without it, the original Hoover barostat gives a volume distribution with
-an extra factor of $1/V$. Thus pressure control must reproduce the
-appropriate equilibrium fluctuations as well as the mean pressure;
-instantaneous pressure is allowed to fluctuate \cite{mtk,lammps-npt}.
-
-The barostat adds the cell matrix $\bm h$ and six generalized cell momenta
-$\pi_a=W_a\nu_a$, where $\nu_a$ are the three normal and three shear
-strain-rate variables and $W_a$ their fictitious inertias. Pressure imbalance
-drives these variables: excess internal pressure drives expansion, while
-pressure below the target drives contraction. Thermostat chains introduce
-coordinates and momenta $(\eta_j,p_{\eta_j})$ for the atoms and
-$(\zeta_j,p_{\zeta_j})$ for the barostat, with inertias $Q_j$ and $Q'_j$.
-For the project's two chains of length three and six independently
-barostatted cell components, the extended energy becomes
-\begin{equation}
-  \begin{aligned}
-  E_{\mathrm{ext},TP}
-    ={}&\underbrace{\sum_i\frac{|\bm p_i|^2}{2m_i}
-          +U(\bm R;\bm h)}_{E}
-       +\underbrace{P\det\bm h}_{PV}
-       +\underbrace{\sum_{a=1}^{6}\frac{\pi_a^2}{2W_a}}
-                    _{\text{cell kinetic energy}}\\
-     &+\sum_{j=1}^{3}\left(\frac{p_{\eta_j}^2}{2Q_j}
-                         +\frac{p_{\zeta_j}^2}{2Q'_j}\right)\\
-     &+k_{\mathrm B}T\left(f\eta_1+\eta_2+\eta_3
-                           +6\zeta_1+\zeta_2+\zeta_3\right).
-  \end{aligned}
-  \label{eq:npt-extended-energy}
-\end{equation}
-Here $p_{\eta_j}=Q_j\dot\eta_j$ and
-$p_{\zeta_j}=Q'_j\dot\zeta_j$. The coefficients $f$ and $6$ count the
-atomic and cell degrees of freedom coupled to each first thermostat; each
-later thermostat controls one preceding chain variable. The $PV$ term
-accounts for work against the imposed pressure. Under the constant
-hydrostatic target, this expression agrees with the LAMMPS reservoir-energy
-terms up to an additive constant \cite{lammps-nh-source}. It is conserved
-by the continuous extended equations, while numerical integration introduces
-a timestep-dependent error. The cell and reservoir momenta are extended
-dynamical variables; ordinary Hamilton equations applied to this expression
-alone do not reproduce the implemented MTK dynamics.
-
-Production uses LAMMPS \texttt{fix npt}: Nos\'e--Hoover chains of length
-three thermostat both the atoms and the barostat. Its flexible-cell
-equations follow Shinoda's formulation combining the MTK hydrostatic
-equations with Parrinello--Rahman strain dynamics
-\cite{shinoda2004,lammps-npt}. The \texttt{tri} option
-allows all six cell degrees of freedom to vary independently, with equal
-normal-pressure targets and zero shear targets; \texttt{mtk yes} enables
-the ensemble-measure correction \cite{lammps-npt}. The configured response
-times are $\tau_T=\SI{100}{fs}$ and $\tau_P=\SI{1000}{fs}$, at a target
-pressure of \SI{1}{bar} (Section~\ref{sec:md-method}).
-
-Thermostat and barostat damping times set their response rates. Excessively
-fast coupling can excite oscillations, while slow coupling delays
-relaxation. The physical energy $E$ fluctuates as the reservoirs exchange
-energy and volume with the system; auxiliary reservoir energies are excluded
-from the physical enthalpy $H=E+PV$.
-
-\subsubsection{From initialization to equilibrium averages}
-
-The workflow starts from a periodically valid guest-loaded structure.
-A fixed-cell minimization removes high-energy contacts; thermal velocities
-are then drawn from the Maxwell--Boltzmann distribution. Minimization finds
-a local minimum and does not establish equilibrium at finite $T$ and $P$.
-An initial trajectory interval is therefore discarded while the cell,
-framework, and guest distributions relax.
-
-Production frames must show stationary enthalpy and structural observables.
-A stable kinetic temperature alone does not demonstrate exploration of slow
-adsorption or framework modes. Independent replicas help expose incomplete
-sampling, and autocorrelation limits the information in successive frames
-(Section~\ref{sec:sm}). The resulting averages enter the heat-capacity analysis in
-Section~\ref{sec:heat-capacity}. The numerical settings,
-continuation procedure, and output selection are given in
-Section~\ref{sec:md-method}.
 
 \subsection{Heat Capacity}
 \label{sec:heat-capacity}
