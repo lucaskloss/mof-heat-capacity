@@ -1,4 +1,4 @@
-\documentclass[11pt,a4paper]{article}
+\documentclass[12pt,a4paper]{article}
 \usepackage{setspace}
 \setstretch{1.15}
 \usepackage[margin=1.8cm]{geometry}
@@ -352,7 +352,7 @@ The internal energy $E$ being the Hamiltonian $\mathcal{H}(\bm R^N,\bm P^N)$, th
   \label{eq:physical-enthalpy}
 \end{equation}
 
-When simulating a system in the NPT ensemble, the enthalpy is the quantity that should be conserved, rather than the internal energy.
+In the NPT ensemble, both internal energy and enthalpy fluctuate as the system exchanges heat and work with its surroundings.
 In this ensemble, a macroscopic observable $A$ is given by the ensemble average of its microscopic observable $A(\bm R^N,\bm P^N)$ as
 
 \begin{equation}
@@ -382,335 +382,297 @@ We can then replace the integral by a finite sum over the trajectory frames, giv
   \label{eq:time-average}
 \end{equation}
 
-\subsubsection{Thermostats and barostats}
+\subsubsection{Thermostat}
 
-The Hamilton equations \eqref{eq:classical-hamiltons-equations} conserve the physical energy $E$ and sample the microcanonical ensemble (NVE).
-However, we want to sample the NPT ensemble, which requires keeping the temperature and pressure constant.
-To do so, we need to introduce additional terms to the Hamiltonian that couple the system to a heat and pressure reservoir.
+A thermostat exchanges energy with the particles to sample a target
+temperature $T$. The equipartition theorem states that each independent
+quadratic degree of freedom contributes $k_{\mathrm B}T/2$ to the mean
+energy \cite{tuckerman2023}:
 
 \begin{equation}
-  \dot{\bm P}_i=\bm F_i-\xi\bm P_i,\qquad
-  \dot\xi=\frac{2K-fk_{\mathrm B}T}{Q},\qquad
-  Q\sim f k_{\mathrm B}T\tau_T^2.
-\end{equation}
-
-Here $f$ is the number of active kinetic degrees of freedom, $Q$ is the
-thermostat inertia, and $\tau_T$ is its characteristic response time.
-The sign of the feedback removes excess kinetic energy or restores it.
-For example, $2K>fk_{\mathrm B}T$ increases $\xi$, producing friction.
-Nos\'e--Hoover chains also thermostat the auxiliary variables, improving
-sampling of nearly harmonic systems \cite{nhc}. The target temperature
-sets an equilibrium distribution, so instantaneous temperature should
-fluctuate rather than remain exactly fixed.
-
-The physical potential $U$ is unchanged, but the atomic system now exchanges
-energy with additional degrees of freedom. Introduce a dimensionless
-thermostat coordinate $\eta$ and its momentum $p_\eta=Q\dot\eta=Q\xi$.
-The corresponding extended energy is
-\begin{equation}
-  E_{\mathrm{ext},T}(\bm R,\bm P,\eta,p_\eta)
-    =\underbrace{\sum_i\frac{|\bm P_i|^2}{2m_i}+U(\bm R)}_{E}
-     +\underbrace{\frac{p_\eta^2}{2Q}}_{\text{reservoir kinetic energy}}
-     +\underbrace{fk_{\mathrm B}T\eta}_{\text{reservoir potential}}.
-  \label{eq:thermostat-extended-energy}
-\end{equation}
-Energy lost by the atoms is gained by the reservoir, giving
-$\mathrm dE_{\mathrm{ext},T}/\mathrm dt=0$ for the continuous equations.
-This quantity is often called an extended Hamiltonian. In the physical-time
-Nos\'e--Hoover formulation used here, it is a conserved energy rather than
-a canonical Hamiltonian generating all the equations through ordinary
-Hamilton equations \cite{nhc,lammps-npt}.
-
-The barostat responds to instantaneous pressure, which contains kinetic
-and configurational contributions:
-\begin{equation}
-  \bm P_{\mathrm{inst}}
-    =\frac{1}{V}\left[\sum_i\frac{\bm P_i\otimes\bm P_i}{m_i}+\bm W\right],
-  \qquad P_{\mathrm{inst}}=\frac13\operatorname{tr}\bm P_{\mathrm{inst}}.
-  \label{eq:pressure-virial}
-\end{equation}
-For the many-body model, the virial follows from the energy response to
-strain at fixed fractional positions:
-\begin{equation}
-  W_{\alpha\beta}=-\left.\frac{\partial U}{\partial\epsilon_{\alpha\beta}}
-    \right|_{\bm\epsilon=0,\{\bm s_i\}},
-  \qquad \bm h\mapsto(\bm I+\bm\epsilon)\bm h.
-\end{equation}
-The model's configurational stress excludes the kinetic term; tensile-positive
-stress has the opposite sign to pressure \cite{lammps-pressure}.
-Hydrostatic loading imposes $P\bm I$ with zero shear target. A flexible
-barostat permits independent cell lengths and tilts, so an isotropic
-pressure need not produce isotropic deformation. Cell changes carry atoms
-through $\bm R_i=\bm h\bm s_i$, alongside their motion within the cell.
-The Martyna--Tobias--Klein (MTK) barostat treats the cell as a dynamical
-variable with fictitious inertia, analogous to a piston coupled to the
-atoms. Its motion changes the cell and couples to atomic coordinates and
-momenta, allowing compression and expansion to exchange mechanical work
-with the system \cite{mtk}.
-
-The MTK correction accounts for the change in phase-space volume caused by
-this coupled motion, so that the intended NPT distribution is stationary.
-Without it, the original Hoover barostat gives a volume distribution with
-an extra factor of $1/V$. Thus pressure control must reproduce the
-appropriate equilibrium fluctuations as well as the mean pressure;
-instantaneous pressure is allowed to fluctuate \cite{mtk,lammps-npt}.
-
-The barostat adds the cell matrix $\bm h$ and six generalized cell momenta
-$\pi_a=W_a\nu_a$, where $\nu_a$ are the three normal and three shear
-strain-rate variables and $W_a$ their fictitious inertias. Pressure imbalance
-drives these variables: excess internal pressure drives expansion, while
-pressure below the target drives contraction. Thermostat chains introduce
-coordinates and momenta $(\eta_j,p_{\eta_j})$ for the atoms and
-$(\zeta_j,p_{\zeta_j})$ for the barostat, with inertias $Q_j$ and $Q'_j$.
-For the project's two chains of length three and six independently
-barostatted cell components, the extended energy becomes
-\begin{equation}
-  \begin{aligned}
-  E_{\mathrm{ext},TP}
-    ={}&\underbrace{\sum_i\frac{|\bm P_i|^2}{2m_i}
-          +U(\bm R;\bm h)}_{E}
-       +\underbrace{P\det\bm h}_{PV}
-       +\underbrace{\sum_{a=1}^{6}\frac{\pi_a^2}{2W_a}}
-                    _{\text{cell kinetic energy}}\\
-     &+\sum_{j=1}^{3}\left(\frac{p_{\eta_j}^2}{2Q_j}
-                         +\frac{p_{\zeta_j}^2}{2Q'_j}\right)\\
-     &+k_{\mathrm B}T\left(f\eta_1+\eta_2+\eta_3
-                           +6\zeta_1+\zeta_2+\zeta_3\right).
-  \end{aligned}
-  \label{eq:npt-extended-energy}
-\end{equation}
-Here $p_{\eta_j}=Q_j\dot\eta_j$ and
-$p_{\zeta_j}=Q'_j\dot\zeta_j$. The coefficients $f$ and $6$ count the
-atomic and cell degrees of freedom coupled to each first thermostat; each
-later thermostat controls one preceding chain variable. The $PV$ term
-accounts for work against the imposed pressure. Under the constant
-hydrostatic target, this expression agrees with the LAMMPS reservoir-energy
-terms up to an additive constant \cite{lammps-nh-source}. It is conserved
-by the continuous extended equations, while numerical integration introduces
-a timestep-dependent error. The cell and reservoir momenta are extended
-dynamical variables; ordinary Hamilton equations applied to this expression
-alone do not reproduce the implemented MTK dynamics.
-
-Production uses LAMMPS \texttt{fix npt}: Nos\'e--Hoover chains of length
-three thermostat both the atoms and the barostat. Its flexible-cell
-equations follow Shinoda's formulation combining the MTK hydrostatic
-equations with Parrinello--Rahman strain dynamics
-\cite{shinoda2004,lammps-npt}. The \texttt{tri} option
-allows all six cell degrees of freedom to vary independently, with equal
-normal-pressure targets and zero shear targets; \texttt{mtk yes} enables
-the ensemble-measure correction \cite{lammps-npt}. The configured response
-times are $\tau_T=\SI{100}{fs}$ and $\tau_P=\SI{1000}{fs}$, at a target
-pressure of \SI{1}{bar} (Section~\ref{sec:md-method}).
-
-Thermostat and barostat damping times set their response rates. Excessively
-fast coupling can excite oscillations, while slow coupling delays
-relaxation. The physical energy $E$ fluctuates as the reservoirs exchange
-energy and volume with the system; auxiliary reservoir energies are excluded
-from the physical enthalpy $H=E+PV$.
-
-\subsubsection{Equipartition and temperature}
-
-The classical equipartition theorem relates temperature to the mean energy
-stored in quadratic degrees of freedom: each independent term of the form
-$a x^2/2$, with $a>0$, contributes $k_{\mathrm B}T/2$. The coefficient
-changes the amplitude of the fluctuations, but not their mean energy.
-This provides both a temperature estimator for MD and the classical
-reference for vibrational heat capacity \cite{allen2017,tuckerman2023}.
-
-To derive the result, take an unconstrained momentum component or a
-harmonic displacement $x$ ranging over the real line. Its conditional
-equilibrium density is proportional to $e^{-\beta a x^2/2}$: the remaining
-energy terms, including $PV$, are independent of $x$ and cancel in the
-normalized average. Integration by parts gives
-\begin{align}
-  0&=\int_{-\infty}^{\infty}
-       \frac{\mathrm d}{\mathrm dx}
-       \left(xe^{-\beta a x^2/2}\right)\,\mathrm dx
-    =\int_{-\infty}^{\infty}
-       (1-\beta a x^2)e^{-\beta a x^2/2}\,\mathrm dx,\\
-  \left\langle\frac{a x^2}{2}\right\rangle
-    &=\frac{1}{2\beta}=\frac12 k_{\mathrm B}T.
+  \left\langle\frac{a x^2}{2}\right\rangle=\frac12 k_{\mathrm B}T,
+  \qquad a>0.
   \label{eq:equipartition-derivation}
-\end{align}
-The boundary term vanishes because the Gaussian decays at infinity.
-The same result holds after averaging over the other variables, including
-the fluctuating cell. Its application to potential energy requires the
-quadratic approximation; its application to the separable kinetic energy
-does not require harmonic atomic interactions.
+\end{equation}
 
-For an atomic momentum component, $x=p_{i\alpha}$ and $a=1/m_i$.
-Summing over $f$ active momentum degrees of freedom gives
+For $f$ active atomic momentum degrees of freedom, this gives
+
 \begin{equation}
-  \langle K\rangle=\frac{f}{2}k_{\mathrm B}T,\qquad
-  T_{\mathrm{kin}}=\frac{2K}{f k_{\mathrm B}}.
+  K=\sum_{i=1}^{N}\frac{|\bm P_i|^2}{2M_i},\qquad
+  \langle K\rangle=\frac{f}{2}k_{\mathrm B}T.
   \label{eq:kinetic-temperature}
 \end{equation}
-Subtract constraints and deliberately removed momentum components from
-$3N$; fixing total linear momentum gives $f=3N-3$. Auxiliary reservoir
-variables do not count. Initial velocities follow the Maxwell--Boltzmann distribution:
+
+Thus
 
 \begin{equation}
-  v_{i\alpha}\sim\mathcal N\!\left(0,\frac{k_{\mathrm B}T}{m_i}\right),
-  \qquad \alpha\in\{x,y,z\}.
+  T=\frac{2\langle K\rangle}{f k_{\mathrm B}},\qquad
+  T_{\mathrm{kin}}=\frac{2K}{f k_{\mathrm B}}.
+  \label{eq:temperature-definition}
 \end{equation}
 
-Subtract center-of-mass velocity when required. The NPT momentum distribution gives
-$\operatorname{var}(K)=f(k_{\mathrm B}T)^2/2$ and
-$\operatorname{var}(T_{\mathrm{kin}})=2T^2/f$; repeated exact rescaling
-suppresses these fluctuations.
+Here $f=3N$ for unconstrained momenta, or $3N-3$ when total linear
+momentum is removed. The instantaneous $T_{\mathrm{kin}}$ fluctuates
+around the target.
 
-In this project, these relations set the initial velocity distribution and
-the kinetic-energy target of the thermostat, and provide a check on sampled
-temperature fluctuations. Their application to heat capacity is discussed
-in Section~\ref{sec:heat-capacity}.
+Nos\'e introduces a positive generalized coordinate $s$ and its conjugate
+momentum $p_s$ \cite{nose1984}. At fixed cell, the extended Hamiltonian is
 
-\subsubsection{Trajectory analysis and error estimation}
-
-Only equilibrated trajectory segments are used for averages. Energy,
-volume, temperature, and structural observables should fluctuate without
-systematic drift before data collection begins. For $M$ equally spaced
-samples of an observable $A$, the time average is
 \begin{equation}
-  \overline A=\frac{1}{M}\sum_{n=1}^{M}A_n.
+  \mathcal H_{\mathrm{N}}(\bm R^N,s;\bm\pi^N,p_s)
+    =\sum_{i=1}^{N}\frac{|\bm\pi_i|^2}{2M_i s^2}
+      +U(\bm R^N)+\frac{p_s^2}{2Q}+f k_{\mathrm B}T\ln s.
+  \label{eq:nose-hoover-hamiltonian}
 \end{equation}
-Successive samples are correlated. Their autocovariance and normalized
-autocorrelation at lag $k$ are
+
+The generalized coordinates are $(\bm R^N,s)$ and the canonical momenta
+are $(\bm\pi^N,p_s)$; $Q$ is the thermostat inertia. The coefficient
+$f$ is chosen for canonical sampling in physical time. Hamilton's
+equations in Nos\'e's auxiliary time $\tau$ are
+
 \begin{align}
-  C_A(k)&=\langle(A_n-\langle A\rangle)
-                 (A_{n+k}-\langle A\rangle)\rangle,\\
-  \rho_A(k)&=C_A(k)/C_A(0).
+  \frac{\mathrm d\bm R_i}{\mathrm d\tau}
+    &=\frac{\partial\mathcal H_{\mathrm N}}{\partial\bm\pi_i}
+      =\frac{\bm\pi_i}{M_i s^2},\\
+  \frac{\mathrm d\bm\pi_i}{\mathrm d\tau}
+    &=-\frac{\partial\mathcal H_{\mathrm N}}{\partial\bm R_i}
+      =\bm F_i,\qquad \bm F_i=-\nabla_{\bm R_i}U,\\
+  \frac{\mathrm ds}{\mathrm d\tau}
+    &=\frac{\partial\mathcal H_{\mathrm N}}{\partial p_s}
+      =\frac{p_s}{Q},\\
+  \frac{\mathrm dp_s}{\mathrm d\tau}
+    &=-\frac{\partial\mathcal H_{\mathrm N}}{\partial s}
+      =\sum_i\frac{|\bm\pi_i|^2}{M_i s^3}
+        -\frac{f k_{\mathrm B}T}{s}.
+  \label{eq:nose-hamilton-equations}
 \end{align}
-These correlations determine how much independent information a trajectory
-contains.
-The sample-mean variance is
+
+Using physical time $\mathrm dt=\mathrm d\tau/s$, physical momenta
+$\bm P_i=\bm\pi_i/s$, and $\eta=\ln s$ gives the Nos\'e--Hoover equations
+\cite{hoover1985}:
 
 \begin{equation}
-  \operatorname{var}(\overline A)
-  =\frac{C_A(0)}{M}\left[1+2\sum_{k=1}^{M-1}
-       \left(1-\frac{k}{M}\right)\rho_A(k)\right].
+  \dot{\bm R}_i=\frac{\bm P_i}{M_i},\qquad
+  \dot{\bm P}_i=\bm F_i-\dot\eta\bm P_i,\qquad
+  Q\ddot\eta=2K-f k_{\mathrm B}T.
+  \label{eq:nose-hoover-physical-time}
 \end{equation}
 
-Estimate or truncate the correlation sum statistically. Effective sample
-counts depend on the observable; finer output stride does not add independent
-information over a fixed duration.
+Dots now denote physical-time derivatives. The thermostat removes excess
+kinetic energy by increasing the friction $\dot\eta$, and reverses this
+feedback when the kinetic energy is below its target.
 
-Block errors should plateau for blocks longer than the correlation time,
-while retaining enough blocks \cite{flyvbjerg1989}. Independent replicas
-help detect slow modes, but neither method reveals a basin never visited.
-Resample whole replicas or sufficiently long blocks and recompute the full
-estimator, preserving cross-temperature correlations. Variance-based heat
-capacities require errors of squared fluctuations, not merely errors of the
-mean enthalpy. Sampling error, finite-size effects, integration bias, and
-potential error need separate checks.
+The project uses a chain of three thermostat variables to improve sampling
+\cite{nhc}. Introduce coordinates $\bm\eta=(\eta_1,\eta_2,\eta_3)$ and
+auxiliary momenta $p_{\eta_j}=Q_j\dot\eta_j$. Its conserved extended
+energy, often called the chain Hamiltonian, is
 
+\begin{equation}
+  \begin{aligned}
+    &\mathcal H_{\mathrm{NHC}}(\bm R^N,\eta_1,\eta_2,\eta_3;
+                             \bm P^N,p_{\eta_1},p_{\eta_2},p_{\eta_3})\\
+    &\quad=K+U(\bm R^N)+\sum_{j=1}^{3}\frac{p_{\eta_j}^2}{2Q_j}
+      +k_{\mathrm B}T(f\eta_1+\eta_2+\eta_3).
+  \end{aligned}
+  \label{eq:thermostat-chain-energy}
+\end{equation}
+
+Keeping only the first thermostat recovers the single Nos\'e--Hoover
+extended energy. In these physical-time variables the dynamics is
+noncanonical: ordinary Hamilton's equations applied to this energy alone
+would omit the friction couplings. The corresponding generalized equations
+are
+
+\begin{align}
+  \dot{\bm R}_i&=\frac{\bm P_i}{M_i},
+    &\dot{\bm P}_i&=\bm F_i-\frac{p_{\eta_1}}{Q_1}\bm P_i,\\
+  \dot\eta_j&=\frac{p_{\eta_j}}{Q_j},\qquad j=1,2,3,\\
+  \dot p_{\eta_1}&=2K-f k_{\mathrm B}T
+                    -\frac{p_{\eta_2}}{Q_2}p_{\eta_1},\\
+  \dot p_{\eta_2}&=\frac{p_{\eta_1}^2}{Q_1}-k_{\mathrm B}T
+                    -\frac{p_{\eta_3}}{Q_3}p_{\eta_2},\\
+  \dot p_{\eta_3}&=\frac{p_{\eta_2}^2}{Q_2}-k_{\mathrm B}T.
+  \label{eq:thermostat-chain}
+\end{align}
+
+Each additional thermostat controls the kinetic energy of the preceding
+one. Equivalently, $\xi_j=\dot\eta_j=p_{\eta_j}/Q_j$ are the friction
+variables.
+
+\subsubsection{Barostat}
+
+A barostat on the other hand exchanges work with the simulation cell to keep the system at a target pressure $P_{\mathrm{ext}}$.
+The barostat adjusts the simulation cell size and shape to maintain the desired pressure.
+This project uses the flexible-cell formulation of Shinoda, Shiga, and
+Mikami \cite{shinoda2004}, combining Martyna--Tobias--Klein (MTK)
+pressure control \cite{mtk} with Parrinello--Rahman strain dynamics,
+as implemented in LAMMPS \texttt{fix npt} \cite{lammps-npt}.
+The instantaneous pressure includes kinetic and configurational terms:
+
+\begin{equation}
+  \bm\Pi_{\mathrm{int}}
+    =\frac{1}{V}\left[\sum_i\frac{\bm P_i\otimes\bm P_i}{m_i}
+                       +\bm W_{\mathrm{vir}}\right],\qquad
+  P_{\mathrm{int}}=\frac13\operatorname{tr}\bm\Pi_{\mathrm{int}},
+  \label{eq:pressure-virial}
+\end{equation}
+
+where $\bm W_{\mathrm{vir}}$ is the configurational virial tensor.
+The feedback is illustrated by the isotropic MTK equations. Let
+$\nu=\dot V/(3V)$ be the linear expansion rate, $W_b$ the fictitious
+barostat inertia, and $\xi_b$ the first friction variable of the chain
+thermostatting the barostat. For an imposed pressure $P_{\mathrm{ext}}$,
+
+\begin{align}
+  \dot{\bm R}_i&=\frac{\bm P_i}{m_i}+\nu\bm R_i,
+    &\dot V&=3\nu V,\\
+  \dot{\bm P}_i&=\bm F_i-
+    \left[\xi_1+\left(1+\frac{3}{f}\right)\nu\right]\bm P_i,\\
+  W_b\dot\nu&=3V(P_{\mathrm{int}}-P_{\mathrm{ext}})
+                 +\frac{6K}{f}-\xi_b W_b\nu.
+  \label{eq:mtk-isotropic}
+\end{align}
+
+The pressure difference accelerates the cell outward or inward; cell
+motion rescales positions and momenta and exchanges mechanical work with
+the atoms. The $3/f$ momentum correction and $6K/f$ barostat term ensure
+the intended NPT statistical measure \cite{mtk}.
+
+\subsubsection{Trajectory analysis}
+
+When starting a MD simulation, the system is usually not in equilibrium.
+When monitoring observable quantities such as energy, volume, temperature,
+at first, they will have either too low or too high values.
+For instance, if we decide to start a simulation at a temperature of 300 K,
+the initial temperature might be much further away from this value.
+For this reason, we should let the simulation run until the system reaches equilibrium,
+that is when the observable quantities only fluctuate around their target values.
+We also want that after a long enough time, the system doesn't remember its initial state anymore.
+In other words, the system should reach the same equilibrium state regardless of its initial configuration.
+This assures that the quantities we measure don't depend on the initial configuration and are reproducible.
+One way to measure this is by computing the autocorrelation function of an observable $A$ along the trajectory
+
+\begin{align}
+  C_A(k)=\langle(A_n-\langle A\rangle)(A_{n+k}-\langle A\rangle)\rangle, \qquad
+  \rho_A(k)=C_A(k)/C_A(0).
+\end{align}
+
+These correlations determine how much independent information a trajectory
+contains. As $k$ increases, the correlation $\rho_A(k)$ decays to zero, and the observable values become uncorrelated.
+The correlation time $\tau_A$ is defined as the time it takes
+for the correlation to decay to a negligible value
+
+\begin{align}
+  \tau_A=\Delta t\sum_{k=0}^{\infty}\rho_A(k).
+  \label{eq:correlation-time}
+\end{align}
 
 \subsection{Heat Capacity}
 \label{sec:heat-capacity}
 
-Heat capacity measures the energy required to raise the temperature at fixed
-composition. Here the loading is held fixed, and the mass-specific quantity
-is $c=C/M_{\mathrm{cell}}$: dividing the cell heat capacity in \si{J\per K}
-by the total framework-plus-guest mass in grams gives \si{J\per g\per K}.
+The heat capacity of a material measures the energy required to raise its temperature by 1 K.
+In the context of MOFs, the heat capacity is an important property to understand their thermal behavior and stability.
+The heat capacity can be defined at constant volume $C_V$ or at constant pressure $C_P$.
+In this project, we are interested in the heat capacity at constant pressure $C_P$,
+since it is what is measured in experiments and is relevant for practical applications.
+There are different ways to compute it depending on the level of theory used to describe the system.
+We show here the different methods used in this project.
 
-\subsubsection{Temperature derivative of the enthalpy}
+\subsubsection{$C_P$}
 \label{sec:md-response}
 
-At constant imposed pressure, the classical NPT trajectories give
+As said earlier, the heat capacity is defined as the amount of energy required to raise the temperature of a system by 1 K.
+In the NPT ensemble, this can be expressed as the temperature derivative of the enthalpy
+
 \begin{equation}
   C_P(T)=\left(\frac{\partial\langle H\rangle}{\partial T}\right)_{N,P},
   \qquad \langle H\rangle=\langle E+PV\rangle.
+  \label{eq:cp-enthalpy}
 \end{equation}
-The physical enthalpy excludes thermostat and barostat energies. Separate
-equilibrated trajectories at neighboring temperatures, with the same
-composition, potential, and pressure, provide the centered estimate
+
+The average enthalpy $\langle H\rangle$ is obtained from the MD trajectory as a time average, as shown in Eq.~\eqref{eq:time-average}.
+If we perform MD simulations at different temperatures, we can compute it by using finite differences
+
 \begin{equation}
   C_P(T)\simeq
   \frac{\langle H\rangle_{T+\Delta T}-\langle H\rangle_{T-\Delta T}}
        {2\Delta T}.
   \label{eq:finite-difference-cp}
 \end{equation}
-This includes the anharmonic and pressure--volume response sampled by MD.
-For smooth mean enthalpies, its truncation error is of order $(\Delta T)^2$;
-reducing the spacing also amplifies sampling noise in the difference.
 
-\subsubsection{Classical harmonic limit: Dulong--Petit law}
+\subsubsection{Dulong-Petit law}
+\label{sec:dulong-petit}
 
-Equipartition assigns $k_{\mathrm B}T/2$ to each quadratic kinetic and
-potential term, giving a mean energy of $k_{\mathrm B}T$ per harmonic mode.
-Its temperature derivative is therefore $k_{\mathrm B}$ per mode:
+The heat capacity of a solid at constant volume can be estimated using the Dulong--Petit law.
+In a solid, the atoms are arranged in a lattice and can vibrate around their equilibrium positions.
+The potential energy of the system can be approximated as a quadratic function of the atomic displacements.
+The Hamiltonian is then a sum of quadratic terms in the atomic displacements and momenta
+
 \begin{equation}
-  C_{V,\mathrm{cl}}^{\mathrm{har}}=|\mathcal V|k_{\mathrm B},
-  \qquad C_V\longrightarrow 3Nk_{\mathrm B},
-  \qquad C_{V,\mathrm{molar}}\longrightarrow 3R.
+  \mathcal H(\bm R^N,\bm P^N)=\sum_{i=1}^{N}\frac{|\bm P_i|^2}{2M_i}
+      +\frac12\sum_{i=1}^{N}(k_{i,x}R_{i,x}^2+k_{i,y}R_{i,y}^2+k_{i,z}R_{i,z}^2),
+  \label{eq:harmonic-hamiltonian}
+\end{equation}
+
+where $k_{i,x}$, $k_{i,y}$, and $k_{i,z}$ are the force constants for the $i$-th atom in the $x$, $y$, and $z$ directions respectively.
+Using the equipartition theorem \ref{eq:equipartition}, we can compute the contribution of each quadratic degree of freedom to the energy.
+We get that the average energy is $\langle E\rangle_{\mathrm{har}}=3Nk_{\mathrm B}T$.
+For constant volume, the heat capacity is then given by
+
+\begin{equation}
+  C_{V,\mathrm{cl}}^{\mathrm{har}}=\left(\frac{\partial\langle E\rangle_{\mathrm{har}}}{\partial T}\right)_{N,V}=3Nk_{\mathrm B}.
   \label{eq:dulong-petit}
 \end{equation}
-Here $\mathcal V$ is the retained vibrational mode set, $N$ counts all atoms,
-and $R=N_{\mathrm A}k_{\mathrm B}$. The bulk Dulong--Petit value $3R$ is per
-mole of atoms. A finite periodic cell with its three uniform translations
-removed has $3N-3$ modes before further filtering. This is a harmonic
-$C_V$ reference; it does not determine the full anharmonic $C_P$ from MD.
 
-\subsubsection{Quantum harmonic heat capacity}
-\label{sec:quantum-statistical-mechanics}
+In other words, the classical heat capacity of a solid is constant and doesn't depend on the temperature.
+This law doesn't hold well at lower temperatures, where quantum effects become important.
 
-\label{sec:normal-modes}
+\subsubsection{Einstein model}
+\label{sec:einstein-model}
 
-The harmonic frequencies are obtained from the curvature of the potential
-at a relaxed structure $\bm R_0$, with its cell held fixed. For small
-atomic displacements $\bm u$, the vanishing gradient leaves
-\begin{equation}
-  U(\bm R_0+\bm u)=U(\bm R_0)
-    +\frac12\bm u^{\mathrm T}\bm H\bm u+\mathcal O(u^3),
-  \label{eq:taylor}
-\end{equation}
-where the $3N\times3N$ Cartesian Hessian is
-\begin{equation}
-  H_{i\alpha,j\beta}
-    =\frac{\partial^2U}{\partial R_{i\alpha}\partial R_{j\beta}}
-    =-\frac{\partial F_{i\alpha}}{\partial R_{j\beta}}.
-  \label{eq:hessian}
-\end{equation}
-Here $\bm H$ is a matrix, distinct from the scalar enthalpy $H$.
-Mass weighting and diagonalization give the normal modes:
-\begin{equation}
-  D_{i\alpha,j\beta}=\frac{H_{i\alpha,j\beta}}{\sqrt{m_i m_j}},
-  \qquad \bm D\bm e_k=\omega_k^2\bm e_k.
-  \label{eq:normal-mode-eigenproblem}
-\end{equation}
-Positive eigenvalues give real vibrational frequencies; negative ones
-indicate unstable directions. Translational invariance requires
-$\sum_j H_{i\alpha,j\beta}=0$ and gives three zero-frequency uniform
-translations, which are excluded from the vibrational sum. Numerical
-symmetrization and enforcement of this acoustic sum rule do not establish
-stability of an otherwise unstable reference. The retained positive modes
-form $\mathcal V$; the numerical thresholds are given in
-Section~\ref{sec:harmonic-method}. Hessians can be evaluated by automatic
-differentiation (Section~\ref{sec:automatic-differentiation}) or by finite
-differences of forces.
+If we keep the same Hamiltonian as in the Dulong--Petit law, but now treat it quantum mechanically,
+we can compute the quantum heat capacity of a solid.
+In the Einstein model, we assume that all atoms vibrate independently with the same frequency $\omega$.
+The Hamiltonian is then a sum of independent quantum harmonic oscillators
 
-At a fixed optimized cell, a mode of angular frequency $\omega_k$ has
-levels $\epsilon_{k,n}=\hbar\omega_k(n+1/2)$. Their Boltzmann populations
-give the harmonic mean energy
 \begin{equation}
-  \langle E\rangle_{\mathrm{har}}
-    =U_{\min}+\sum_{k\in\mathcal V}\hbar\omega_k
-      \left(\frac12+\frac{1}{e^{x_k}-1}\right),
-  \qquad x_k=\frac{\hbar\omega_k}{k_{\mathrm B}T}.
-  \label{eq:harmonic-mean-energy}
+  \hat{\mathcal H}=\sum_{i=1}^{N}\left(\frac{\hat{\bm P}_i^2}{2M_i}+\frac12M_i\omega^2\hat{\bm R}_i^2\right).
+  \label{eq:einstein-hamiltonian}
 \end{equation}
-Differentiating at fixed frequencies yields
+
+The energy levels of a quantum harmonic oscillator are given by $E_n=\hbar\omega(n+1/2)$, where $n$ is a non-negative integer.
+Since these oscillators are independent, the total energy of the system is the sum of the energies of each oscillator
+
 \begin{equation}
-  C_{V,\mathrm q}^{\mathrm{har}}(T)
-    =\left(\frac{\partial\langle E\rangle_{\mathrm{har}}}{\partial T}\right)_V
-    =\sum_{k\in\mathcal V}k_{\mathrm B}
-       \frac{x_k^2e^{x_k}}{(e^{x_k}-1)^2},
-  \qquad c_V^{\mathrm{har}}=\frac{C_{V,\mathrm q}^{\mathrm{har}}}{M_{\mathrm{cell}}}.
-  \label{eq:harmonic-cv}
+  E=\sum_{i=1}^{N}E_i=\sum_{i=1}^{N}\hbar\omega\left(n_i+\frac12\right).
+  \label{eq:einstein-energy}
 \end{equation}
-The zero-point energy is temperature independent and contributes no heat
-capacity. High-frequency modes with $\hbar\omega_k\gg k_{\mathrm B}T$ are
-thermally suppressed; for $x_k\ll1$, each mode approaches $k_{\mathrm B}$,
-recovering the Dulong--Petit limit.
+
+Using quantum statistical mechanics, we can compute the average energy of the system by first computing the partition function
+
+\begin{equation}
+  Z=\sum_{n_1=0}^{\infty}\cdots\sum_{n_N=0}^{\infty}e^{-\beta E}
+    =\left(\frac{e^{-\beta\hbar\omega/2}}{1-e^{-\beta\hbar\omega}}\right)^N.
+  \label{eq:einstein-partition-function}
+\end{equation}
+
+The average energy is then given by
+
+\begin{equation}
+  \langle E\rangle_{\mathrm{Ein}}=-\frac{\partial\ln Z}{\partial\beta}=\frac{N\hbar\omega}{2}\coth\left(\frac{\beta\hbar\omega}{2}\right).
+  \label{eq:einstein-average-energy}
+\end{equation}
+
+Using formula \eqref{eq:cp-enthalpy} again, the heat capacity is given by
+
+\begin{equation}
+  C_{V,\mathrm{Ein}}=N k_{\mathrm B}\left(\frac{\hbar\omega}{k_{\mathrm B}T}\right)^2
+    \frac{e^{\hbar\omega/k_{\mathrm B}T}}{\left(e^{\hbar\omega/k_{\mathrm B}T}-1\right)^2}.
+  \label{eq:einstein-heat-capacity}
+\end{equation}
+
+We can compute the frequencies by computing the eigenvalues of the Hessian matrix of the potential energy surface.
+We can then insert them into the formula above to compute the quantum harmonic heat capacity of the system.
 
 \subsection{Deep learning}
 \label{sec:deep-learning}
@@ -1185,19 +1147,6 @@ of one half is implied. Forces follow by differentiating the total energy
 through all environments, messages, attention normalizations, and cutoffs,
 as in Eq.~\eqref{eq:classical-md-equations}.
 
-\paragraph{Design implications.}
-With $m$ neighbors, attention forms $(m+1)\times(m+1)$ token-pair weights.
-Its local cost is quadratic in neighbor count, while total cost remains
-approximately linear in atom count at bounded neighborhoods and fixed
-architecture. Increasing the cutoff, feature width, local transformer
-depth, or message-passing depth changes different parts of this cost and
-of the accessible information. Section~7 of Ref.~\cite{pet} illustrates
-this distinction on water: six message-passing blocks with two transformer
-layers each outperform twelve blocks with one layer each in that test.
-This supports tuning the two depths separately, not a universal choice
-of their values. Cutoff smoothness, symmetry treatment, and the coverage
-of training data remain separate design requirements.
-
 \section{Methods}
 
 \subsection{MOFs and guest molecules}
@@ -1478,10 +1427,9 @@ not separately recorded in the relaxation metadata.
 PET-JAX/SADMOF computes the MOF-5 and MOF-303 Hessians with the sparse AD
 parameters in Table~\ref{tab:harmonic-settings}. The ZIF-8 results instead
 use the finite-difference calculation described in
-Appendix~\ref{sec:zif8-reference-diagnostics}. The theoretical construction of normal
-modes is given in Section~\ref{sec:normal-modes}, the oscillator heat
-capacity in Section~\ref{sec:quantum-statistical-mechanics}, and the sparse
-AD algorithm in Appendix~\ref{sec:graph-coloring}. The sparse AD calculations
+Appendix~\ref{sec:zif8-reference-diagnostics}. The normal-mode construction and quantum harmonic heat capacity are
+derived in Section~\ref{sec:einstein-model}, and the sparse AD algorithm
+is described in Appendix~\ref{sec:graph-coloring}. The sparse AD calculations
 symmetrize the Hessian, apply the force-constant row-sum acoustic treatment,
 and diagonalize the mass-weighted matrix while preserving the sign of
 unstable eigenvalues.
@@ -1817,15 +1765,15 @@ In any case, we should be careful when interpreting the results for $H_2O$ loade
 \subsection{ZIF-8}
 \label{sec:zif8-results}
 
-The PET-MAD calculation contains 54 CO$_2$ molecules in a
+The PET-MAD calculations contain 50 CH$_4$ or 54 CO$_2$ molecules in a
 $2\times2\times2$ supercell, containing 96 Zn(MeIm)$_2$ formula units.
-Its molar loading is therefore $X=54/96=0.5625$, close to the experimental
+The CO$_2$ molar loading is therefore $X=54/96=0.5625$, close to the experimental
 $X=0.56$ sample of Rosen \emph{et al.}~\cite{rosen2020co2}.
 
 \subsubsection{CH$_4$ and CO$_2$}
 \label{sec:zif8-co2-results}
 
-At \SI{300}{K}, $c_{\mathrm{cl}}=2.426$ and
+For CO$_2$, at \SI{300}{K}, $c_{\mathrm{cl}}=2.426$ and
 $\Delta c_{\mathrm{har}}=-1.460$ give
 $c_{\mathrm{hyb}}=0.967\pm0.151\,\mathrm{J\,g^{-1}\,K^{-1}}$.
 The hybrid curve rises from 0.805 at \SI{200}{K} to
@@ -1837,9 +1785,9 @@ with the other frameworks.
 \begin{figure}[htbp]
   \centering
   \zifeighttotal
-  \caption{PET-MAD heat capacities for 54 CO$_2$
-  molecules in the ZIF-8 $2\times2\times2$ supercell. Total hybrid heat
-  capacity with standard uncertainty and experimental measurements at
+  \caption{PET-MAD total hybrid heat capacities with standard uncertainty
+  for 50 CH$_4$ (left) and 54 CO$_2$ (right) molecules in the ZIF-8
+  $2\times2\times2$ supercell. The CO$_2$ panel includes experimental measurements at
   $X=0.56$ mol CO$_2$/mol ZIF-8~\cite{rosen2020co2}; the simulation has
   $X=0.5625$. The experimental molar values from Supporting Information
   Table~3 are divided by the loaded sample molar mass,
@@ -1851,7 +1799,7 @@ with the other frameworks.
   data~\cite{rosen2019zif8}, converted from molar units using
   \SI{227.576}{g\per mol}. The new digitized empty-framework datasets do
   not include uncertainty values, so no error bars are inferred for them.
-  The y-axis starts at zero.}
+  Both y-axes start at zero.}
   \label{fig:results-zif8-additional}
 \end{figure}
 
@@ -2626,10 +2574,23 @@ W. Shinoda, M. Shiga, and M. Mikami,
 under constant stress}, Physical Review B \textbf{69}, 134103 (2004),
 \href{https://doi.org/10.1103/PhysRevB.69.134103}{doi:10.1103/PhysRevB.69.134103}.
 
+\bibitem{nose1984}
+S. Nos\'e,
+\emph{A unified formulation of the constant temperature molecular dynamics
+methods}, Journal of Chemical Physics \textbf{81}, 511--519 (1984),
+\href{https://doi.org/10.1063/1.447334}{doi:10.1063/1.447334}.
+
+\bibitem{hoover1985}
+W. G. Hoover,
+\emph{Canonical dynamics: Equilibrium phase-space distributions},
+Physical Review A \textbf{31}, 1695--1697 (1985),
+\href{https://doi.org/10.1103/PhysRevA.31.1695}{doi:10.1103/PhysRevA.31.1695}.
+
 \bibitem{nhc}
 G. J. Martyna, M. L. Klein, and M. Tuckerman,
 \emph{Nos\'e--Hoover Chains: The Canonical Ensemble via Continuous Dynamics},
-Journal of Chemical Physics \textbf{97}, 2635--2643 (1992).
+Journal of Chemical Physics \textbf{97}, 2635--2643 (1992),
+\href{https://doi.org/10.1063/1.463940}{doi:10.1063/1.463940}.
 
 \bibitem{bigi2024}
 F. Bigi, S. Chong, M. Ceriotti, and F. Grasselli,

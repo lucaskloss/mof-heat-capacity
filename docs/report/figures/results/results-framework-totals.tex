@@ -56,18 +56,29 @@
 
 \newcommand{\zifeighttotal}{%
   \begin{tikzpicture}
-    \begin{axis}[frameworktotal,scale only axis,
-      width=\dimexpr\textwidth-1.9cm\relax,height=0.32\textwidth]
+    \begin{groupplot}[frameworktotal,
+      group style={group size=2 by 1,horizontal sep=0.6cm,
+        xlabels at=edge bottom,ylabels at=edge left,yticklabels at=edge left},
+      scale only axis,width=\dimexpr(\textwidth-2.3cm)/2\relax,height=0.30\textwidth,
+      legend cell align=left]
+      \nextgroupplot
+      \frameworktotalcurve{zif8-total-50ch4}{mofloadinghundredfifty}{$N_{\mathrm{CH_4}}=50$}
+      \zifeightemptyexperiment
+      \nextgroupplot
       \frameworktotalcurve{zif8-total-54co2}{mofloadinghundred}{$N_{\mathrm{CO_2}}=54$}
       \addplot[frameworkexpwaterlow,dashed,mark=diamond*,mark size=2pt,
         mark options={solid,fill=white},error bars/.cd,y dir=both,y explicit]
         table[x=temperature_K,y=heat_capacity,y error=uncertainty,col sep=comma]
           {data/zif8-experiment-co2.csv};
-      \addlegendentry{Experiment: $X=0.56$ (2\% standard uncertainty)}
-      \addplot[black,only marks,mark=square*,mark size=1.8pt,
-        mark options={solid,fill=white}]
-        table[x=temperature_K,y=heat_capacity,col sep=comma]{data/zif8-experiment-empty.csv};
-      \addlegendentry{Exp.: $N=0$}
-    \end{axis}
+      \addlegendentry{Exp.: $X=0.56$}
+      \zifeightemptyexperiment
+    \end{groupplot}
   \end{tikzpicture}%
+}
+
+\newcommand{\zifeightemptyexperiment}{%
+  \addplot[black,only marks,mark=square*,mark size=1.8pt,
+    mark options={solid,fill=white}]
+    table[x=temperature_K,y=heat_capacity,col sep=comma]{data/zif8-experiment-empty.csv};
+  \addlegendentry{Exp.: $N=0$}
 }

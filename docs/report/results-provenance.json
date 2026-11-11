@@ -567,7 +567,7 @@
   },
   "results-framework-totals.tex": {
     "generator": "docs/report/scripts/export_framework_plot_data.py",
-    "description": "Native LaTeX total hybrid heat capacities with archived combined standard uncertainty. MOF-303 includes 50 CH4, 50 CO2, and 50 H2O, empty harmonic cV with sample LLPR spread, and dry/water experimental references. The methane panel uses its own 0ch4 empty-framework Hessian. ZIF-8 retains measured CO2 reference points and 2% standard uncertainty. Measurements are restricted to 195\u2013405 K without extrapolation. All y-axes start at zero; negative band bounds are preserved in tables and clipped visually.",
+    "description": "Native LaTeX total hybrid heat capacities with archived combined standard uncertainty. MOF-303 includes 50 CH4, 50 CO2, and 50 H2O, empty harmonic cV with sample LLPR spread, and dry/water experimental references. The methane panel uses its own 0ch4 empty-framework Hessian. ZIF-8 shows 50 CH4 and 54 CO2 side by side, retaining measured CO2 reference points and 2% standard uncertainty. Measurements are restricted to 195\u2013405 K without extrapolation. All y-axes start at zero; negative band bounds are preserved in tables and clipped visually.",
     "inputs": [
       {
         "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/50ch4/heat-capacity.exploratory-discard-imaginary.csv",
@@ -588,6 +588,10 @@
       {
         "source": "output/post-processing/harmonic-correction/mof303_2x2x2/pet-mad-1.5-s-40nn/0ch4/hessians/hessian.npz",
         "sha256": "9f95343cd52d960dd4d181de17f7c59afc1dece17e026e7ae6170dcff43100d7"
+      },
+      {
+        "source": "output/post-processing/harmonic-correction/zif8_2x2x2/pet-mad-1.5-s-40nn/50ch4/heat-capacity.fd-two-gpu.exploratory-discard-imaginary.csv",
+        "sha256": "1d64f5381d5b6643a0f354a8ff82ce526e7ead2f192b54f5961f36d01dc8bd37"
       },
       {
         "source": "output/post-processing/harmonic-correction/zif8_2x2x2/pet-mad-1.5-s-40nn/54co2/heat-capacity.fd-two-gpu.exploratory-discard-imaginary.csv",
@@ -630,6 +634,10 @@
       {
         "source": "docs/report/data/mof303-total-empty-ch4.csv",
         "sha256": "82be364817dda1a139f78ccd4a202be6b40c8d7b43f7fe063be1731e6333adc6"
+      },
+      {
+        "source": "docs/report/data/zif8-total-50ch4.csv",
+        "sha256": "616df82277a8ac22b55acec4bdfe2e2e0fc7cbb8bac7e688583201c0a420780e"
       },
       {
         "source": "docs/report/data/zif8-total-54co2.csv",

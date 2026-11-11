@@ -26,7 +26,7 @@ def main():
 
     for host, short, loadings in (
         ("mof303_2x2x2", "mof303", ("50ch4", "50co2", "50h2o")),
-        ("zif8_2x2x2", "zif8", ("54co2",)),
+        ("zif8_2x2x2", "zif8", ("50ch4", "54co2")),
     ):
         directory = BASE / host / "pet-mad-1.5-s-40nn"
         for loading in loadings:
@@ -74,7 +74,7 @@ def main():
     provenance = json.loads(provenance_path.read_text())
     provenance["results-framework-totals.tex"] = {
         "generator": str(Path(__file__).resolve().relative_to(ROOT)),
-        "description": "Native LaTeX total hybrid heat capacities with archived combined standard uncertainty. MOF-303 includes 50 CH4, 50 CO2, and 50 H2O, empty harmonic cV with sample LLPR spread, and dry/water experimental references. The methane panel uses its own 0ch4 empty-framework Hessian. ZIF-8 retains measured CO2 reference points and 2% standard uncertainty. Measurements are restricted to 195–405 K without extrapolation. All y-axes start at zero; negative band bounds are preserved in tables and clipped visually.",
+        "description": "Native LaTeX total hybrid heat capacities with archived combined standard uncertainty. MOF-303 includes 50 CH4, 50 CO2, and 50 H2O, empty harmonic cV with sample LLPR spread, and dry/water experimental references. The methane panel uses its own 0ch4 empty-framework Hessian. ZIF-8 shows 50 CH4 and 54 CO2 side by side, retaining measured CO2 reference points and 2% standard uncertainty. Measurements are restricted to 195–405 K without extrapolation. All y-axes start at zero; negative band bounds are preserved in tables and clipped visually.",
         "inputs": inputs, "exported_data": outputs,
     }
     provenance_path.write_text(json.dumps(provenance, indent=2) + "\n")
