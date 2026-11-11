@@ -674,236 +674,6 @@ Using formula \eqref{eq:cp-enthalpy} again, the heat capacity is given by
 We can compute the frequencies by computing the eigenvalues of the Hessian matrix of the potential energy surface.
 We can then insert them into the formula above to compute the quantum harmonic heat capacity of the system.
 
-\subsection{Deep learning}
-\label{sec:deep-learning}
-
-\subsubsection{Neural networks}
-
-Deep learning uses neural networks with multiple learned layers to represent
-complex relationships between inputs and outputs. Neurons carry computed
-values; the trainable parameters are the connection weights and biases.
-As shown in Figure~\ref{fig:simple-neural-network}, each hidden layer forms
-weighted sums of the previous layer's outputs and applies a nonlinear
-activation:
-\begin{equation}
-  \begin{aligned}
-    \bm z^{(\ell+1)}&=\bm W^{(\ell)}\bm h^{(\ell)}+\bm b^{(\ell)},\\
-    \bm h^{(\ell+1)}&=\sigma\!\left(\bm z^{(\ell+1)}\right),
-    \qquad \bm h^{(0)}=\bm x.
-  \end{aligned}
-  \label{eq:neural-network-layer}
-\end{equation}
-Here $\bm z$ denotes values before activation and $\bm h$ denotes the
-resulting features. The activation $\sigma$ acts componentwise. Without
-nonlinear activations, composing these layers would remain an affine map.
-For $L$ hidden layers and scalar regression, a final linear readout gives
-\begin{equation}
-  \hat y=\bm w_{\mathrm{out}}^{\mathrm T}\bm h^{(L)}+b_{\mathrm{out}}.
-  \label{eq:network-readout}
-\end{equation}
-Evaluating these operations from input to output is the forward pass.
-The hidden layers build intermediate, or latent, representations rather
-than requiring every useful feature to be specified in advance. Suitable
-networks with sufficient capacity can approximate continuous functions on
-compact domains, but this representational ability alone does not guarantee
-successful training or generalization.
-
-\begin{figure}[htbp]
-  \centering
-  \definecolor{nninput}{HTML}{2369A1}
-  \definecolor{nnhidden}{HTML}{23855B}
-  \definecolor{nnoutput}{HTML}{A87915}
-  \begin{tikzpicture}[
-    x=1cm, y=1cm, >=latex,
-    neuron/.style={circle, thick, minimum size=8mm, inner sep=1pt,
-                   font=\small},
-    input/.style={neuron, draw=nninput, fill=nninput!12},
-    hidden/.style={neuron, draw=nnhidden, fill=nnhidden!12},
-    output/.style={neuron, draw=nnoutput, fill=nnoutput!15},
-    connection/.style={->, draw=black!30, thin},
-    selectedconnection/.style={connection,draw=black!65,semithick},
-    heading/.style={align=center, font=\small},
-    weight/.style={font=\scriptsize,fill=white,inner sep=0.8pt,
-                   text=black!80}
-  ]
-    % Layer values. Hidden neurons apply the componentwise activation.
-    \foreach \i/\y in {1/1.4,2/0,3/-1.4} {
-      \node[input] (x\i) at (0,\y) {$x_{\i}$};
-      \node[hidden] (h2\i) at (9.2,\y) {$h_{\i}^{(2)}$};
-    }
-    \foreach \i/\y in {1/2.1,2/0.7,3/-0.7,4/-2.1} {
-      \node[hidden] (h1\i) at (4.6,\y) {$h_{\i}^{(1)}$};
-    }
-    \node[output] (prediction) at (13.8,0) {$\hat y$};
-
-    % Fully connected layers; endpoints meet the neuron boundaries.
-    \foreach \i in {1,2,3} {
-      \foreach \j in {2,3,4} {
-        \draw[connection] (x\i) -- (h1\j);
-      }
-    }
-    \foreach \i in {1,2,3,4} {
-      \foreach \j in {2,3} {
-        \draw[connection] (h1\i) -- (h2\j);
-      }
-    }
-    \foreach \i in {1,2,3} {
-      \draw[connection] (h2\i) -- (prediction);
-    }
-
-    % Emphasize only connections entering the first neuron of each hidden layer.
-    \foreach \i in {1,2,3} {
-      \draw[selectedconnection] (x\i) -- (h11);
-    }
-    \foreach \i in {1,2,3,4} {
-      \draw[selectedconnection] (h1\i) -- (h21);
-    }
-    % Add labels after drawing the edges so no connection crosses the text.
-    \foreach \i in {1,2,3} {
-      \path (x\i) -- node[weight,pos=0.55]
-        {$W^{(0)}_{1\i}$} (h11);
-    }
-    \foreach \i in {1,2,3,4} {
-      \path (h1\i) -- node[weight,pos=0.55]
-        {$W^{(1)}_{1\i}$} (h21);
-    }
-
-    \node[heading] at (0,3.1) {$\bm h^{(0)}=\bm x$};
-    \node[heading] at (4.6,3.1) {
-      $\bm z^{(1)}=\bm W^{(0)}\bm h^{(0)}$\\
-      $\bm h^{(1)}=\sigma(\bm z^{(1)})$};
-    \node[heading] at (9.2,3.1) {
-      $\bm z^{(2)}=\bm W^{(1)}\bm h^{(1)}$\\
-      $\bm h^{(2)}=\sigma(\bm z^{(2)})$};
-    \node[heading] at (13.8,3.1) {
-      $\hat y=\bm w_{\mathrm{out}}^\top\bm h^{(2)}$\\
-      $\phantom{\hat y={}}$};
-  \end{tikzpicture}
-  \caption{A simple fully connected neural network with three inputs,
-  two hidden layers, and one scalar output $\hat y$.
-  Circles represent input features or neurons, and connections represent
-  learned weights between successive layers. Darker edges entering the first
-  neuron of each hidden layer are labeled by $W^{(0)}_{1i}$ or $W^{(1)}_{1i}$;
-  the other edge labels are omitted for clarity. Hidden layers apply nonlinear activations;
-  the output is a linear readout. The layer equations above the network
-  include the biases, whose separate connections are omitted for clarity.
-  During training, the prediction and reference target $y$
-  determine the loss $\mathcal L$. Backpropagation starts at this loss and
-  computes parameter gradients for a subsequent optimizer update.
-  This generic network illustrates the layer operations used
-  within more specialized interatomic-potential architectures.}
-  \label{fig:simple-neural-network}
-\end{figure}
-
-\subsubsection{Backpropagation}
-\label{sec:backpropagation}
-\label{sec:automatic-differentiation}
-
-Automatic differentiation (AD) computes derivatives of a numerical
-calculation by applying the chain rule to its elementary operations.
-Each operation, such as multiplication or an activation, has a known local
-derivative. AD combines these derivatives automatically, rather than
-requiring a hand-derived formula for the complete network \cite{baydin2018}.
-
-\paragraph{A network with two hidden layers}
-
-Consider the network in Figure~\ref{fig:simple-neural-network}: an input
-$\bm x\in\mathbb R^3$, hidden layers of four and three neurons, and a
-scalar output. All feature and bias vectors are column vectors. With
-$\bm h^{(0)}=\bm x$, the forward pass is
-\begin{equation}
-  \begin{aligned}
-    \bm z^{(1)}&=\bm W^{(0)}\bm x+\bm b^{(0)},
-    &\bm h^{(1)}&=\tanh\!\left(\bm z^{(1)}\right),\\
-    \bm z^{(2)}&=\bm W^{(1)}\bm h^{(1)}+\bm b^{(1)},
-    &\bm h^{(2)}&=\tanh\!\left(\bm z^{(2)}\right),\\
-    \hat y&=\bm w_{\mathrm{out}}^{\mathrm T}\bm h^{(2)}+b_{\mathrm{out}},
-    &l&=\tfrac12(\hat y-y)^2.
-  \end{aligned}
-  \label{eq:ad-example-network}
-\end{equation}
-Here $\bm W^{(0)}\in\mathbb R^{4\times3}$,
-$\bm W^{(1)}\in\mathbb R^{3\times4}$, and
-$\bm w_{\mathrm{out}}\in\mathbb R^3$; $\tanh$ acts componentwise and
-$y$ is the reference target. These matrix products, additions, and
-activations form a computational graph. The forward pass evaluates it
-and retains intermediate values needed for differentiation.
-
-\paragraph{Reverse-mode AD and why it is effective}
-
-Reverse-mode AD starts at the scalar loss and propagates sensitivities
-backward through the graph. For a vector $\bm a$, write
-$\bar{\bm a}=\nabla_{\bm a}l$. Starting with $\bar l=1$, an operation
-$\bm q=f(\bm a)$ contributes
-\begin{equation}
-  \bar{\bm a}\mathrel{+}=
-  \left(\frac{\partial\bm q}{\partial\bm a}\right)^{\mathrm T}
-  \bar{\bm q}.
-  \label{eq:ad-adjoint-accumulation}
-\end{equation}
-Sensitivities initially vanish except for $\bar l$; contributions add
-when a value influences the loss through multiple paths. AD evaluates
-these Jacobian-transpose--vector products using local derivative rules,
-without needing to assemble the full Jacobian.
-
-For our network, let $r=\hat y-y$ and define
-$\bm\delta^{(k)}=\nabla_{\bm z^{(k)}}l$. The reverse pass is
-\begin{equation}
-  \begin{aligned}
-    \overline{\hat y}&=r,\\
-    \bm\delta^{(2)}
-      &=\left(r\bm w_{\mathrm{out}}\right)
-        \odot\left[\bm 1-\bm h^{(2)}\odot\bm h^{(2)}\right],\\
-    \bm\delta^{(1)}
-      &=\left[(\bm W^{(1)})^{\mathrm T}\bm\delta^{(2)}\right]
-        \odot\left[\bm 1-\bm h^{(1)}\odot\bm h^{(1)}\right].
-  \end{aligned}
-  \label{eq:backpropagation}
-\end{equation}
-Here $\odot$ denotes componentwise multiplication and $\bm 1$ is a
-vector of ones of the appropriate size. The bracketed factors are the
-derivatives of $\tanh$. Transposed weight matrices carry sensitivities
-back to the preceding layer. The parameter gradients are
-\begin{equation}
-  \begin{aligned}
-    \nabla_{\bm w_{\mathrm{out}}}l&=r\bm h^{(2)},
-    &\frac{\partial l}{\partial b_{\mathrm{out}}}&=r,\\
-    \nabla_{\bm W^{(k)}}l
-      &=\bm\delta^{(k+1)}(\bm h^{(k)})^{\mathrm T},
-    &\nabla_{\bm b^{(k)}}l&=\bm\delta^{(k+1)},\qquad k=0,1.
-  \end{aligned}
-  \label{eq:network-parameter-gradients}
-\end{equation}
-Each weight gradient is an outer product of a layer's sensitivity and
-its input; it has the same shape as the weight matrix.
-
-The efficiency comes from reusing these intermediate values and
-sensitivities across all parameters. For a scalar loss, one forward
-and one reverse pass give the entire gradient, typically at a small
-constant multiple of the cost of evaluating the loss. Finite differences
-instead require perturbed evaluations for each parameter. AD avoids
-their step-size choice and truncation error, although floating-point
-roundoff remains. Its main tradeoff is memory for intermediate values;
-selected values can be recomputed to reduce storage \cite{baydin2018}.
-
-\paragraph{Using AD for backpropagation}
-
-Backpropagation is reverse-mode AD applied to a neural network's training
-loss: the equations above are its backward pass. For a batch, AD
-differentiates the averaged loss, including any regularization. An
-optimizer then updates the collection of weights and biases $\theta$;
-for gradient descent,
-\begin{equation}
-  \theta\leftarrow\theta-\eta\nabla_\theta\mathcal L,
-  \label{eq:weight-update}
-\end{equation}
-where $\eta$ is the learning rate. Training repeats the forward pass,
-backpropagation, and parameter update. Backpropagation computes the
-gradients; the optimizer performs the update. In this project, the
-pretrained potentials are used without further training, while AD also
-provides energy derivatives with respect to atomic coordinates for forces
-and Hessians.
-
 \subsection{Point Edge Transformer}
 \label{sec:pet-architecture-overview}
 
@@ -1157,28 +927,12 @@ lattice parameter \SI{25.866}{\angstrom} and composition
 $\mathrm{C}_{192}\mathrm{H}_{96}\mathrm{O}_{104}\mathrm{Zn}_{32}$
 (424 host atoms). Its $\mathrm{Zn}_4\mathrm O$ nodes are connected by
 benzene-1,4-dicarboxylate linkers. Adding 50, 100, or 150 methane molecules
-gives 674, 924, or 1174 atoms, respectively. Each loading is simulated with
-PET-MAD and PET-SOL at eleven temperatures, with one trajectory per model,
-loading, and temperature, giving 66 trajectories in total. Periodic boundary
-conditions apply in all three directions. All host and guest atoms move
-freely; no rigid-molecule or fixed-framework constraints are imposed.
-
-The additional starting structures in Figure~\ref{fig:frameworks} extend
-this comparison to other hosts. MOF-303,
-$\mathrm{Al(OH)(PZDC)}$, contains aluminium--oxygen rods connected by
-1H-pyrazole-3,5-dicarboxylate linkers \cite{hanikel2021}; its
-$2\times2\times2$ host supercell contains 1024 atoms. ZIF-8,
-$\mathrm{Zn(mIm)}_2$, contains zinc centres joined by 2-methylimidazolate
-linkers in a sodalite-type network \cite{hobday2018}; its
-$2\times2\times2$ host supercell contains 2208 atoms. The additional PET-MAD campaigns contain 50 CO$_2$ or 50 H$_2$O
-molecules in MOF-5 and MOF-303, and 54 CO$_2$ molecules in ZIF-8.
-They add 55 trajectories on the same temperature grid, giving 121 runs
-in total. Each uses \SI{500}{ps} of flexible-cell NPT at \SI{1}{bar},
-with a \SI{0.5}{fs} timestep and the first \SI{100}{ps} discarded.
-The methane-specific settings below are retained; additional relaxation
-and Hessian diagnostics are given in
-Appendix~\ref{sec:capacity-diagnostics}. ZIF-8 uses the finite-difference Hessian
-calculation described in Appendix~\ref{sec:zif8-reference-diagnostics}.
+gives 674, 924, or 1174 atoms, respectively. Periodic boundary
+conditions apply in all three directions.
+MOF-303, $\mathrm{Al(OH)(PZDC)}$, contains aluminium--oxygen rods connected by 1H-pyrazole-3,5-dicarboxylate linkers \cite{hanikel2021};
+its $2\times2\times2$ host supercell contains 1024 atoms.
+ZIF-8, $\mathrm{Zn(mIm)}_2$, contains zinc centres joined by 2-methylimidazolate linkers in a sodalite-type network \cite{hobday2018};
+its $2\times2\times2$ host supercell contains 2208 atoms.
 
 \begin{figure}[htbp]
   \centering
@@ -1197,133 +951,75 @@ calculation described in Appendix~\ref{sec:zif8-reference-diagnostics}.
     \includegraphics[width=\linewidth,trim=400bp 400bp 400bp 400bp,clip]{figures/frameworks/zif8-empty.png}\\
     (c) ZIF-8
   \end{minipage}
-  \caption{Empty framework starting structures rendered with Chemiscope
-  from the project's structure dataset.
+  \caption{Empty MOfs used in this project and rendered with Chemiscope \cite{chorna2026chemiscope}.
+  Atoms are colored by species: C (gray), H (white), O (red), Zn (blue).
+  MOF-5 has formula $\mathrm{C}_{192}\mathrm{H}_{96}\mathrm{O}_{104}\mathrm{Zn}_{32}$,
+  MOF-303 has formula $\mathrm{Al}_{64}\mathrm{C}_{128}\mathrm{H}_{64}\mathrm{N}_{64}\mathrm{O}_{128}$,
+  and ZIF-8 has formula $\mathrm{C}_{864}\mathrm{H}_{864}\mathrm{N}_{576}\mathrm{Zn}_{288}$.
   MOF-5 contains 424 atoms; the MOF-303 and ZIF-8 $2\times2\times2$
-  supercells contain 1024 and 2208 atoms, respectively. Cell outlines
-  indicate the periodic simulation boxes. Views are independently scaled
-  to reveal the pore geometry.}
+  supercells contain 1024 and 2208 atoms, respectively.}
   \label{fig:frameworks}
 \end{figure}
 
-\subsection{Structure preparation and initialization}
-\label{sec:structure-preparation}
+The guest molecules are inserted sequentially at random positions and orientations within the MOF cell.
+Their placements are accepted only when all guest atoms remain at least 1.5 Å from the framework and previously inserted molecules.
+If the insertion becomes blocked, the previously placed guests are partially or fully removed,
+we then reinsert the remaining guests, and continue until the desired number of molecules is reached.
+The resulting structure may be further relaxed before starting the MD simulation if initial forces are too large.
+After successfully inserting the guest molecules, we need to assign the initial velocities to all the atoms in the system.
+This is done by sampling from a Maxwell-Boltzmann distribution at the target temperature
 
-The MOF-5 calculations use \texttt{input/mof5.pdb} for the host and
-\texttt{input/ch4.gro} for the methane template. The preparation routine
-reads the periodic host and single-molecule template. Randomly oriented guest molecules are
-placed at fractional positions in the cell, rejecting overlaps with the
-host or previously placed guests under periodic boundary conditions. The
-current routine uses a minimum intermolecular atom--atom separation of
-\SI{1.5}{\angstrom} and up to 20000 placement attempts per molecule. If
-sequential insertion stalls, automatic repacking allows up to 20 rounds,
-removing a random quarter of the inserted molecules between rounds and
-restarting the full packing every fourth round. Guest geometry is held
-fixed only during insertion. The original MOF-5/methane structure archives
-do not retain the insertion-budget metadata, so these current preparation
-settings cannot be verified retrospectively for those structures.
-
-The campaign seed convention is $20250000+100T+r$, where $T$ is the
-numerical temperature in kelvin and $r$ is the replica index. The reported
-runs use $r=1$, giving velocity seeds from 20267501 at \SI{175}{K} to
-20292501 at \SI{425}{K}. Prepared structures are shared between PET-MAD
-and PET-SOL at each loading and temperature. Velocities are drawn from a
-Gaussian distribution at the target temperature, with initial total linear
-and angular momentum removed. Each temperature is initialized separately.
-
-The archived inputs for the 66 reported MD trajectories contain no
-pre-MD minimization command. The current preparation workflow adds a
-fixed-cell LAMMPS FIRE relaxation before assigning velocities, with a
-maximum Cartesian force-component tolerance of
-\SI{0.05}{eV\per\angstrom}, zero energy-change tolerance, limits of 2000
-iterations and 20000 force evaluations, and maximum displacement
-\SI{0.05}{\angstrom}. Failure to meet the force criterion stops a fresh
-run; the MD timestep is restored after minimization. These settings describe
-the updated initialization procedure, distinct from the archived MD inputs
-and from the post-MD relaxations used to obtain Hessians.
+\begin{equation}
+  P(\bm v_i)=\left(\frac{m_i}{2\pi k_{\mathrm B}T}\right)^{3/2}
+    \exp\left(-\frac{m_i|\bm v_i|^2}{2k_{\mathrm B}T}\right).
+  \label{eq:maxwell-boltzmann}
+\end{equation}
 
 \subsection{PET-MAD and PET-SOL}
 \label{sec:pet-implementation}
 
-Two pretrained potentials are used: PET-MAD
-(\texttt{pet-mad-1.\allowbreak{}5-s-40nn}) and PET-SOL
-(\texttt{pet-sol-s-best}). Their local PET-JAX metadata records the common
-architecture in Table~\ref{tab:pet-settings}; their weights differ.
-The architecture and its operations are described in
-Section~\ref{sec:pet-architecture-overview}.
-
-PET-MAD-1.5 was obtained by fine-tuning a PET model pretrained on OMat24
-on the chemically diverse MAD-1.5 dataset, spanning 102 elements and
-including molecules, clusters, crystals, and low-dimensional structures.
-Its reference energies, forces, and periodic stresses were computed with
-all-electron r$^2$SCAN DFT. Published training used a weighted loss on these
-targets, AdamW optimization, learning-rate warm-up, and cosine annealing
-\cite{petmad15}. This describes the model family; the architecture of the
-local 40-neighbor checkpoint is recorded below.
-
-For PET-SOL, the archived checkpoint records full-model fine-tuning from a
-pre-existing checkpoint, with mean-squared-error losses on energies and
-coordinate gradients (forces), weighted 10 and 1, respectively. Its saved
-settings specify a batch size of 32, learning rate $10^{-5}$, and a maximum
-of 50 epochs \cite{petsol-checkpoint}. The archive does not identify the
-training dataset or DFT functional. Both pretrained models are used here
-without further fitting to the MOF heat-capacity results.
+Two pretrained PET models are used in this work, PET-MAD and PET-SOL.
+They are both based on the same PET architecture, as described in Section~\ref{sec:pet-architecture-overview},
+but they were trained on different datasets.
+More precisely, PET-MAD-1.5 was trained on the MAD-1.5 dataset \cite{petmad15},
+spanning 102 elements and including molecules, clusters, crystals, and low-dimensional structures.
+Its reference energies, forces, and periodic stresses were computed with all-electron r$^2$SCAN DFT.
+PET-SOL on the other hand was trained on a dataset of 17 solvents, 78 cations and 35 anions.
+The models are available in different sizes, but here we will use PET-MAD-1.5-s and PET-SOL-s,
+which are smaller than the full model and will make the MD simulations faster.
+Both models have the same number of parameters and share common settings summarized in the following table.
 
 \begin{table}[htbp]
 \centering
 \small
-\caption{Architecture settings of PET-MAD and PET-SOL}
 \label{tab:pet-settings}
 \begin{tabular}{lr}
-\toprule
-Setting & Value \\
-\midrule
-$R_{\mathrm{c}}$, $\Delta_{R_{\mathrm{c}}}$ & 8.0\,\AA, 0.5\,\AA \\
-$n_{GNN}$, $n_{TL}$ & 3, 1 \\
-$d_{\mathrm{PET}}$ & 256 \\
-Attention heads & 8 \\
-Transformer feed-forward width & 512 \\
-Node feature width, \texttt{d\_\allowbreak{}node} & 1024 \\
-\bottomrule
+  \toprule
+  Setting & Value \\
+  \midrule
+  $R_{\mathrm{c}}$, $\Delta_{R_{\mathrm{c}}}$ & 8.0\,\AA, 0.5\,\AA \\
+  $n_{GNN}$, $n_{TL}$ & 3, 1 \\
+  $d_{\mathrm{PET}}$ & 256 \\
+  Attention heads & 8 \\
+  Transformer feed-forward width & 512 \\
+  Node feature width, \texttt{d\_\allowbreak{}node} & 1024 \\
+  \bottomrule
 \end{tabular}
+\caption{Architecture settings of PET-MAD and PET-SOL}
 \end{table}
-
-LAMMPS evaluates the exported metatomic model on a GPU for MD, while
-PET-JAX/SADMOF evaluates the corresponding coordinate Hessians. The PET-MAD
-checkpoint and export have basename
-\texttt{pet-mad-1.\allowbreak{}5-s\_\allowbreak{}40nn\_\allowbreak{}nostress}, with the PET-JAX
-conversion \texttt{pet-mad-1.\allowbreak{}5-s\_\allowbreak{}40nn\_\allowbreak{}jax}; the PET-SOL
-basename is \texttt{pet\_\allowbreak{}sol-s-best\_\allowbreak{}nostress}, with
-\texttt{\_jax} appended for the conversion. The exports are generated with
-\texttt{upet.\allowbreak{}save\_\allowbreak{}upet}; conversion preserves the pretrained weights and
-does not retrain the model. The local PyTorch implementation uses
-\texttt{metatrain} 2026.3.1, and setup pins PET-JAX to commit
-\texttt{ed0add4}.
-
-The generated configurations mark the models as stress-validated.
-Quantitative use nevertheless requires energy, force, and stress checks on
-representative loaded structures, together with consistent energy scaling
-and adaptive-cutoff derivative conventions across the two implementations
-(Appendix~\ref{sec:asd-method}). A configuration flag alone does not
-establish agreement. All terms of each hybrid curve use its selected model;
-the two potentials are analyzed separately.
 
 \subsection{NPT simulation}
 \label{sec:md-method}
 
-The archived LAMMPS inputs use \texttt{units metal} and
-\texttt{atom\_style atomic}. A Nos\'e--Hoover-chain thermostat and MTTK
-barostat propagate a fully flexible triclinic cell. The
-\texttt{tri} pressure setting targets \SI{1}{bar} for each normal
-component and zero shear stress, allowing both cell lengths and tilts to
-vary. Table~\ref{tab:md-settings} lists the common parameters for all
-66 trajectories.
+As said earlier, we will be running NPT simulations to compute the heat capacity of the loaded MOF.
+They will be carried out using the LAMMPS package \cite{lammps}.
+In particular, the LAMMPS implementation used is the one developed in \cite{bigi2026metatomic},
+which allows us to run MD simulations using MLIPs such as PET-MAD and PET-SOL.
+The following table summarizes the main parameters used in the NPT simulations.
 
 \begin{table}[htbp]
   \centering
   \small
-  \caption{Parameters shared by the reported MOF-5/methane NPT runs.
-  The discarded interval is an analysis choice, not proof of equilibration.}
   \label{tab:md-settings}
   \begin{tabular}{@{}ll@{}}
     \toprule
@@ -1337,43 +1033,35 @@ vary. Table~\ref{tab:md-settings} lists the common parameters for all
     Frame interval & \SI{0.05}{ps} \\
     \bottomrule
   \end{tabular}
+  \caption{Parameters used in all NPT simulations}
 \end{table}
 
-Thermodynamic logs contain potential and kinetic energies, temperature,
-volume, the pressure tensor, and cell dimensions. Trajectory records
-contain atom identities, unwrapped positions, velocities, and forces.
-Analysis retains steps 200000--1000000, inclusive, corresponding to
-8001 samples at the recorded output interval. Logs and configurations are
-matched by timestep. Restart continuations restore the saved state and run
-to the original final-step target without assigning new velocities; they
-form part of the same trajectory.
-
-The enthalpy analysis follows Section~\ref{sec:heat-capacity}, using
-Eq.~\eqref{eq:finite-difference-cp} with $\Delta T=\SI{25}{K}$, so each
-derivative uses two trajectories separated by \SI{50}{K}. The extra
-\SI{175}{K} and \SI{425}{K} runs support centered derivatives at the
-endpoints of the reported 200--\SI{400}{K} interval. Energy, volume,
-temperature, and structural diagnostics are examined over the retained
-segment; the corresponding convergence checks are reported in
-Appendix~\ref{sec:capacity-diagnostics}.
+The simulations will run for \SI{500}{ps} with a timestep of \SI{0.5}{fs},
+and the first \SI{100}{ps} will be discarded to allow for equilibration.
+This is equivalent to 1 million timesteps, with the first 200,000 discarded.
+Because this would require a lot of storage, we will only save the trajectory every \SI{0.05}{ps},
+which is equivalent to every 100 timesteps, giving a total of 8000 frames per trajectory.
+Our results will be reported for temperatures between \SI{200}{K} and \SI{400}{K},
+but because we are using finite differences in \eqref{eq:finite-difference-cp},
+we will also need to run simulations at \SI{175}{K} and \SI{425}{K},
+which will only be used for the finite difference calculations.
+Each temperature MD simulation will be run on a NVIDIA Tesla V100 GPU, which has 32 GB of VRAM.
 
 \subsection{Hybrid $C_P$}
-\label{sec:harmonic-method}
+\label{sec:hybrid-cp}
 
-\subsubsection{Hybrid estimate used in this work}
-\label{sec:hybrid-method}
+An empty MOF is a rigid structure, so it is appropriate to use the harmonic approximation to compute its heat capacity.
+For lower temperatures, the heat capacity from the Dulong-Petit law \eqref{eq:dulong-petit} is not accurate.
+So in the general case, we would use the heat capacity from the Einstein model \eqref{eq:einstein-heat-capacity},
+which includes quantum effects is more accurate at lower temperatures.
+Doing so gives results that are pretty close to experimental results, as we will see later.
+However, when including guest molecules inside the MOF,
+because these molecules are loose and their interactions with the framework and with each other are not harmonic,
+the harmonic approximation is not valid anymore.
+Because the loaded MOF has different contributions to the heat capacity from the framework and from the guest molecules,
+Kapil et al. \cite{kapil2016} proposed a hybrid approach to compute the heat capacity of the loaded MOF.
+The hybrid approach uses the classical anharmonic heat capacity from MD simulations and adds a harmonic correction
 
-We use the hybrid approximation of Kapil \emph{et al.}\ \cite{kapil2019}
-to combine the classical anharmonic response sampled by NPT dynamics with
-the quantum vibrational populations described in
-Section~\ref{sec:heat-capacity}. Classical MD includes thermal motion and
-host--guest interactions beyond a quadratic potential, but assigns
-classical populations to nuclear vibrations. A purely harmonic quantum
-calculation accounts for quantized vibrations around one minimum but
-omits the anharmonic motion sampled along the trajectory.
-
-The approximation starts from the full classical MD heat capacity,
-subtracts its harmonic reference, and adds the quantum harmonic value:
 \begin{equation}
   C_P^{\mathrm{hyb}}(T)\simeq
     C_{P,\mathrm{cl}}^{\mathrm{anh}}(T)
@@ -1381,109 +1069,60 @@ subtracts its harmonic reference, and adds the quantum harmonic value:
     -C_{V,\mathrm{cl}}^{\mathrm{har}}(T).
   \label{eq:quantum-correction}
 \end{equation}
-Here $C_{P,\mathrm{cl}}^{\mathrm{anh}}$ is the full classical heat capacity
-from the temperature derivative of mean enthalpy, not only its anharmonic
-part. The two harmonic terms use the same retained modes of the complete
-loaded system. Their difference replaces the classical vibrational
-contribution by its quantum counterpart without counting it twice; it
-tends to zero in the classical high-temperature limit. Using the loaded
-Hessian includes guest vibrations and their coupling to the framework.
 
-In this work, Eq.~\eqref{eq:quantum-correction} produces the hybrid curves
-used to compare models, guest loadings, and experimental references.
-Dividing by the total framework-plus-guest mass gives the reported
-\si{J\per g\per K}. The empty-framework harmonic curve remains a separate
-reference and is not the correction applied to a loaded system.
-
+The first term $C_{P,\mathrm{cl}}^{\mathrm{anh}}(T)$ is computed using \eqref{eq:finite-difference-cp} from the MD simulations.
+The second term $C_{V,\mathrm{qn}}^{\mathrm{har}}(T)$ is computed using the quantum harmonic heat capacity from \eqref{eq:einstein-heat-capacity}.
+The third term $C_{V,\mathrm{cl}}^{\mathrm{har}}(T)$ is computed using the Dulong-Petit law from \eqref{eq:dulong-petit}.
 This construction retains classical anharmonicity while approximating the
 quantum correction harmonically. It neglects quantum anharmonic effects
-and assumes that the quantum change in $C_P-C_V$ is small. Reusing a single
-fixed-cell spectrum also neglects temperature-dependent changes in the
-reference frequencies and the distribution of occupied minima. The hybrid
-curves are therefore approximate estimates, whose sampling and reference
-stability must be checked.
+and assumes that the quantum change in $C_P-C_V$ is small.
 
-\subsubsection{Harmonic references and numerical assembly}
+\subsubsection{Computing the frequencies}
 
-For each model and loading, the final configuration of the \SI{400}{K}
-trajectory is relaxed with ASE FIRE using the matching metatomic potential.
-All atomic coordinates are optimized while the final MD cell is held fixed.
-The resulting single structure supplies the loaded Hessian used at every
-reporting temperature. The empty MOF-5 input is relaxed separately at its
-original cell with each model to provide a harmonic reference; no empty-MOF
-MD trajectory is used.
-
-Table~\ref{tab:relax-settings} records the force targets and completed
-optimization steps for the MOF-5/methane and empty MOF-5 references.
-The stopping criterion is the
-largest atomic force norm, which differs from the Cartesian-component
-criterion used in the current pre-MD initialization. The four unconverged
-methane-loaded relaxations reached their recorded step limits. The archives for
-converged runs retain the completed step count but not the requested maximum
-budget; these values should therefore not be interpreted as iteration caps.
-FIRE uses the ASE defaults for its remaining optimizer controls, which are
-not separately recorded in the relaxation metadata.
-
-PET-JAX/SADMOF computes the MOF-5 and MOF-303 Hessians with the sparse AD
-parameters in Table~\ref{tab:harmonic-settings}. The ZIF-8 results instead
-use the finite-difference calculation described in
-Appendix~\ref{sec:zif8-reference-diagnostics}. The normal-mode construction and quantum harmonic heat capacity are
-derived in Section~\ref{sec:einstein-model}, and the sparse AD algorithm
-is described in Appendix~\ref{sec:graph-coloring}. The sparse AD calculations
-symmetrize the Hessian, apply the force-constant row-sum acoustic treatment,
-and diagonalize the mass-weighted matrix while preserving the sign of
-unstable eigenvalues.
-
-\begin{table}[htbp]
-  \centering
-  \caption{Hessian and heat-capacity settings for the MOF-5/methane analysis.
-  The archived Hessians use float64, overriding the float32 TOML template.}
-  \label{tab:harmonic-settings}
-  \begin{tabular}{@{}ll@{}}
-    \toprule
-    Parameter & Value \\
-    \midrule
-    $k$ & 3 \\
-    Near-zero threshold & $|\widetilde\nu|\leq1\,\mathrm{cm^{-1}}$ \\
-    Imaginary-mode threshold & $\widetilde\nu<-1\,\mathrm{cm^{-1}}$ \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-Strict assembly rejects unexpected imaginary modes and more than three
-near-zero modes. The reported exploratory curves instead retain only
-frequencies above $1\,\mathrm{cm^{-1}}$, using the same mask for the quantum
-and classical harmonic terms. This choice permits evaluation of the
-correction but does not establish stability of the reference structures;
-the corresponding diagnostics are reported in
-Appendix~\ref{sec:results-hessians}.
-
-Assembly uses Eq.~\eqref{eq:quantum-correction} on the reporting grid
-in Table~\ref{tab:harmonic-settings}. The empty-framework reference uses
-the host mass for normalization. Sampling and model uncertainties are
-treated in the following subsection.
+To compute the harmonic heat capacity in \eqref{eq:quantum-correction},
+we need to get the frequencies from the eigenvalues of the Hessian matrix.
+To do so, we select the last frame of the MD trajectory at the highest temperature of \SI{400}{K} and relax the structure using a FIRE optimizer.
+Once the structure is relaxed and the forces are minimized, we can compute the eigenvalues of the Hessian matrix.
+The frequencies used in \eqref{eq:einstein-heat-capacity} will be the same for all temperatures,
+so only the temperature included in the formula will change.
+The efficiently compute the Hessian matrix, we use sparse automatic differentiation,
+which is a method that uses the sparsity of the Hessian to compute it efficiently.
+In the appendix \ref{sec:sparse-ad},
+the principles of the sparse automatic differentiation are explained in more detail with a simple example.
+The actual implementation is done using the SADMOF package \cite{sadmof},
+which is a package that implements the sparse automatic differentiation for MOFs.
+The eigenvalues of the Hessian matrix can be negative, in which case they are discarded.
+As explained in \ref{sec:sparse-ad}, to speed up the calculations,
+we can truncate the Hessian by selecting a number of hops $k < K$,
+where $K$ is the number of hops needed to recover the full Hessian.
+In this project with PET-S, we will use a number of hops $k=3$,
+which shows a very small relative error compared to the full Hessian with $K=7$,
+when computing the heat capacity \cite{sadmof}.
 
 \subsection{Uncertainty quantification}
-
-\subsubsection{LLPR and CEA}
-\label{sec:llpr-cea}
+\label{sec:uq}
 
 When using a machine learning model to predict quantities, there are many sources of uncertainty.
 The model may not have been trained on data that is representative of the system being studied.
 It may not capture all relevant physics, which depends on the first principles methods used when doing DFT calculations.
 If we wanted to have better uncertainty estimates, we would need to have the model trained on different datasets and use these models to predict the same quantity.
 We could then have a better idea on the uncertainty of the model predictions.
-Additionaly, we could also build complete different models with different architectures and train them with different datasets.
+Additionally, we could also build complete different models with different architectures and train them with different datasets.
 Combining the results from each model to have a final prediction and uncertainty estimate is what we call ensemble learning.
 In traditional machine learning, ensemble learning is a technique that combines the predictions of multiple models to improve overall performance and provide more robust uncertainty estimates.
 In practice, ensemble learning is widely used in various machine learning tasks, including regression, classification, and forecasting.
 One of the most efficient models are tree-based models, such as Random Forests and Gradient Boosting Machines, which combine the predictions of multiple decision trees to improve accuracy and reduce overfitting.
-However, training multiple models, especially in the case of MLIPs, is an expensive task.
-Instead of training multiple models, we can use the last-layer prediction rigidity (LLPR) \cite{bigi2024} method to estimate the uncertainty of a single model.
-The idea is that instead of training multiple models, we take the model we are using for the simulation and we create new models by just changing its last layer.
+
+\subsubsection{Last-layer prediction rigidity}
+
+Training multiple models, especially in the case of MLIPs, is an expensive task.
+Instead of training multiple models,
+we can use the last-layer prediction rigidity (LLPR) \cite{bigi2024} method to estimate the uncertainty of a single model.
+The idea is that instead of training multiple models,
+we take the model we are using for the simulation and we create new models by just changing its last layer.
 The models with the different last layers could be considered as different models that were trained on different datasets.
-This method is cheap and efficient, and it has been shown to provide good uncertainty estimates for MLIPs.
-For central energy $\bar U=\bm w_0^{\mathrm T}\bm f(\bm x)$ andcovariance-set features $\bm F$,
+This method is cheap and efficient, and it has been shown to provide good uncertainty estimates for MLIPs \cite{bigi2024}.
+For central energy $\bar U=\bm w_0^{\mathrm T}\bm f(\bm x)$ and covariance-set features $\bm F$,
 
 \begin{equation}
   \begin{aligned}
@@ -1499,10 +1138,7 @@ For central energy $\bar U=\bm w_0^{\mathrm T}\bm f(\bm x)$ andcovariance-set fe
 The regularizer $\lambda$ stabilizes weakly constrained directions; $\alpha$
 is calibrated against energy residuals on a disjoint reference-labeled set
 using the base potential's electronic-structure definition. Predictions
-cannot calibrate their own error.
-
-The exported \texttt{energy\_\allowbreak{}uncertainty} is an energy standard deviation.
-Property propagation instead needs persistent, signed energy variations:
+cannot calibrate their own error. The exported \texttt{energy\_\allowbreak{}uncertainty} is an energy standard deviation.
 Each new model is generated by sampling the last-layer weight vector $\bm w_i$ from the following distribution
 
 \begin{equation}
@@ -1523,6 +1159,9 @@ The advantage of this method is that it is not only cheap to generate the models
 The model used to run the simulation can be considered to be the central model and the mean of all the other models generated by sampling the last layer is equal to the central model.
 That means that we can use the same trajectory generated by the central model to evaluate the quantities with the other models,
 which will be treated as uncertainties.
+
+\subsubsection{Cumulative expansion approximation}
+
 We can then compute the difference between the potential of the members and the central model as well as the enthalpy of each member.
 
 \begin{align}
@@ -1541,7 +1180,8 @@ In particular, if we want to calculate the ensemble average of the enthalpy as a
 \end{equation}
 
 It is done using the Boltzmann factors of the energy differences between the central model and the members.
-When the energy differences $\Delta U_t^{(i)}$ are small, the direct reweighting can be approximated by a first-order cumulant expansion approximation (CEA):
+When the energy differences $\Delta U_t^{(i)}$ are small,
+the direct reweighting can be approximated by a first-order cumulant expansion approximation (CEA):
 
 \begin{equation}
   \begin{aligned}
@@ -1557,7 +1197,6 @@ $N_{\mathrm{eff}}=1/\sum_t\widetilde w_t^2$ should remain adequate, and
 $\operatorname{var}_t(\beta\Delta U_t^{(i)})\ll1$ is needed for controlled first-order CEA.
 Applying Eq.~\eqref{eq:finite-difference-cp} to each member's CEA mean
 enthalpies gives $C_{P,\mathrm{cl}}^{(i)}(T)$.
-
 We can then simply calculate the uncertainty at each temperature as the standard deviation of the heat capacities of all the members:
 
 \begin{equation}
@@ -1588,7 +1227,8 @@ Finally, we can compute the uncertainty of the quantum harmonic heat capacity as
   \label{eq:llpr-cv-spread}
 \end{equation}
 
-The total uncertainty of the hybrid heat capacity is then obtained by combining the uncertainties of the classical anharmonic and quantum harmonic heat capacities in quadrature:
+The total uncertainty of the hybrid heat capacity is then obtained
+by combining the uncertainties of the classical anharmonic and quantum harmonic heat capacities in quadrature:
 
 \begin{equation}
   \sigma_{C_P}(T)
@@ -2531,7 +2171,7 @@ Processing Systems \textbf{33}, 1877--1901 (2020),
 
 \bibitem{petmad}
 A. Mazitov \emph{et al.},
-\emph{PET-MAD as a Lightweight Universal Interatomic Potential for Advanced
+\emph{PET-MAD, a Lightweight Universal Interatomic Potential for Advanced
 Materials Modeling}, Nature Communications \textbf{16}, 10653 (2025),
 \href{https://doi.org/10.1038/s41467-025-65662-7}{doi:10.1038/s41467-025-65662-7}.
 
@@ -2630,6 +2270,20 @@ M. F. Langer, A. Hill, and M. Ceriotti,
 interatomic potentials},
 \href{https://arxiv.org/abs/2609.20510}{arXiv:2609.20510} (2026),
 \href{https://doi.org/10.48550/arXiv.2609.20510}{doi:10.48550/arXiv.2609.20510}.
+
+\bibitem{bigi2026metatomic}
+F. Bigi \emph{et al.},
+\emph{metatensor and metatomic: Foundational libraries for interoperable
+atomistic machine learning}, Journal of Chemical Physics \textbf{164},
+064113 (2026),
+\href{https://doi.org/10.1063/5.0304911}{doi:10.1063/5.0304911}.
+
+\bibitem{chorna2026chemiscope}
+S. Chorna, J. L\'ala, Q. Xu, R. K. Cersonsky, G. Fraux, and M. Ceriotti,
+\emph{Chemiscope 1.0: interactive exploration of atomistic data from analysis
+to dissemination}, Journal of Open Source Software \textbf{11}(122),
+10380 (2026),
+\href{https://doi.org/10.21105/joss.10380}{doi:10.21105/joss.10380}.
 
 \end{thebibliography}
 
