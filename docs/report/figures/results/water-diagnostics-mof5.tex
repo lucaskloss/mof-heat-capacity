@@ -1,0 +1,18 @@
+% Nonoverlapping 25 ps block means; exported from existing LAMMPS logs.
+\begin{tikzpicture}
+\begin{groupplot}[
+group style={group size=3 by 1,horizontal sep=2.0cm,vertical sep=1.5cm},
+width=0.21\textwidth,height=0.19\textwidth,scale only axis,
+xmin=100,xmax=500,xtick={100,300,500},
+tick label style={font=\scriptsize},label style={font=\small},title style={font=\small},
+grid=major,grid style={black!10},xlabel={Time [ps]},
+]
+\nextgroupplot[title={200 K: Temperature},ylabel={$T$ [K]}]
+\addplot[asdblue,thick,mark=*,mark size=1pt] table[x=time_ps,y=temperature_K,col sep=comma]{data/water-diagnostic-mof5-200K.csv};
+\addplot[black,dashed,domain=100:500] {200};
+\nextgroupplot[title={200 K: Enthalpy},ylabel={$\Delta H$ [eV/cell]}]
+\addplot[asdblue,thick,mark=*,mark size=1pt] table[x=time_ps,y=delta_enthalpy_eV,col sep=comma]{data/water-diagnostic-mof5-200K.csv};
+\nextgroupplot[title={200 K: Volume},ylabel={$\Delta V/V_0$ [\%]}]
+\addplot[asdblue,thick,mark=*,mark size=1pt] table[x=time_ps,y=delta_volume_percent,col sep=comma]{data/water-diagnostic-mof5-200K.csv};
+\end{groupplot}
+\end{tikzpicture}

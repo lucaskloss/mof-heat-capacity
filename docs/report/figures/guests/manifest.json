@@ -1,0 +1,65 @@
+{
+  "chemiscope_version": "1.1.0",
+  "settings": {
+    "target": "structure",
+    "pinned": [
+      0
+    ],
+    "structure": [
+      {
+        "unitCell": false,
+        "axes": "off",
+        "rotation": false,
+        "supercell": [
+          1,
+          1,
+          1
+        ],
+        "keepOrientation": false,
+        "environments": {
+          "activated": false,
+          "center": false
+        }
+      }
+    ]
+  },
+  "figures": [
+    {
+      "file": "ch4.png",
+      "source": "input/ch4.gro",
+      "source_sha256": "f1e28dc66f8f529d3206265b098bf6e5675ee1d93e2c6e0109014ff28b2321ff",
+      "atoms": 5,
+      "formula": "CH4",
+      "view_direction_cartesian": [
+        1,
+        1.414,
+        0
+      ]
+    },
+    {
+      "file": "co2.png",
+      "source": "input/co2.gro",
+      "source_sha256": "61906b79703035aa0d9a1ae9bf94359a32c925daab1e0a383b5506fb4be93329",
+      "atoms": 3,
+      "formula": "CO2",
+      "view_direction_cartesian": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "file": "h2o.png",
+      "source": "input/h2o.gro",
+      "source_sha256": "7b11b2d16c36466bf7c5ae231a256265b4c2678af37333748e39e61927bcae51",
+      "atoms": 3,
+      "formula": "H2O",
+      "view_direction_cartesian": [
+        0,
+        0,
+        1
+      ]
+    }
+  ],
+  "description": "Template geometry preserved; centered and rendered without periodic cells. Each image uses independent automatic zoom."
+}
