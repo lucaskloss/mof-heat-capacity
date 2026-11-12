@@ -831,6 +831,37 @@ Their placements are accepted only when all guest atoms remain at least 1.5 Å f
 If the insertion becomes blocked, the previously placed guests are partially or fully removed,
 we then reinsert the remaining guests, and continue until the desired number of molecules is reached.
 The resulting structure may be further relaxed before starting the MD simulation if initial forces are too large.
+Figure~\ref{fig:loaded-frameworks} shows representative starting configurations
+with guests inside the same periodic host cells as in Figure~\ref{fig:frameworks},
+before relaxation.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{minipage}[t]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\linewidth,trim=200bp 200bp 200bp 200bp,clip]{figures/loaded/mof5-50ch4.png}\\
+    (a) MOF-5 + 50 CH$_4$
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\linewidth,trim=400bp 400bp 400bp 400bp,clip]{figures/loaded/mof303-50h2o.png}\\
+    (b) MOF-303 + 50 H$_2$O
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\linewidth,trim=400bp 400bp 400bp 400bp,clip]{figures/loaded/zif8-54co2.png}\\
+    (c) ZIF-8 + 54 CO$_2$
+  \end{minipage}
+  \caption{Guest-loaded MOFs rendered with Chemiscope \cite{chorna2026chemiscope},
+  using the same viewing directions and element colors as the empty frameworks.
+  MOF-5 contains 50 methane molecules (674 atoms in total),
+  the MOF-303 $2\times2\times2$ supercell contains 50 water molecules
+  (1174 atoms), and the ZIF-8 $2\times2\times2$ supercell contains
+  54 carbon dioxide molecules (2370 atoms).
+  These are insertion configurations before relaxation.}
+  \label{fig:loaded-frameworks}
+\end{figure}
+
 After successfully inserting the guest molecules, we need to assign the initial velocities to all the atoms in the system.
 This is done by sampling from a Maxwell-Boltzmann distribution at the target temperature
 

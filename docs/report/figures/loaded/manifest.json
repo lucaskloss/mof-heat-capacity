@@ -1,0 +1,84 @@
+{
+  "source": "output/chemiscope/mof5-mof303-zif8-empty-and-loaded.json.gz",
+  "source_sha256": "5d2e9b9c5e571147fbf1b067d49ff40fa8b40b643d599559f9a68d9a366983a4",
+  "chemiscope_version": "1.1.0",
+  "settings": {
+    "target": "structure",
+    "pinned": [
+      0
+    ],
+    "structure": [
+      {
+        "unitCell": true,
+        "axes": "abc",
+        "rotation": false,
+        "supercell": [
+          1,
+          1,
+          1
+        ],
+        "keepOrientation": false,
+        "environments": {
+          "activated": false,
+          "center": false
+        }
+      }
+    ]
+  },
+  "zif8_insertion": {
+    "template": "input/co2.gro",
+    "template_sha256": "61906b79703035aa0d9a1ae9bf94359a32c925daab1e0a383b5506fb4be93329",
+    "seed": 2025,
+    "minimum_distance_angstrom": 1.5,
+    "tries": 1000,
+    "method": "auto",
+    "packing_restarts": 20
+  },
+  "figures": [
+    {
+      "file": "mof5-50ch4.png",
+      "structure": "MOF-5 + 50 CH4",
+      "guest": "CH4",
+      "molecules": 50,
+      "host_atoms": 424,
+      "atoms": 674,
+      "source_host_index": 0,
+      "source_loaded_index": 1,
+      "view_direction_cartesian": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "file": "mof303-50h2o.png",
+      "structure": "MOF-303 2x2x2 + 50 H2O",
+      "guest": "H2O",
+      "molecules": 50,
+      "host_atoms": 1024,
+      "atoms": 1174,
+      "source_host_index": 4,
+      "source_loaded_index": 7,
+      "view_direction_cartesian": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "file": "zif8-54co2.png",
+      "structure": "ZIF-8 2x2x2 + 54 CO2",
+      "guest": "CO2",
+      "molecules": 54,
+      "host_atoms": 2208,
+      "atoms": 2370,
+      "source_host_index": 8,
+      "source_loaded_index": null,
+      "view_direction_cartesian": [
+        0,
+        0,
+        1
+      ]
+    }
+  ]
+}
