@@ -24,7 +24,7 @@
 \hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
 \sisetup{per-mode=symbol}
 % Start every section on a new page and flush pending floats.
-\AddToHook{cmd/section/before}{\clearpage}
+\AddToHook{cmd/section/before}[section-page-break]{\clearpage}
 \setcounter{tocdepth}{2}
 \newcommand{\chfour}{\ensuremath{\mathrm{CH_4}}}
 \newcommand{\cv}{\ensuremath{C_V}}
@@ -58,11 +58,21 @@ When I discovered the COSMO group on the EPFL website,
 I was immediately interested in the work they were doing and immediately knew I wanted to do my master thesis there.
 I have gained a lot of experience in numerical simulations, algorithms, machine learning and software development during this project,
 which will be very useful for my future career.
+\\
+\\
 I would like to also thank Qianjun Xu for his help and guidance throughout the project, and for always being available to answer my questions.
 The discussions we had were very helpful to resolve the problems I encountered and to save time during the simulations.
 I would like to also thank Guillaume Fraux for explaining certain concepts
 when I was contributing to parts of the C++ API of the Metatomic and Metatensor libraries.
 I wanted to get better at programming and he gave me the opportunity to do so by letting me contribute and by reviewing my code.
+
+
+% Keep this front-matter section on the Acknowledgments page.
+\RemoveFromHook{cmd/section/before}[section-page-break]
+\section*{AI usage disclosure}
+AI tools were used during this project mainly for code generation and syntax correction.
+The models used throughout the project were OpenAI's ChatGPT 5.6 Luna, 5.6 Terra, 5.6 Sol, 6 Astra and 6.1 Sol.
+\AddToHook{cmd/section/before}[section-page-break]{\clearpage}
 
 \clearpage
 
@@ -947,8 +957,8 @@ The efficiently compute the Hessian matrix, we use sparse automatic differentiat
 which is a method that uses the sparsity of the Hessian to compute it efficiently.
 In the appendix \ref{sec:sparse-automatic-differentiation},
 the principles of the sparse automatic differentiation are explained in more detail with a simple example.
-The actual implementation is done using the SADMOF package \cite{sadmof},
-which is a package that implements the sparse automatic differentiation for MOFs.
+The actual implementation is done using the methods from \cite{sadmof},
+and the asdex library \cite{asdex} is used to compute the Hessian matrix.
 The eigenvalues of the Hessian matrix can be negative, in which case they are discarded.
 As explained in \ref{sec:sparse-automatic-differentiation}, to speed up the calculations,
 we can truncate the Hessian by selecting a number of hops $k < K$,
@@ -1471,10 +1481,6 @@ and it is the biggest source of uncertainty in our results,
 the obvious improvement would be to use a smaller $\Delta T$ to compute the classical anharmonic heat capacity.
 This would require more simulations,
 but it would give us a better estimate of the classical anharmonic heat capacity and reduce the uncertainty in our results.
-
-\section*{AI usage disclosure}
-AI tools were used during this project mainly for code generation and syntax correction.
-The models used throughout the project were OpenAI's ChatGPT 5.6 Luna, 5.6 Terra, 5.6 Sol, 6 Astra and 6.1 Sol.
 
 \begin{thebibliography}{99}
 \addcontentsline{toc}{section}{\refname}
