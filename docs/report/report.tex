@@ -51,18 +51,18 @@
 \clearpage
 \section*{Acknowledgments}
 
-I would like to thank professor Michele Ceriotti for giving me the opportunity to do my master thesis in his group.
-I had previously learned about molecular dynamics throughout some of my courses, but never had the opportunity to apply it in a project.
-I had also previously other courses on machine learning, but again never had the opportunity to apply it in a real project.
+I would like to thank Professor Michele Ceriotti for giving me the opportunity to do my master's thesis in his group.
+I had previously learned about molecular dynamics in some of my courses, but had never had the opportunity to apply it in a project.
+I had also previously taken courses on machine learning, but again had never had the opportunity to apply it in a real project.
 When I discovered the COSMO group on the EPFL website,
-I was immediately interested in the work they were doing and immediately knew I wanted to do my master thesis there.
+I was immediately interested in the work they were doing and knew I wanted to do my master's thesis there.
 I have gained a lot of experience in numerical simulations, algorithms, machine learning and software development during this project,
 which will be very useful for my future career.
 \\
 \\
-I would like to also thank Qianjun Xu for his help and guidance throughout the project, and for always being available to answer my questions.
-The discussions we had were very helpful to resolve the problems I encountered and to save time during the simulations.
-I would like to also thank Guillaume Fraux for explaining certain concepts
+I would also like to thank Qianjun Xu for his help and guidance throughout the project, and for always being available to answer my questions.
+The discussions we had were very helpful in resolving the problems I encountered and saving time during the simulations.
+I would also like to thank Guillaume Fraux for explaining certain concepts
 when I was contributing to parts of the C++ API of the Metatomic and Metatensor libraries.
 I wanted to get better at programming and he gave me the opportunity to do so by letting me contribute and by reviewing my code.
 
@@ -83,37 +83,42 @@ The models used throughout the project were OpenAI's ChatGPT 5.6 Luna, 5.6 Terra
 \section{Introduction}
 
 Metal-organic frameworks (MOFs) are porous crystalline materials built
-with metal nodes and organic linkers, as their name suggests.
+from metal nodes and organic linkers, as their name suggests.
 These highly porous materials have a large internal surface area and can adsorb a wide variety of molecules,
-making them useful for applications such as gas storage.
+making them useful for applications such as gas storage \cite{furukawa2013}.
 As these materials adsorb and release gas molecules, they also exchange heat with their surroundings.
-Therefore, studying the material's heat capacity is important for understanding these processes.
+The heat capacity influences the temperature changes during adsorption and desorption and the energy required to regenerate the adsorbent \cite{kapil2019}.
+Therefore, studying their heat capacity is important for understanding these processes.
 The heat capacity of a material is defined as the amount of energy required to raise the temperature of the material by one degree.
-However, experimental data on the heat capacity of MOFs is not widely available.
-Especially when considering all the potential gas molecules that can be adsorbed in the pores and the wide temperature ranges.
+In 2019, Kapil et al. highlighted the lack of heat-capacity data for most MOFs and of studies on the influence of adsorbed guest molecules \cite{kapil2019}.
+Covering all the potential gas molecules that can be adsorbed in the pores and wide temperature ranges presents a substantial challenge.
 \\
 \\
 As a result, it would be useful to develop an accurate computational method to predict the heat capacity of MOFs.
-But because these materials and their adsorbed molecules are large and complex systems,
+An efficient prediction method could help screen MOFs for favorable thermal properties \cite{kapil2019}.
+However, because these materials and their adsorbed molecules form large and complex systems,
 there are many challenges when trying to model them accurately and efficiently.
-For empty MOFs, the material being only in the solid phase, the heat capacity can be computed using the harmonic approximation,
-which is relatively easy and accurate.
+For empty MOFs, where only the solid framework is present, the heat capacity can be computed using the harmonic approximation,
+which is relatively inexpensive and can be accurate, as demonstrated for MOF-5 \cite{kapil2019}.
 The problem arises when inserting guest molecules into the pores of the MOF.
 These molecules can move around more and interact with the framework as well as the other guest molecules.
-These interactions are anharmonic, which makes the harmonic approximation less accurate.
-To make things worse, quantum effects can also play a role in these systems, especially at low temperatures.
-When trying to run molecular dynamics simulations to capture all these effects, with a wide temperature range and different loadings,
+These interactions are anharmonic, which makes the harmonic approximation less accurate \cite{kapil2019}.
+Further complicating matters, quantum effects can also play a role in these systems, especially at low temperatures.
+Classical molecular dynamics (MD) captures anharmonic motion but neglects nuclear quantum effects.
+Path integral molecular dynamics can account for both, although at a substantially higher computational cost \cite{kapil2019}.
+For flexible, guest-loaded MOFs, allowing the simulation cell to respond to pressure can be important because constant-volume and constant-pressure properties can differ \cite{kapil2019}.
+When running simulations that capture both quantum and anharmonic effects over a wide temperature range and at different loadings,
 the computational cost can become very high.
 \\
 \\
-Capturing both harmonic and anharmonic effects at an affordable computational cost is the central challenge attemped by \cite{kapil2019}.
-They used and evaluated a hybrid approach for MOF-5 at different $CH_4$ loadings and temperatures,
-combining classical molecular dynamics (MD) with a harmonic correction to account for quantum effects.
-Our goal with this project is to first try to reproduce their results using PET \cite{pet2020}, a machine-learned interatomic potential (MLIP).
-Once we have validated the approach, we will then extend it to other MOFs (MOF-303 and ZIF-8) and guest molecules ($CO_2$ and $H_2O$).
-Additionally, we will also use a method proposed by \cite{sadmof},
-that uses automatic differentiation and the sparsity of the Hessian matrix,
-in order to compute the harmonic heat capacity at a lower computational cost.
+Capturing both quantum and anharmonic effects at an affordable computational cost is the central challenge addressed by Kapil et al. \cite{kapil2019}.
+They used and evaluated a hybrid approach for MOF-5 at different $\mathrm{CH_4}$ loadings and temperatures,
+combining classical MD with a harmonic correction to account for quantum effects.
+Our first goal in this project is to try to reproduce their results using PET \cite{pet}, a machine-learned interatomic potential (MLIP).
+Once we have validated the approach, we will then extend it to other MOFs (MOF-303 and ZIF-8) and guest molecules ($\mathrm{CO_2}$ and $\mathrm{H_2O}$).
+Additionally, we will use a method proposed by Langer et al. \cite{sadmof}
+that uses automatic differentiation and the sparsity of the Hessian matrix
+to compute the harmonic heat capacity at a lower computational cost.
 
 \section{Theory}
 \label{sec:theory}
@@ -1484,6 +1489,12 @@ but it would give us a better estimate of the classical anharmonic heat capacity
 
 \begin{thebibliography}{99}
 \addcontentsline{toc}{section}{\refname}
+
+\bibitem{furukawa2013}
+H. Furukawa, K. E. Cordova, M. O'Keeffe, and O. M. Yaghi,
+\emph{The Chemistry and Applications of Metal-Organic Frameworks},
+Science \textbf{341}, 1230444 (2013),
+\href{https://doi.org/10.1126/science.1230444}{doi:10.1126/science.1230444}.
 
 \bibitem{swope1982}
 W. C. Swope, H. C. Andersen, P. H. Berens, and K. R. Wilson,
