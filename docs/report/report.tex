@@ -293,10 +293,9 @@ A key challenge in obtaining accurate DFT results is choosing an appropriate app
 \label{sec:molecular-dynamics}
 
 The potential $U(\bm R^N)$ appearing in the nuclear Schrödinger equation \eqref{eq:bo-nuclear-schrödinger}
-is the Born-Oppenheimer potential energy surface.
-To know how the system evolves over time, we should solve this equation.
-However, because nuclei are much heavier than electrons, they can be treated as classical particles.
-Therefore, we can model their dynamics using classical mechanics, which is the basis of molecular dynamics (MD) simulations.
+is the Born--Oppenheimer potential energy surface.
+To describe the quantum evolution of the nuclei, we would solve the corresponding time-dependent Schrödinger equation.
+In classical molecular dynamics (MD), nuclear motion is instead approximated using classical mechanics, neglecting nuclear quantum effects.
 Let $\bm R^N=(\bm R_1,\ldots,\bm R_N)$ and $\bm P^N=(\bm P_1,\ldots,\bm P_N)$ be the positions and momenta of the $N$ nuclei in the system.
 The classical Hamiltonian is then given by
 
@@ -306,8 +305,8 @@ The classical Hamiltonian is then given by
   \label{eq:classical-hamiltonian}
 \end{equation}
 
-Once we know the electronic ground-state energy $\varepsilon_0(\bm R)$, the dynamics of the nuclei can be treated classically.
-Using Hamilton's equations, we can derive the equations of motion for the nuclei:
+Given the potential energy surface and adopting the classical approximation for nuclear motion,
+Hamilton's equations give the equations of motion for the nuclei:
 
 \begin{align}
   \dot{\bm R}_i=\frac{\partial\mathcal H}{\partial \bm P_i}=\frac{\bm P_i}{M_i}, \qquad
@@ -315,13 +314,13 @@ Using Hamilton's equations, we can derive the equations of motion for the nuclei
   \label{eq:classical-hamiltons-equations}
 \end{align}
 
-Since analytically solving a system of $6N$ coupled ordinary differential equations is impossible,
-we need to use numerical methods to integrate these equations of motion in order to find the trajectories of the nuclei.
-One of the most popular methods is the Runge--Kutta method, which is a family of iterative methods for solving ordinary differential equations.
+Because these $6N$ coupled ordinary differential equations generally cannot be solved analytically,
+we use numerical methods to integrate them and obtain the trajectories of the nuclei.
+Runge--Kutta methods are a popular family of iterative methods for solving ordinary differential equations.
 However, in molecular dynamics, the most commonly used method is the velocity Verlet algorithm \cite{swope1982}.
-The velocity Verlet algorithm is a symplectic integrator,
-which means that it preserves the geometric structure of the phase space and conserves energy over long timescales.
-By writing the velocities as $\bm V_i(t)=\dot{\bm R}_i(t)$ and accelarations as $\bm A_i(t)=\dot{\bm P}_i(t)/M_i$,
+The velocity Verlet algorithm is a symplectic integrator that preserves the symplectic structure of phase space
+and generally exhibits small energy fluctuations over long timescales when a suitable time step is used \cite{allen2017}.
+By writing the velocities as $\bm V_i(t)=\dot{\bm R}_i(t)$ and accelerations as $\bm A_i(t)=\dot{\bm P}_i(t)/M_i$,
 we can update the positions of the particles using
 
 \begin{equation}
@@ -329,59 +328,61 @@ we can update the positions of the particles using
   \label{eq:verlet-position-update}
 \end{equation}
 
-Using this new position, we can calculate $\bm A_i(t+\Delta t)$ and update the velocities using
+Using the updated positions, we can calculate $\bm A_i(t+\Delta t)$ and update the velocities using
 
 \begin{equation}
   \bm V_i(t+\Delta t)=\bm V_i(t)+\frac{1}{2}\left[\bm A_i(t)+\bm A_i(t+\Delta t)\right]\Delta t.
   \label{eq:verlet-velocity-update}
 \end{equation}
 
-If we want to simulate a system with constant N, V and E, we can use the velocity Verlet algorithm to integrate the equations of motion.
-However, in this project we want to simulate a system with constant N, P and T, which aims to reproduce the conditions of a laboratory experiment.
-We have therefore to make use of statistical mechanics to sample the appropriate ensemble.
+For simulations in the NVE ensemble, with fixed particle number $N$, volume $V$, and energy $E$,
+we can use the velocity Verlet algorithm to integrate the equations of motion.
+However, this project uses the NPT ensemble, with fixed $N$ and imposed pressure $P_{\mathrm{ext}}$ and temperature $T$, to model laboratory conditions.
+We therefore use statistical mechanics to describe the appropriate ensemble.
 
 \subsubsection{Statistical Mechanics}
 \label{sec:sm}
 
 The goal of statistical mechanics is to relate the microscopic properties of a system to its macroscopic behavior.
 In the context of molecular dynamics, we are interested in the properties of the NPT ensemble,
-which is characterized by constant number of particles $N$, pressure $P_\mathrm{ext}$, and temperature $T$.
+which is characterized by a constant number of particles $N$, imposed external pressure $P_{\mathrm{ext}}$, and imposed temperature $T$ \cite{tuckerman2023}.
 The quantity of interest in this case is the enthalpy,
-which is defined as $H=E+PV$, where $E$ is the internal energy, $P$ is the pressure, and $V$ is the volume.
-The internal energy $E$ being the Hamiltonian $\mathcal{H}(\bm R^N,\bm P^N)$, the enthalpy is then given by
+which we evaluate as $H=E+P_{\mathrm{ext}}V$, where $E$ is the internal energy and $V$ is the volume.
+The microscopic internal energy is given by the Hamiltonian $\mathcal{H}(\bm R^N,\bm P^N)$, so the microscopic enthalpy is
 
 \begin{equation}
-  H(\bm R^N,\bm P^N)=\sum_{i=1}^{N}\frac{|\bm P_i|^2}{2m_i}+U(\bm R^N)+PV.
+  H(\bm R^N,\bm P^N;V)=\sum_{i=1}^{N}\frac{|\bm P_i|^2}{2M_i}+U(\bm R^N)+P_{\mathrm{ext}}V.
   \label{eq:physical-enthalpy}
 \end{equation}
 
-In the NPT ensemble, both internal energy and enthalpy fluctuate as the system exchanges heat and work with its surroundings.
-In this ensemble, a macroscopic observable $A$ is given by the ensemble average of its microscopic observable $A(\bm R^N,\bm P^N)$ as
+In the NPT ensemble, the internal energy, enthalpy, and instantaneous temperature and pressure fluctuate as the system exchanges heat and work with its surroundings.
+A macroscopic observable is obtained as the ensemble average of the corresponding microscopic observable $A(\bm R^N,\bm P^N)$ \cite{kapil2019}:
 
 \begin{equation}
   \langle A\rangle
-    =\int_0^\infty\mathrm dV\int_{\mathrm{cell}(V)}\mathrm d^{3N}R\int\mathrm d^{3N}P
-    A(\bm R^N,\bm P^N)e^{-\beta[\mathcal{H}(\bm R^N,\bm P^N)+PV]},
+    =\frac{1}{\mathcal Z_{\mathrm{NPT}}}\int_0^\infty\mathrm dV\int_{\mathrm{cell}(V)}\mathrm d^{3N}R\int\mathrm d^{3N}P
+    A(\bm R^N,\bm P^N)e^{-\beta[\mathcal{H}(\bm R^N,\bm P^N)+P_{\mathrm{ext}}V]},
   \label{eq:ensemble-average}
 \end{equation}
 
+Here $\beta=(k_{\mathrm B}T)^{-1}$, where $k_{\mathrm B}$ is the Boltzmann constant,
+and $\mathcal Z_{\mathrm{NPT}}$ is the same integral with $A=1$, ensuring normalization.
 The particles are confined to a periodic simulation cell of volume $V$ and shape $\bm h$.
 Additionally, we assume the ergodic hypothesis,
-which states that the infinite time average of an observable along a trajectory is equal to its ensemble average.
-So the integral \eqref{eq:ensemble-average} can be replaced by a time average along a sufficiently long trajectory
+which states that the infinite-time average of an observable along an equilibrium trajectory equals its ensemble average \cite{tuckerman2023}.
+The ensemble average in Eq.~\eqref{eq:ensemble-average} can therefore be expressed as
 
 \begin{equation}
   \langle A\rangle=\lim_{\tau\to\infty}\frac{1}{\tau}\int_0^\tau A\bigl(\bm R^N(t),\bm P^N(t)\bigr)\,\mathrm dt.
   \label{eq:ergodic-average}
 \end{equation}
 
-In practice, we can't run the simulation for ever,
-so we need to run the simulation for long enough to ensure that the system has reached equilibrium and explored the relevant phase space.
-We can then replace the integral by a finite sum over the trajectory frames, giving the time average
+In practice, simulations have a finite duration and must be long enough for the system to reach equilibrium and explore the relevant phase space.
+After discarding the equilibration period, we approximate the integral using $M$ equally spaced trajectory frames:
 
 \begin{equation}
   \langle A\rangle
-  \approx\frac{1}{M}\sum_{j=1}^{M}A\bigl(\bm R^N(t_j),\bm P^N(t_j)\bigr),
+  \approx\frac{1}{M}\sum_{j=1}^{M}A\bigl(\bm R^N(t_j),\bm P^N(t_j)\bigr).
   \label{eq:time-average}
 \end{equation}
 
