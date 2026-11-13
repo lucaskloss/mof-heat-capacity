@@ -237,7 +237,7 @@ only three spatial coordinates \cite{hohenberg1964,kohn1965}.
 
 \subsubsection{The Hohenberg--Kohn theorems}
 
-The Hohenberg--Kohn theorems establish that the ground-state density
+The Hohenberg--Kohn (HK) theorems establish that the ground-state density
 determines the external potential, up to an additive constant, and hence
 the electronic Hamiltonian. They also provide a variational principle:
 the ground-state density minimizes the electronic energy functional at
@@ -250,16 +250,16 @@ fixed electron number \cite{hohenberg1964}:
   \qquad \int n(\bm r)\,\mathrm d\bm r=N_{\mathrm e}.
   \label{eq:hk-variational-principle}
 \end{equation}
-Here $v_{\mathrm{ext}}$ is the electron--nuclear potential introduced in
-Section~\ref{sec:bo}, and the universal functional $F[n]$ contains the
+Here $v_{\mathrm{ext}}$ is the external potential acting on an electron due to the nuclei,
+and the universal functional $F[n]$ contains the
 electronic kinetic and electron--electron interaction energies. The
 theorems establish this density formulation but do not give a practical
 expression for $F[n]$.
 
 \subsubsection{The Kohn--Sham equations}
 
-The HK theorems do not provide a method for finding the ground-state density.
-The Kohn--Sham (KS) approach introduces a system of noninteracting electrons with the same $n(\bm r)$ as the interacting system \cite{kohn1965}
+The HK theorems do not themselves provide a practical procedure for finding the ground-state density.
+The Kohn--Sham (KS) approach introduces a system of noninteracting electrons with the same ground-state density $n(\bm r)$ as the interacting system \cite{kohn1965}:
 
 \begin{equation}
   n(\bm r)=\sum_a f_a|\phi_a(\bm r)|^2,
@@ -286,8 +286,8 @@ orbitals gives
 with $v_{\mathrm H}=\delta E_{\mathrm H}/\delta n$ and
 $v_{\mathrm{xc}}=\delta E_{\mathrm{xc}}/\delta n$. Because these potentials
 depend on the density, the equations are solved self-consistently by
-alternating orbital and density updates until convergence.
-The challenge to having good DFT results is to find a good approximation for the exchange-correlation functional $E_{\mathrm{xc}}[n]$.
+alternating orbital and density updates until convergence is reached \cite{kohn1965}.
+A key challenge in obtaining accurate DFT results is choosing an appropriate approximation for the exchange-correlation functional $E_{\mathrm{xc}}[n]$.
 
 \subsection{Molecular dynamics}
 \label{sec:molecular-dynamics}
