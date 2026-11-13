@@ -515,67 +515,44 @@ where $N_{\mathrm{vib}}$ is the number of included vibrational modes; counting $
 \subsection{Point Edge Transformer}
 \label{sec:pet-architecture-overview}
 
-A machine-learned interatomic potential (MLIP) approximates the energy of
-a system of atoms based on their positions and types, making it a relatively inexpensive and generalizable approach.
-This section describes the Point Edge Transformer (PET) architecture \cite{pet},
-which is used to generate the machine-learned potentials PET-MAD and PET-SOL.
+A machine-learned interatomic potential (MLIP) approximates a system's energy
+from atomic positions and species, providing an inexpensive alternative to
+direct electronic-structure calculations within its range of applicability.
+The MLIPs used in this project are based on the Point Edge Transformer
+(PET) architecture \cite{pet}, which combines local attention with message
+passing between atomic environments.
 
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.8\textwidth]{figures/pet/pet_final.pdf}
   \caption{Point Edge Transformer architecture, reproduced from
-  Ref.~\cite{pet}. Each message-passing block embeds geometry, species, and
-  incoming messages, processes the local tokens with a transformer, and
-  produces both target contributions and outgoing directed messages.
-  Local transformer depth $n_{\mathrm{TL}}$ and inter-environment
-  message-passing depth $n_{\mathrm{GNN}}$ play different roles.}
+  Ref.~\cite{pet}. Each message-passing block encodes the local geometry,
+  species, and incoming messages, processes them with a transformer, and
+  produces energy contributions and outgoing messages.}
   \label{fig:pet-architecture}
 \end{figure}
 
 \paragraph{Model overview}
 
-The first step in the PET architecture is to define a local environment $A_i=\{(\mathbf{r}_{ij}, s_j) | r_{ij}<R_c\}$ for an atom $i$,
-where $\mathbf{r}_{ij}$ represents the position of atom $j$ relative to atom $i$,
-$s_j$ is the species of atom $j$, which is a categorical variable that could correspond to the the atomic number $Z_j$,
-and $R_c$ is the cutoff radius, which limits the number of neighbors considered in the environment.
-The environment includes all neighboring atoms $j$ within this cutoff distance from the central atom $i$.
-The same local block is applied to all atomic environments, usually batched
-for parallel evaluation, and the total energy sums their learned contributions.
-Once the environment is defined,
-the PET architecture processes it through $n_{\mathrm{GNN}}$ message-passing (MP) blocks as shown in Figure~\ref{fig:pet-architecture} a.
-The first MP block takes as input only the atomic environment $A_i$ and produces an output (here the energy),
-as well as an output message.
-The next MP block takes as input the same atomic environment $A_i$ as well as the output message from the previous block.
-It will then output a new energy and a new output message.
-This process is reapeated for all $n_{\mathrm{GNN}}$ MP blocks, with each block taking as input the same atomic environment $A_i$ and the output message from the previous block.
-The final output of the PET architecture is the sum of all energy contributions from each MP block.
+For each atom $i$, PET defines a local environment
+$A_i=\{(\bm r_{ij},s_j)\mid r_{ij}<R_c\}$, where $\bm r_{ij}$ is the
+position of neighbor $j$ relative to $i$, $s_j$ is its species, and $R_c$
+is the cutoff radius. The same operations are applied to every environment
+within each message-passing (MP) block. Each block produces energy
+contributions and messages that carry information to neighboring
+environments in the next block. Repeating this process through
+$n_{\mathrm{GNN}}$ blocks allows the prediction to incorporate information
+beyond the initial cutoff neighborhood (Figure~\ref{fig:pet-architecture}a).
+The final energy combines contributions from all atoms and blocks.
 
-\paragraph{Encoding and embedding}
+\paragraph{Encoding and transformer processing}
 
-At each message-passing block $k$, PET converts the species, geometry, and
-incoming messages of the environment $A_i$ into tokens of width
-$d_{\mathrm{PET}}$ (Figure~\ref{fig:pet-architecture}b--c). Following
-Appendix~A of Ref.~\cite{pet}, the central and neighbor species use separate
-learned embedding maps,
-$E_c^{(k)}(s_i),E_n^{(k)}(s_j)\in\mathbb R^{d_{\mathrm{PET}}}$.
-These maps allow the same chemical species to have different representations
-in the central and neighbor roles. The relative position of neighbor $j$
-is embedded through a learned linear layer followed by a SiLU activation:
-
-\begin{equation}
-  E_r^{(k)}(\bm r_{ij})
-    =\sigma\!\left(L^{(k)}(\bm r_{ij})\right),
-  \qquad L^{(k)}:\mathbb R^3\longrightarrow\mathbb R^{d_{\mathrm{PET}}}.
-  \label{eq:pet-position-embedding}
-\end{equation}
-
-This maps the three Cartesian components to the same feature width as the
-species embeddings. The resulting features encode spatial geometry and
-are not required to transform as physical vectors under rotations.
-For blocks after the first, the neighbor also supplies the incoming message
-$\tilde x_{ij}^{(k-1)}\in\mathbb R^{d_{\mathrm{PET}}}$, sent from $j$ to $i$
-in the preceding block. Equation~(5) of Ref.~\cite{pet} combines this message
-with the species and position embeddings to form the neighbor token:
+At block $k$, the species and relative positions are converted into learned
+feature vectors, or embeddings, of width $d_{\mathrm{PET}}$. Separate maps
+$E_c^{(k)}$ and $E_n^{(k)}$ encode the central and neighbor species, while
+$E_r^{(k)}$ encodes the Cartesian displacement using a linear layer and a
+SiLU activation. The neighbor embedding and incoming message are combined
+into a token \cite[Appendix~A]{pet}:
 
 \begin{equation}
   t_j^{(k)}=M^{(k)}\!\left[
@@ -585,30 +562,27 @@ with the species and position embeddings to form the neighbor token:
   \label{eq:pet-token}
 \end{equation}
 
-Concatenation produces $3d_{\mathrm{PET}}$ components. The one-hidden-layer
-MLP $M^{(k)}$ mixes these inputs and compresses them to a token of width
-$d_{\mathrm{PET}}$. The central atom $i$ is implicit in the notation
-$t_j^{(k)}$.
-In the first block, no incoming messages exist, so the message input is
-omitted and $M^{(1)}$ maps $2d_{\mathrm{PET}}$ features to
-$d_{\mathrm{PET}}$. The central token is simply $E_c^{(k)}(s_i)$ and has
-no displacement input. An environment containing $m$ neighbors therefore
-supplies $m+1$ tokens to the transformer: one for each neighbor and one
-for the center.
+Here $M^{(k)}$ is a multilayer perceptron that returns a token of width
+$d_{\mathrm{PET}}$, and $\tilde x_{ij}^{(k-1)}$ is the message sent from
+$j$ to $i$ in the previous block. The first block omits the message input.
+Together with the central token $E_c^{(k)}(s_i)$, an environment with $m$
+neighbors supplies $m+1$ tokens to the transformer.
 
-\paragraph{Transformer layers and attention}
+The tokens pass through $n_{\mathrm{TL}}$ transformer layers, combining
+multi-head self-attention with feedforward operations, residual connections,
+and layer normalization \cite{vaswani2017}. Attention lets each token use
+information from the other atoms in its environment, so its output reflects
+the surrounding geometry. Reordering the neighbor tokens produces the same
+reordering of their outputs. Transformer depth increases processing within
+one environment, whereas MP depth extends communication between environments.
+The attention mechanism is described in Appendix~\ref{sec:transformers}.
 
-The tokens constructed above are processed by $n_{\mathrm{TL}}$ transformer
-layers. As explained in Appendix~\ref{sec:transformers}, self-attention lets
-each token use information from every other token in the environment.
-Consequently, a neighbor's representation can depend on the surrounding
-geometry as well as its own displacement from the center.
+\paragraph{Smooth cutoff}
 
-A neighbor must lose its influence smoothly as it approaches $R_c$.
-Otherwise, removing its token at the cutoff would abruptly change the
-attention weights and their normalization, potentially making the predicted
-energy discontinuous. PET therefore introduces a smooth cutoff, given in
-Appendix~F.1, Eq.~(9), of Ref.~\cite{pet}:
+A neighbor's influence must vanish smoothly as it approaches $R_c$ to avoid
+discontinuities in the predicted energy. This is particularly important
+here because forces and Hessians require first and second energy derivatives.
+PET uses the following cutoff function \cite[Appendix~F.1]{pet}:
 
 \begin{figure}[htbp]
   \centering
@@ -631,25 +605,17 @@ Appendix~F.1, Eq.~(9), of Ref.~\cite{pet}:
     \centering
     \includegraphics[width=\linewidth]{figures/pet/cutoff_single.pdf}
   \end{minipage}
-  \caption{Smooth cutoff function $f_c(r\mid R_c,\Delta_{R_c})$ from
-  Eq.~\eqref{eq:pet-cutoff} with $R_c=5.0$\,\AA\ and
-  $\Delta_{R_c}=0.5$\,\AA. The function is unity for $r<R_c-\Delta_{R_c}$,
-  smoothly decreases to zero over the switching interval, and is zero for
-  $r>R_c$.}
+  \caption{Smooth cutoff function from Eq.~\eqref{eq:pet-cutoff} with
+  $R_c=5.0$\,\AA\ and $\Delta_{R_c}=0.5$\,\AA.
+  The neighbor's weight decreases from one to zero over the interval
+  $[R_c-\Delta_{R_c},R_c]$.}
   \label{fig:pet-cutoff}
 \end{figure}
 
-The width $\Delta_{R_c}>0$ controls the interval over which a neighbor is
-switched off. The constant branches are used at the endpoints, where the
-fractions in the middle branch are undefined. The function joins smoothly
-to these branches, although a narrow switching interval can still produce
-large derivatives within it.
+The cutoff modifies the attention weights and their normalization, so a
+neighbor disappears smoothly from the information used by the remaining
+tokens. For one attention head,
 
-Section~6 of Ref.~\cite{pet} applies this cutoff to the ordinary softmax
-attention weights and then renormalizes them. Let $a,b,c$ index tokens in
-the environment centered on atom $i$, with
-$c_b=f_c(r_{ib}\mid R_c,\Delta_{R_c})$ for a neighbor and $c_b=1$ for the
-central token. For one attention head, the modified weights and output are
 \begin{equation}
   \alpha_{ab}^{\mathrm{cut}}
     =\frac{\alpha_{ab}c_b}{\sum_c\alpha_{ac}c_c},
@@ -657,31 +623,21 @@ central token. For one attention head, the modified weights and output are
   \bm y_a=\sum_b\alpha_{ab}^{\mathrm{cut}}\bm v_b,
   \label{eq:self-attention}
 \end{equation}
-where $\alpha_{ab}$ are the ordinary weights from
-Eq.~\eqref{eq:transformer-attention-weights} and $\bm v_b$ is the value
-vector. The superscript $\mathrm{cut}$ distinguishes the modified weights
-from the original ones. As a neighbor leaves, it disappears smoothly from
-both the weighted sum and its normalization. The central token retains unit
-cutoff weight, keeping the denominator positive in exact arithmetic.
 
-Each transformer layer combines multi-head attention with token-wise
-feedforward operations, residual connections, and layer normalization;
-Figure~\ref{fig:transformer} illustrates the general arrangement.
-The output tokens of one layer become the inputs to the next, adding
-processing within the same environment. Shared operations preserve
-permutation equivariance: reordering the neighbor tokens produces the
-same reordering of their outputs, so their association with individual
-neighbors is retained (Figure~\ref{fig:pet-architecture}b).
+where $\alpha_{ab}$ are the ordinary attention weights from
+Eq.~\eqref{eq:transformer-attention-weights}, $\bm v_b$ is a value vector,
+and $c_b=f_c(r_{ib}\mid R_c,\Delta_{R_c})$ for a neighbor, with $c_b=1$
+for the central token.
 
-\paragraph{Transformer outputs}
+\paragraph{Messages and energy prediction}
 
-The $n_{\mathrm{TL}}$ transformer layers produce $n_{\mathrm{i}+1}$ outputs,
-$x_i^{(k)}$ for the central token and $x_{ji}^{(k)}$ for each neighbor $j$.
-The $x_{ji}^{(k)}$ correspond to the output messages that will be fed into the next MP block.
-The energy prediction of the block is computed using $H_n^{(k)}(x_{ji}^{(k)})$ for the neighbor contributions and $H_c^{(k)}(x_i^{(k)})$ for the central contribution,
-which are learned readouts that output scalar values.
-Using the cutoff function $f_c(r_{ij}\mid R_c,\Delta_{R_c})$ to smoothly remove contributions from neighbors beyond the cutoff distance,
-the neighbor contributions are summed to produce the total energy contribution from the block:
+Each transformer returns a central output $x_i^{(k)}$ and one output
+$x_{ji}^{(k)}$ per neighbor. The neighbor outputs are added to previous
+messages through a residual update and passed to the corresponding
+neighboring environments for the next MP block \cite[Appendix~A]{pet}.
+Learned readouts $H_c^{(k)}$ and $H_n^{(k)}$ convert the central and neighbor
+outputs into scalar energy contributions. The neighbor terms are also
+weighted by the cutoff to remove their direct energy contribution smoothly:
 
 \begin{equation}
   y_i^{\mathrm{bond}\,(k)}
@@ -690,28 +646,9 @@ the neighbor contributions are summed to produce the total energy contribution f
   \label{eq:pet-bond-sum}
 \end{equation}
 
-The cutoff is required here as well as inside attention. Attention removes
-a neighbor's influence on surviving tokens, but its own output need not
-vanish; the readout cutoff removes its direct contribution to the energy.
-The alternative in the paper's Eq.~(6) is
-
-\begin{equation}
-  y_i^{\mathrm{bond}\,(k)}
-   =\frac{\sum_{j\in A_i}H_n^{(k)}(x_{ji}^{(k)})
-                   f_c(r_{ij}\mid R_c,\Delta_{R_c})}
-          {\sum_{j\in A_i}f_c(r_{ij}\mid R_c,\Delta_{R_c})}.
-  \label{eq:pet-bond-average}
-\end{equation}
-
-This weighted average changes sensitivity to coordination and requires
-special handling when all neighbor weights vanish. The sum naturally
-returns zero for an empty neighbor list. The two readouts are alternatives
-that must be selected consistently in training and inference.
-
-Appendix~B adds fitted atomic self-contributions to the network output.
-Writing $E_{\mathrm{self}}=\sum_i b_{s_i}$ for that composition-dependent
-baseline, the following expression assembles the paper's central, edge,
-and baseline terms:
+The paper also permits a cutoff-weighted average instead of this sum.
+Including the fitted atomic baseline $E_{\mathrm{self}}=\sum_i b_{s_i}$,
+the total energy can be written as
 
 \begin{equation}
   \tilde E=E_{\mathrm{self}}
@@ -720,21 +657,14 @@ and baseline terms:
   \label{eq:pet-readout}
 \end{equation}
 
-Equation~\eqref{eq:pet-readout} is bookkeeping assembled from the text,
-not a separately numbered equation in Ref.~\cite{pet}; $E_{\mathrm{self}}$
-and $b_s$ are explanatory symbols. The total $\tilde E$ is the learned
-potential $U_\theta$ used elsewhere in this report. Atomic self-contributions
-are fitted by linear regression on species counts before network training,
-subtracted from the targets during training, and restored at inference.
-They have zero Cartesian derivatives at fixed composition.
-
-All blocks contribute to the readout. Central and edge terms are learned
-parts of the total energy, not uniquely defined physical atomic or bond
-energies. An edge output depends on its environment and incoming messages,
-so it represents a many-body contribution; no extra pair-counting factor
-of one half is implied. Forces follow by differentiating the total energy
-through all environments, messages, attention normalizations, and cutoffs,
-as in Eq.~\eqref{eq:classical-hamiltons-equations}.
+This expression combines the readout and baseline described in
+Ref.~\cite{pet}; $\tilde E$ is the learned potential $U_\theta$ used in
+this report. The baseline is fitted to species counts before training and
+has no Cartesian derivatives at fixed composition. The central and edge
+terms are learned parts of the total energy, rather than uniquely defined
+physical atomic or bond energies. Forces and Hessians follow by
+differentiating the total prediction, including its dependence on all
+local environments and messages.
 
 \section{Methods}
 
