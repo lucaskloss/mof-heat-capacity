@@ -393,28 +393,28 @@ implementations are described in Appendix~\ref{sec:thermostat-barostat}.
 \subsection{Heat Capacity}
 \label{sec:heat-capacity}
 
-The heat capacity of a material measures the energy required to raise its temperature by 1 K.
-In the context of MOFs, the heat capacity is an important property to understand their thermal behavior and stability.
+The heat capacity of a material measures the energy required to raise its temperature by \SI{1}{K}.
+In the context of MOFs, the heat capacity is an important property for understanding their thermal behavior and stability \cite{kapil2019}.
 The heat capacity can be defined at constant volume $C_V$ or at constant pressure $C_P$.
-In this project, we are interested in the heat capacity at constant pressure $C_P$,
-since it is what is measured in experiments and is relevant for practical applications.
+In this project, we focus on the constant-pressure heat capacity $C_P$,
+which is relevant to applications under imposed pressure.
 There are different ways to compute it depending on the level of theory used to describe the system.
-We show here the different methods used in this project.
+We present the methods used in this project below.
 
 \subsubsection{$C_P$}
 \label{sec:md-response}
 
-As said earlier, the heat capacity is defined as the amount of energy required to raise the temperature of a system by 1 K.
-In the NPT ensemble, this can be expressed as the temperature derivative of the enthalpy
+As discussed earlier, the heat capacity is defined as the amount of energy required to raise the temperature of a system by \SI{1}{K}.
+In the NPT ensemble, $C_P$ is the temperature derivative of the average enthalpy \cite{tuckerman2023}:
 
 \begin{equation}
-  C_P(T)=\left(\frac{\partial\langle H\rangle}{\partial T}\right)_{N,P},
-  \qquad \langle H\rangle=\langle E+PV\rangle.
+  C_P(T)=\left(\frac{\partial\langle H\rangle}{\partial T}\right)_{N,P_{\mathrm{ext}}},
+  \qquad \langle H\rangle=\langle E+P_{\mathrm{ext}}V\rangle.
   \label{eq:cp-enthalpy}
 \end{equation}
 
 The average enthalpy $\langle H\rangle$ is obtained from the MD trajectory as a time average, as shown in Eq.~\eqref{eq:time-average}.
-If we perform MD simulations at different temperatures, we can compute it by using finite differences
+If we perform MD simulations at different temperatures, we can estimate $C_P$ using a centered finite difference \cite{kapil2019}:
 
 \begin{equation}
   C_P(T)\simeq
@@ -423,38 +423,38 @@ If we perform MD simulations at different temperatures, we can compute it by usi
   \label{eq:finite-difference-cp}
 \end{equation}
 
-\subsubsection{Dulong-Petit law}
+\subsubsection{Dulong--Petit law}
 \label{sec:dulong-petit}
 
-The heat capacity of a solid at constant volume can be estimated using the Dulong--Petit law.
+The heat capacity of a solid at constant volume can be estimated using the Dulong--Petit law \cite{ashcroft1976}.
 In a solid, the atoms are arranged in a lattice and can vibrate around their equilibrium positions.
 The potential energy of the system can be approximated as a quadratic function of the atomic displacements.
-The Hamiltonian is then a sum of quadratic terms in the atomic displacements and momenta
+In a simplified model of independent Cartesian oscillators, the Hamiltonian is a sum of quadratic terms in the displacements $\bm u^N$ and momenta:
 
 \begin{equation}
-  \mathcal H(\bm R^N,\bm P^N)=\sum_{i=1}^{N}\frac{|\bm P_i|^2}{2M_i}
-      +\frac12\sum_{i=1}^{N}(k_{i,x}R_{i,x}^2+k_{i,y}R_{i,y}^2+k_{i,z}R_{i,z}^2),
+  \mathcal H(\bm u^N,\bm P^N)=\sum_{i=1}^{N}\frac{|\bm P_i|^2}{2M_i}
+      +\frac12\sum_{i=1}^{N}(k_{i,x}u_{i,x}^2+k_{i,y}u_{i,y}^2+k_{i,z}u_{i,z}^2),
   \label{eq:harmonic-hamiltonian}
 \end{equation}
 
-where $k_{i,x}$, $k_{i,y}$, and $k_{i,z}$ are the force constants for the $i$-th atom in the $x$, $y$, and $z$ directions respectively.
-Using the equipartition theorem, we can compute the contribution of each quadratic degree of freedom to the energy.
-We get that the average energy is $\langle E\rangle_{\mathrm{har}}=3Nk_{\mathrm B}T$.
-For constant volume, the heat capacity is then given by
+where $k_{i,x}$, $k_{i,y}$, and $k_{i,z}$ are the force constants for the $i$-th atom in the $x$, $y$, and $z$ directions, respectively.
+Using the equipartition theorem, each quadratic term contributes $k_{\mathrm B}T/2$ to the average energy \cite{tuckerman2023}.
+The average energy is therefore $\langle E\rangle_{\mathrm{har}}=3Nk_{\mathrm B}T$.
+At constant volume, the heat capacity is then given by
 
 \begin{equation}
   C_{V,\mathrm{cl}}^{\mathrm{har}}=\left(\frac{\partial\langle E\rangle_{\mathrm{har}}}{\partial T}\right)_{N,V}=3Nk_{\mathrm B}.
   \label{eq:dulong-petit}
 \end{equation}
 
-In other words, the classical heat capacity of a solid is constant and doesn't depend on the temperature.
-This law doesn't hold well at lower temperatures, where quantum effects become important.
+Within the classical harmonic approximation, the constant-volume heat capacity is independent of temperature.
+This law does not hold well at lower temperatures, where quantum effects become important.
 
 \subsubsection{Quantum harmonic heat capacity from the Hessian}
 \label{sec:quantum-harmonic-model}
 
 The harmonic approximation can also be used to compute the quantum harmonic heat capacity of a solid.
-Let's consider $N$ atoms displaced by $\bm u$ from their equilibrium position $\bm R_0$, the harmonic approximation gives
+Consider $N$ atoms displaced by $\bm u$ from their equilibrium configuration $\bm R_0$. The harmonic approximation gives
 
 \begin{equation}
   U(\bm R_0+\bm u)\simeq U_0+\frac12\bm u^{\mathsf T}\bm H\bm u,
@@ -471,17 +471,17 @@ we can define the mass-weighted Hessian $\bm D$ and its eigenvectors $\bm e_s$ a
   \label{eq:normal-mode-frequencies}
 \end{equation}
 
-By finding the eigenvalues $\omega_s^2$ of $\bm D$, we can write a quantum version of the Hamiltonian \eqref{eq:harmonic-hamiltonian}
-in terms of the normal mode coordinates $\hat Q_s$ and momenta $\hat P_s$
+By finding the eigenvalues $\omega_s^2$ of $\bm D$, we can write the quantum harmonic Hamiltonian
+in terms of the mass-weighted normal-mode coordinates $\hat Q_s$ and momenta $\hat P_s$:
 
 \begin{equation}
   \hat{\mathcal H}_{\mathrm{har}}=U_0+\sum_s\left(\frac{\hat P_s^2}{2}+\frac12\omega_s^2\hat Q_s^2\right).
   \label{eq:normal-mode-hamiltonian}
 \end{equation}
 
-Because this equation is of the form of a quantum harmonic oscillator and each mode is independent,
+Because the Hamiltonian is a sum of independent quantum harmonic oscillators,
 we can solve the Schrödinger equation \eqref{eq:schrodinger} for each mode independently.
-Their energy levels are given by $E_{s,n}=\hbar\omega_s(n+1/2)$, where $n$ is a non-negative integer.
+Their energy levels are given by $E_{s,n}=\hbar\omega_s(n+1/2)$, where $n$ is a non-negative integer \cite{cohen-tannoudji2020}.
 Using the canonical partition function
 
 \begin{equation}
@@ -498,18 +498,18 @@ we can compute the average energy of the system as
   \label{eq:harmonic-average-energy}
 \end{equation}
 
-The heat capacity at constant volume is then given by
+The heat capacity at constant volume is then given by \cite{ashcroft1976,kittel2005}:
 
 \begin{equation}
-  C_{V,\mathrm{qn}}^{\mathrm{har}}(T)=\frac{\partial\langle E\rangle_{\mathrm{har}}}{\partial T}
+  C_{V,\mathrm{qn}}^{\mathrm{har}}(T)=\left(\frac{\partial\langle E\rangle_{\mathrm{har}}}{\partial T}\right)_{N,V}
     =\sum_s k_{\mathrm B}x_s^2\frac{e^{x_s}}{(e^{x_s}-1)^2},
   \qquad x_s=\frac{\hbar\omega_s}{k_{\mathrm B}T}.
   \label{eq:quantum-harmonic-heat-capacity}
 \end{equation}
 
-Therefore, by computing the Hessian of the atomic system and its eigenvalues,
-we can simply compute the quantum harmonic heat capacity of the system.
-As $T\to\infty$, the heat capacity approaches the Dulong--Petit limit $C_{V,\mathrm{qn}}^{\mathrm{har}}\to 3Nk_{\mathrm B}$.
+Thus, the eigenvalues of the mass-weighted Hessian determine the quantum harmonic heat capacity.
+As $T\to\infty$, $C_{V,\mathrm{qn}}^{\mathrm{har}}\to N_{\mathrm{vib}}k_{\mathrm B}$,
+where $N_{\mathrm{vib}}$ is the number of included vibrational modes; counting $3N$ modes recovers the Dulong--Petit limit $3Nk_{\mathrm B}$.
 
 \clearpage
 \subsection{Point Edge Transformer}
@@ -1540,6 +1540,17 @@ Oxford University Press (2023),
 R. M. Martin,
 \emph{Electronic Structure: Basic Theory and Practical Methods}, Cambridge University Press (2004),
 \href{https://doi.org/10.1017/CBO9780511805769}{doi:10.1017/CBO9780511805769}.
+
+\bibitem{ashcroft1976}
+N. W. Ashcroft and N. D. Mermin,
+\emph{Solid State Physics}, Holt, Rinehart and Winston, New York (1976),
+Chaps.~22--23: Classical and quantum theory of the harmonic crystal.
+
+\bibitem{kittel2005}
+C. Kittel,
+\emph{Introduction to Solid State Physics}, 8th ed., Wiley, Hoboken (2005),
+Chap.~5: Phonons II. Thermal Properties,
+\href{https://www.wiley.com/en-us/Introduction+to+Solid+State+Physics-p-9780471415268}{publisher edition}.
 
 \bibitem{hohenberg1964}
 P. Hohenberg and W. Kohn,
