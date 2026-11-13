@@ -675,13 +675,17 @@ The methane comparison uses the conventional cubic MOF-5 cell, with initial
 lattice parameter \SI{25.866}{\angstrom} and composition
 $\mathrm{C}_{192}\mathrm{H}_{96}\mathrm{O}_{104}\mathrm{Zn}_{32}$
 (424 host atoms). Its $\mathrm{Zn}_4\mathrm O$ nodes are connected by
-benzene-1,4-dicarboxylate linkers. Adding 50, 100, or 150 methane molecules
+benzene-1,4-dicarboxylate linkers \cite{kapil2019}. Adding 50, 100, or 150 methane molecules
 gives 674, 924, or 1174 atoms, respectively. Periodic boundary
 conditions apply in all three directions.
 MOF-303, $\mathrm{Al(OH)(PZDC)}$, contains aluminium--oxygen rods connected by 1H-pyrazole-3,5-dicarboxylate linkers \cite{hanikel2021};
 its $2\times2\times2$ host supercell contains 1024 atoms.
 ZIF-8, $\mathrm{Zn(mIm)}_2$, contains zinc centres joined by 2-methylimidazolate linkers in a sodalite-type network \cite{hobday2018};
 its $2\times2\times2$ host supercell contains 2208 atoms.
+Both PET models are compared for methane-loaded MOF-5. PET-MAD is also used
+for MOF-5 with 50 $\mathrm{CO_2}$ or $\mathrm{H_2O}$ molecules,
+MOF-303 with 50 molecules of each guest, and ZIF-8 with 50 $\mathrm{CH_4}$
+or 54 $\mathrm{CO_2}$ molecules.
 
 \begin{figure}[htbp]
   \centering
@@ -700,11 +704,11 @@ its $2\times2\times2$ host supercell contains 2208 atoms.
     \includegraphics[width=\linewidth,trim=400bp 400bp 400bp 400bp,clip]{figures/frameworks/zif8-empty.png}\\
     (c) ZIF-8
   \end{minipage}
-  \caption{Empty MOfs used in this project and rendered with Chemiscope \cite{chorna2026chemiscope}.
-  Atoms are colored by species: C (gray), H (white), O (red), Zn (blue).
+  \caption{Empty MOFs used in this project and rendered with Chemiscope \cite{chorna2026chemiscope}.
+  Atoms are colored by species, including C (gray), H (white), O (red), and Zn (blue).
   MOF-5 has formula $\mathrm{C}_{192}\mathrm{H}_{96}\mathrm{O}_{104}\mathrm{Zn}_{32}$,
-  MOF-303 has formula $\mathrm{Al}_{64}\mathrm{C}_{128}\mathrm{H}_{64}\mathrm{N}_{64}\mathrm{O}_{128}$,
-  and ZIF-8 has formula $\mathrm{C}_{864}\mathrm{H}_{864}\mathrm{N}_{576}\mathrm{Zn}_{288}$.
+  MOF-303 has formula $\mathrm{Al}_{64}\mathrm{C}_{320}\mathrm{H}_{192}\mathrm{N}_{128}\mathrm{O}_{320}$,
+  and ZIF-8 has formula $\mathrm{C}_{768}\mathrm{H}_{960}\mathrm{N}_{384}\mathrm{Zn}_{96}$.
   MOF-5 contains 424 atoms; the MOF-303 and ZIF-8 $2\times2\times2$
   supercells contain 1024 and 2208 atoms, respectively.}
   \label{fig:frameworks}
@@ -730,15 +734,16 @@ its $2\times2\times2$ host supercell contains 2208 atoms.
     (c) H$_2$O
   \end{minipage}
   \caption{Guest molecules used in this project and rendered with Chemiscope \cite{chorna2026chemiscope}.
-  $H_2O$ is the only polar molecule, while $CH_4$ and $CO_2$ are non-polar.}
+  $\mathrm{H_2O}$ is the only polar molecule, while $\mathrm{CH_4}$ and $\mathrm{CO_2}$ are non-polar.}
   \label{fig:guest-molecules}
 \end{figure}
 
 The guest molecules are inserted sequentially at random positions and orientations within the MOF cell.
-Their placements are accepted only when all guest atoms remain at least 1.5 Å from the framework and previously inserted molecules.
-If the insertion becomes blocked, the previously placed guests are partially or fully removed,
-we then reinsert the remaining guests, and continue until the desired number of molecules is reached.
-The resulting structure may be further relaxed before starting the MD simulation if initial forces are too large.
+Placements are accepted only when guest atoms remain at least \SI{1.5}{\angstrom}
+from the framework and other molecules, accounting for periodic images.
+If sequential insertion becomes blocked, partial or complete repacking is
+attempted within a finite placement budget. Accepted structures are checked
+for periodic separation before use.
 Figure~\ref{fig:loaded-frameworks} shows representative starting configurations
 with guests inside the same periodic host cells as in Figure~\ref{fig:frameworks},
 before relaxation.
@@ -770,12 +775,12 @@ before relaxation.
   \label{fig:loaded-frameworks}
 \end{figure}
 
-After successfully inserting the guest molecules, we need to assign the initial velocities to all the atoms in the system.
-This is done by sampling from a Maxwell-Boltzmann distribution at the target temperature
+After insertion and any initial relaxation, velocities are sampled from a
+Maxwell--Boltzmann distribution at the target temperature \cite{allen2017}:
 
 \begin{equation}
-  P(\bm v_i)=\left(\frac{m_i}{2\pi k_{\mathrm B}T}\right)^{3/2}
-    \exp\left(-\frac{m_i|\bm v_i|^2}{2k_{\mathrm B}T}\right).
+  P(\bm v_i)=\left(\frac{M_i}{2\pi k_{\mathrm B}T}\right)^{3/2}
+    \exp\left(-\frac{M_i|\bm v_i|^2}{2k_{\mathrm B}T}\right).
   \label{eq:maxwell-boltzmann}
 \end{equation}
 
@@ -783,20 +788,20 @@ This is done by sampling from a Maxwell-Boltzmann distribution at the target tem
 \label{sec:pet-implementation}
 
 Two pretrained PET models are used in this work, PET-MAD and PET-SOL.
-They are both based on the same PET architecture, as described in Section~\ref{sec:pet-architecture-overview},
-but they were trained on different datasets.
-More precisely, PET-MAD-1.5 was trained on the MAD-1.5 dataset \cite{petmad15},
-spanning 102 elements and including molecules, clusters, crystals, and low-dimensional structures.
-Its reference energies, forces, and periodic stresses were computed with all-electron r$^2$SCAN DFT.
-PET-SOL on the other hand was trained on a dataset of 17 solvents, 78 cations and 35 anions.
-The models are available in different sizes, but here we will use PET-MAD-1.5-s and PET-SOL-s,
-which are smaller than the full model and will make the MD simulations faster.
-Both models have the same number of parameters and share common settings summarized in the following table.
+They share the PET architecture described in Section~\ref{sec:pet-architecture-overview}
+but differ in their training data. PET-MAD-1.5 uses MAD-1.5, spanning 102
+elements and including molecules, clusters, crystals, and low-dimensional
+structures, with reference energies, forces, and periodic stresses computed
+using all-electron r$^2$SCAN DFT \cite{petmad15}.
+PET-SOL incorporates additional MAD-SOL solvation data covering 17 solvents,
+78 cations, and 35 anions alongside the parent dataset, using the same
+reference level. The PET-SOL remains unpublished at the time of writing.
+The small variants, PET-MAD-1.5-s and PET-SOL-s, are used to reduce the MD
+cost. Their shared settings are summarized in Table~\ref{tab:pet-settings}.
 
 \begin{table}[htbp]
 \centering
 \small
-\label{tab:pet-settings}
 \begin{tabular}{lr}
   \toprule
   Setting & Value \\
@@ -805,66 +810,62 @@ Both models have the same number of parameters and share common settings summari
   $n_{GNN}$, $n_{TL}$ & 3, 1 \\
   $d_{\mathrm{PET}}$ & 256 \\
   Attention heads & 8 \\
+  Adaptive neighbor setting & 40 \\
   Transformer feed-forward width & 512 \\
   Node feature width, \texttt{d\_\allowbreak{}node} & 1024 \\
   \bottomrule
 \end{tabular}
-\caption{Architecture settings of PET-MAD and PET-SOL}
+\caption{Shared architecture settings of the supplied PET-MAD and PET-SOL models.}
+\label{tab:pet-settings}
 \end{table}
 
+\pagebreak
 \subsection{NPT simulation}
 \label{sec:md-method}
 
-As said earlier, we will be running NPT simulations to compute the heat capacity of the loaded MOF.
-They will be carried out using the LAMMPS package \cite{lammps}.
-In particular, the LAMMPS implementation used is the one developed in \cite{bigi2026metatomic},
-which allows us to run MD simulations using MLIPs such as PET-MAD and PET-SOL.
-The following table summarizes the main parameters used in the NPT simulations.
+Classical NPT simulations are performed with LAMMPS \cite{lammps}, using
+its metatomic interface to evaluate PET energies, forces, and stresses
+\cite{bigi2026metatomic}. The cell lengths and angles fluctuate under
+hydrostatic pressure, using the LAMMPS Nos\'e--Hoover-chain and
+Martyna--Tobias--Klein/Shinoda equations \cite{nhc,mtk,shinoda2004,lammps-npt}.
+The particle thermostat and barostat each use a chain of length
+three. One trajectory is run independently at each temperature for each
+model and loading; Table~\ref{tab:md-settings} summarizes the settings.
 
 \begin{table}[htbp]
   \centering
   \small
-  \label{tab:md-settings}
   \begin{tabular}{@{}ll@{}}
     \toprule
     Parameter & Value \\
     \midrule
     $T$, $\Delta T$ & 175--\SI{425}{K}, \SI{25}{K} \\
-    $P$ & \SI{1}{bar} \\
-    $\tau_{T}$, $\tau_{P}$ & 100, \SI{1000}{fs} \\
-    $t$, $\Delta t$ & 500 ps, 0.5 fs \\
-    $t_{eq}$ & \SI{100}{ps} \\
+    $P_{\mathrm{ext}}$ & \SI{1}{bar} \\
+    $\tau_{T}$, $\tau_{P}$ & \SI{100}{fs}, \SI{1000}{fs} \\
+    $t$, $\Delta t$ & \SI{500}{ps}, \SI{0.5}{fs} \\
+    $t_{\mathrm{eq}}$ & \SI{100}{ps} \\
     Frame interval & \SI{0.05}{ps} \\
     \bottomrule
   \end{tabular}
-  \caption{Parameters used in all NPT simulations}
+  \caption{Parameters used in the NPT simulations.}
+  \label{tab:md-settings}
 \end{table}
 
-The simulations will run for \SI{500}{ps} with a timestep of \SI{0.5}{fs},
-and the first \SI{100}{ps} will be discarded to allow for equilibration.
-This is equivalent to 1 million timesteps, with the first 200,000 discarded.
-Because this would require a lot of storage, we will only save the trajectory every \SI{0.05}{ps},
-which is equivalent to every 100 timesteps, giving a total of 8000 frames per trajectory.
-Our results will be reported for temperatures between \SI{200}{K} and \SI{400}{K},
-but because we are using finite differences in \eqref{eq:finite-difference-cp},
-we will also need to run simulations at \SI{175}{K} and \SI{425}{K},
-which will only be used for the finite difference calculations.
-Each temperature MD simulation will be run on a NVIDIA Tesla V100 GPU, which has 32 GB of VRAM.
+Each \SI{500}{ps} trajectory contains one million integration steps; the
+first 200,000 steps (\SI{100}{ps}) are discarded as equilibration.
+Saving every 100 steps (\SI{0.05}{ps}) leaves 8000 production frames.
+The reported range is 200--\SI{400}{K}; additional runs at 175 and
+\SI{425}{K} provide centered finite differences at its endpoints through
+Eq.~\eqref{eq:finite-difference-cp}.
+Each MD run uses one NVIDIA Tesla V100 GPU with 32 GB of memory.
 
 \subsection{Hybrid $C_P$}
 \label{sec:hybrid-cp}
 
-An empty MOF is a rigid structure, so it is appropriate to use the harmonic approximation to compute its heat capacity.
-For lower temperatures, the heat capacity from the Dulong-Petit law \eqref{eq:dulong-petit} is not accurate.
-So in the general case, we would use the quantum harmonic heat capacity \eqref{eq:quantum-harmonic-heat-capacity},
-which includes quantum effects and is more accurate at lower temperatures.
-Doing so gives results that are pretty close to experimental results, as we will see later.
-However, when including guest molecules inside the MOF,
-because these molecules are loose and their interactions with the framework and with each other are not harmonic,
-the harmonic approximation is not valid anymore.
-Because the loaded MOF has different contributions to the heat capacity from the framework and from the guest molecules,
-Kapil et al. \cite{kapil2019} proposed a hybrid approach to compute the heat capacity of the loaded MOF.
-The hybrid approach uses the classical anharmonic heat capacity from MD simulations and adds a harmonic correction
+The harmonic approximation can describe the empty-framework heat capacity,
+as demonstrated for MOF-5, but guest motion introduces anharmonicity that
+it cannot capture \cite{kapil2019}. Following Kapil et al., the loaded-system
+estimate combines classical NPT sampling with a harmonic quantum correction:
 
 \begin{equation}
   C_P^{\mathrm{hyb}}(T)\simeq
@@ -874,34 +875,32 @@ The hybrid approach uses the classical anharmonic heat capacity from MD simulati
   \label{eq:quantum-correction}
 \end{equation}
 
-The first term $C_{P,\mathrm{cl}}^{\mathrm{anh}}(T)$ is computed using \eqref{eq:finite-difference-cp} from the MD simulations.
-The second term $C_{V,\mathrm{qn}}^{\mathrm{har}}(T)$ is computed using the quantum harmonic heat capacity from \eqref{eq:quantum-harmonic-heat-capacity}.
-The third term $C_{V,\mathrm{cl}}^{\mathrm{har}}(T)$ is computed using the Dulong-Petit law from \eqref{eq:dulong-petit}.
+The classical term is obtained from Eq.~\eqref{eq:finite-difference-cp},
+and the quantum term from Eq.~\eqref{eq:quantum-harmonic-heat-capacity}.
+Both harmonic terms use the same retained loaded-system modes, so
+$C_{V,\mathrm{cl}}^{\mathrm{har}}=N_{\mathrm{vib}}k_{\mathrm B}$.
 This construction retains classical anharmonicity while approximating the
 quantum correction harmonically. It neglects quantum anharmonic effects
 and assumes that the quantum change in $C_P-C_V$ is small.
+Empty frameworks are relaxed directly and evaluated harmonically as separate
+references; no empty-framework MD is performed.
 
 \subsubsection{Computing the frequencies}
 
-To compute the harmonic heat capacity in \eqref{eq:quantum-correction},
-we need to get the frequencies from the eigenvalues of the Hessian matrix.
-To do so, we select the last frame of the MD trajectory at the highest temperature of \SI{400}{K} and relax the structure using a FIRE optimizer.
-Once the structure is relaxed and the forces are minimized, we can compute the eigenvalues of the Hessian matrix.
-The frequencies used in \eqref{eq:quantum-harmonic-heat-capacity} will be the same for all temperatures,
-so only the temperature included in the formula will change.
-The efficiently compute the Hessian matrix, we use sparse automatic differentiation,
-which is a method that uses the sparsity of the Hessian to compute it efficiently.
-In the appendix \ref{sec:sparse-automatic-differentiation},
-the principles of the sparse automatic differentiation are explained in more detail with a simple example.
-The actual implementation is done using the methods from \cite{sadmof},
-and the asdex library \cite{asdex} is used to compute the Hessian matrix.
-The eigenvalues of the Hessian matrix can be negative, in which case they are discarded.
-As explained in \ref{sec:sparse-automatic-differentiation}, to speed up the calculations,
-we can truncate the Hessian by selecting a number of hops $k < K$,
-where $K$ is the number of hops needed to recover the full Hessian.
-In this project with PET-S, we will use a number of hops $k=3$,
-which shows a very small relative error compared to the full Hessian with $K=7$,
-when computing the heat capacity \cite{sadmof}.
+For each loaded system, the final configuration of the \SI{400}{K} trajectory
+is relaxed at fixed cell with the central model using ASE FIRE
+\cite{bitzek2006}. The target maximum force is
+\SI{0.002}{\electronvolt\per\angstrom}, except for the two MOF-5
+100-methane calculations, which use \SI{0.01}{\electronvolt\per\angstrom}.
+Recorded limits range from 10,000 to 20,000 optimizer steps.
+The resulting central and LLPR spectra are reused at all reported
+temperatures; the temperature dependence enters the harmonic occupation
+factors rather than a new Hessian calculation at every temperature.
+
+The Hessians are evaluated using truncated
+automatic sparse differentiation \cite{sadmof} and ASDEX \cite{asdex}.
+The calculations use float64 precision, three graph hops, and a
+chunk size of one. This method is explained in more detail in Appendix~\ref{sec:sparse-automatic-differentiation}.
 
 \subsection{Uncertainty quantification}
 \label{sec:uq}
@@ -1044,6 +1043,12 @@ by combining the uncertainties of the classical anharmonic and quantum harmonic 
 \section{Results}
 \label{sec:results}
 
+The loaded-system curves are hybrid $c_P$ estimates, while empty-framework
+references are harmonic $c_V$ values. The reported loaded spectra contain
+imaginary modes that were excluded from the harmonic sums, so these results
+remain exploratory. The shaded uncertainties do not include all systematic
+errors from spectral filtering, incomplete equilibration, or the CEA.
+
 \subsection{MOF-5}
 \label{sec:mof-5-results}
 
@@ -1061,20 +1066,22 @@ by combining the uncertainties of the classical anharmonic and quantum harmonic 
   \label{fig:results-cp-mad}
 \end{figure}
 
-Kapil \emph{et al.}~\cite{kapil2019} used QuickFF, a potential specifically
-designed for MOFs and trained on DFT data. PET-MAD gives very similar heat
+Kapil \emph{et al.}~\cite{kapil2019} used force fields derived from
+first-principles data with QuickFF, a force-field parameterization tool
+for MOFs \cite{quickff}. PET-MAD gives very similar heat
 capacities, with differences of at most \SI{0.043}{J\per g\per K} at
 \SI{300}{K}. This agreement shows that a general-purpose potential can
-reproduce the results of a specialized MOF potential. If PET-MAD is faster
-and more efficient than QuickFF, its broader applicability could make it
-a better choice for future simulations of other systems, particularly
-larger MOFs or larger supercells.
+closely reproduce the reference heat capacities for the methane-loaded
+MOF-5 systems studied here. Its broader applicability motivates testing
+other frameworks, although relative computational efficiency was not
+benchmarked against the QuickFF force fields.
 
-The agreement is especially striking because the reference calculations
-used PIMD, which is significantly more expensive than classical MD.
-Combining PET-MAD with classical MD and the hybrid method reproduces
-the QuickFF/PIMD heat capacities closely, providing accurate results at
-a much lower computational cost.
+The reference curves were obtained using PIMD, which includes nuclear
+quantum effects as well as anharmonic motion \cite{kapil2019}.
+Combining classical PET-MAD simulations with the harmonic quantum correction
+reproduces these curves closely without performing PIMD. This supports the
+hybrid approximation for the tested systems, but does not establish its
+accuracy for every host and guest.
 
 A major difference from the work of Kapil \emph{et al.}\ concerns the
 uncertainty calculation: the present estimates include both MD and model
@@ -1083,15 +1090,12 @@ obtained using 64 committee members. The three loadings are presented
 in separate panels to avoid overlapping bands.
 
 The empty framework has much narrower uncertainty bands than the loaded
-systems. Its heat capacity requires no MD simulation, so the uncertainty
-is given only by Equation~\ref{eq:llpr-cp-total-uncertainty} and is much
-smaller than the MD uncertainty. The bands also widen with increasing
-loading. This may reflect the stable configuration of the empty framework,
-for which different committee members give similar energies. In the
-loaded systems, the guest molecules are not in a stable configuration,
-and changes to the model's last layer affect the guest--guest and
-guest--host interaction energies more strongly, increasing the model
-uncertainty.
+systems. Its heat capacity requires no MD simulation, so its bands reflect only
+the LLPR spread of the harmonic heat capacities. The loaded-system bands
+also widen with increasing loading. This may reflect greater sensitivity
+to the guest--guest and guest--host interactions, but the energy spread
+alone does not determine the heat-capacity uncertainty, which also depends
+on enthalpy reweighting and the vibrational spectra.
 
 \begin{figure}[htbp]
   \centering
@@ -1106,14 +1110,15 @@ uncertainty.
 
 PET-SOL also reproduces the QuickFF results accurately
 (Figure~\ref{fig:results-cp-sol}). At \SI{300}{K}, the differences are
-at most \SI{0.043}{J\per g\per K}. Despite its specific training on
-solvents, PET-SOL offers no advantage over PET-MAD, which was trained
-on a more general dataset. Its overall error is slightly larger.
+at most \SI{0.043}{J\per g\per K}. Despite its additional solvation training data, PET-SOL does not improve
+the overall agreement for methane-loaded MOF-5. Its overall deviation
+from the reference curves is slightly larger, although the comparison
+depends on loading.
 
-The agreement of both potentials with QuickFF supports extending
+The agreement of both potentials with the reference curves motivates extending
 classical MD and the hybrid method to other MOFs and guest molecules.
 To conserve computational resources, the remaining simulations use only
-PET-MAD because of its broader applicability and smaller errors.
+PET-MAD, which gives smaller overall deviations in this comparison.
 Table~\ref{tab:mof5-ch4-reference-comparison} summarizes the deviations
 from the reference data.
 
@@ -1165,14 +1170,14 @@ from the reference data.
   \label{fig:results-mof5-h2o}
 \end{figure}
 
-No experimental heat-capacity data are available for MOF-5 loaded with
-CO$_2$, and Kapil \emph{et al.}~\cite{kapil2019} did not study this system.
+No experimental heat-capacity dataset for CO$_2$-loaded MOF-5 is used
+here, and Kapil \emph{et al.}~\cite{kapil2019} did not study this system.
 The calculated curve behaves qualitatively like the methane curve, but
 appears to approach a plateau and is very close to the empty-framework
-heat capacity at \SI{400}{K}. If this trend continued at higher
-temperatures, the empty-framework heat capacity would eventually exceed
-that of the loaded system, which would be physically incorrect. The
-high-temperature CO$_2$ results therefore require caution.
+heat capacity at \SI{400}{K}. These are mass-specific values, normalized
+by different total masses, so a loaded curve can lie below the empty
+reference without violating thermodynamics. The apparent plateau alone
+does not establish the behavior beyond the simulated temperature range.
 
 Kapil \emph{et al.}~\cite{kapil2019} averaged multiple MD simulations
 at each temperature to obtain a more accurate heat-capacity curve.
@@ -1180,29 +1185,24 @@ Time constraints limited this project to one simulation per temperature,
 leaving room for improvement.
 
 For MOF-5 with 50 H$_2$O molecules, the heat capacity at \SI{200}{K}
-lies below the empty-framework reference. Since heat capacity is expected
-to increase with the number of molecules, this unexpected result could
-indicate a problem with the low-temperature simulations.
+lies below the empty-framework reference. This ordering alone is not
+unphysical on a mass-specific basis, but the trajectory diagnostics below
+show that the low-temperature estimate is sensitive to equilibration.
 
-Water is expected to span three phases---solid, liquid, and gas---over
-200--\SI{400}{K}. A solid--liquid transition is expected between 250 and
-\SI{275}{K}, where the calculated heat capacity decreases substantially
-rather than increasing with temperature as usually expected. This decrease
-could indicate an enthalpy discontinuity associated with a phase transition.
-A smaller discontinuity between 350 and \SI{375}{K} could similarly
-correspond to the expected liquid--gas transition. However, phase
-transitions are notoriously difficult to capture with MD, and further
-analysis is needed to determine whether PET can reproduce them.
-Experimental comparison would help assess these results, but few data
-are available for water in MOF-5.
+The calculated heat capacity decreases substantially between 250 and
+\SI{275}{K}, with a smaller change between 350 and \SI{375}{K}.
+Such features could reflect changes in guest organization, but assigning
+them to melting or vaporization from the heat-capacity curve alone is not
+justified. Confined water at fixed loading need not follow the phase
+boundaries of bulk water. Longer trajectories and structural diagnostics
+are needed to distinguish a transition from incomplete equilibration.
+Experimental comparison would also help assess these results.
 
-PET-SOL could be an alternative to PET-MAD for this system because water
-is polar and acts as a solvent, and PET-SOL was trained specifically on
-solvents. Time constraints prevented this comparison, but testing it could
-establish whether it gives better results. The same discrepancies are
-absent from the curves for the nonpolar guests CH$_4$ and CO$_2$,
-suggesting that PET-MAD may be less suitable for MOFs containing polar
-molecules, particularly at low temperatures.
+PET-SOL is a possible alternative because its training includes
+solvation-specific data. Time constraints prevented this comparison.
+The differences between water and the nonpolar guests motivate this test,
+but do not by themselves establish that PET-MAD is less suitable for
+polar guests in general.
 
 Figure~\ref{fig:water-diagnostics-mof5} presents the trajectory diagnostics
 at \SI{200}{K}. Although the mean temperature is \SI{200.10}{K},
@@ -1278,19 +1278,19 @@ water-to-dry-framework mass ratio of 0.42395. In the simulation,
 50 water molecules in the 1024-atom host give a water-to-host mass ratio
 of 0.07106, corresponding to $q=0.16761$. This composition lies between
 the experimental samples with $q=0.1202$ and $q=0.3425$.
-The simulated heat capacity would therefore be expected to lie between
-their curves, but instead falls below both. Reproducing the measurements
-accurately is difficult because the exact water loading in the experimental
-MOF-303 sample is uncertain, whereas the simulation contains a fixed,
-known number of guest molecules.
+Following the experimental trend with loading, the simulated heat capacity
+would be expected to lie between these curves, but instead falls below both.
+This is not an exactly composition-matched comparison: the simulation fixes
+the number of guests, while the experimental loading and sealed-sample
+conditions introduce additional differences.
 
 As in MOF-5, the water-loaded heat capacity falls below the
-empty-framework reference at low temperatures. The curve is not strictly
-monotonic, and its low-temperature behavior is physically unreasonable.
-These results therefore require caution, particularly at low temperatures.
-PIMD could improve their accuracy despite its higher computational cost.
-An alternative potential, particularly PET-SOL, might also give better
-results.
+empty-framework reference at low temperatures and is not strictly
+monotonic. Neither feature is intrinsically unphysical, but the lack of
+stationarity shown below limits interpretation. Longer sampling is needed
+before attributing the discrepancy to the potential or quantum treatment.
+PIMD could test the neglected quantum anharmonic effects, and PET-SOL
+could test sensitivity to the potential.
 
 Figure~\ref{fig:water-diagnostics-mof303} shows the water-trajectory
 diagnostics at 200, 225, and \SI{250}{K}, where the hybrid heat capacity
@@ -1359,14 +1359,14 @@ mass normalization.
   experiment reports sealed-cell $C$, whereas the simulation estimates
   $C_P$. Open squares show independent experimental empty-ZIF-8 (SOD)
   data~\cite{rosen2019zif8}, converted from molar units using
-  \SI{227.576}{g\per mol}. The new digitized empty-framework datasets do
+  \SI{227.576}{g\per mol}. The digitized empty-framework datasets do
   not include uncertainty values, so no error bars are inferred for them.
   Both y-axes start at zero.}
   \label{fig:results-zif8-additional}
 \end{figure}
 
-The simulated heat capacities agree surprisingly closely with the
-experimental measurements. On the common 200--\SI{300}{K} grid,
+The simulated heat capacities are numerically close to the
+experimental measurements over the overlapping temperature range. On the common 200--\SI{300}{K} grid,
 linear interpolation between neighboring experimental temperatures gives
 signed simulation differences ranging from approximately $+2.2\%$
 to $-4.0\%$.
@@ -1390,33 +1390,41 @@ structural anomaly.
 
 \section{Conclusion}
 
-We saw that the PET architecture is able to reproduce the results of a specialized potential for MOFs like QuickFF.
-As a result, we can use more general purpose potentials like PET-MAD to simulate the heat capacity of MOFs with different guest molecules.
-For some cases, like $H_2O$ loaded MOFs, the results are not physically reasonable at low temperatures.
-We may need to further validate the results with PIMD simulations or other potentials to ensure that the results are reasonable.
-Given that carrying out experiments for measuring the heat capacity of MOFs is complicated,
-using MD simulations and the hybrid method is a good alternative to obtain the heat capacity of MOFs with different guest molecules.
-PET-MAD and PET-SOL give room-temperature heat capacities rising
-from about 0.93 to \SI{1.16}{J\per g\per K} with methane loading. Harmonic
-quantization removes 59--63\% of the classical term; guest mobility supports
-retaining anharmonic MD. Additional PET-MAD estimates
-at \SI{300}{K} are 0.955/1.209 for CO$_2$/H$_2$O in MOF-5,
-1.035/1.106 for CO$_2$/H$_2$O in MOF-303, and
-\SI{0.967}{J\per g\per K} for CO$_2$ in ZIF-8.
-Experimental overlays place the MOF-303/water estimate below the measured
-neighboring loading curves at \SI{300}{K}, while the ZIF-8/CO$_2$ estimate
-is within about 4\% of the matched-composition measurement. Loading,
-mass-normalization, and sealed-cell versus constant-pressure conditions
-qualify these comparisons.
-Water-loaded trajectories show particularly strong drift, and all loaded
-spectra contain imaginary modes. Stable spectra, independent
-trajectory/minimum sampling, and validated paired uncertainty propagation
-are needed before interpreting these curves as converged predictions.
-Of course, because we are using finite differences to compute the classical anharmonic heat capacity,
-and it is the biggest source of uncertainty in our results,
-the obvious improvement would be to use a smaller $\Delta T$ to compute the classical anharmonic heat capacity.
-This would require more simulations,
-but it would give us a better estimate of the classical anharmonic heat capacity and reduce the uncertainty in our results.
+PET-MAD and PET-SOL, combined with classical MD and a harmonic quantum
+correction, closely reproduce the QuickFF/PIMD reference heat capacities
+for methane-loaded MOF-5. PET-MAD gives slightly smaller overall deviations
+and is used for the additional host--guest systems. This agreement supports
+the hybrid approach for the tested methane systems, rather than establishing
+accuracy for all MOFs and guests.
+\\
+\\
+At room temperature, the MOF-5 heat capacities rise from about 0.93 to
+\SI{1.16}{J\per g\per K} with methane loading. Harmonic quantization
+removes 59--63\% of the classical term, while guest motion motivates
+retaining anharmonic MD. Additional PET-MAD estimates at \SI{300}{K}
+are 0.955/1.209 for CO$_2$/H$_2$O in MOF-5, 1.035/1.106 for
+CO$_2$/H$_2$O in MOF-303, and \SI{0.967}{J\per g\per K} for
+CO$_2$ in ZIF-8. The MOF-303/water estimate lies below the measured
+neighboring-loading curves, whereas ZIF-8/CO$_2$ is within about 4\%
+of the matched-composition measurement. Loading, mass normalization, and
+sealed-cell versus constant-pressure conditions qualify these comparisons.
+\\
+\\
+The water-loaded trajectories continue to drift, and all reported loaded
+spectra contain imaginary modes. Their exclusion and the limitations of
+CEA prevent interpreting the curves and uncertainty bands as fully
+converged predictions. Independent trajectories, stable spectra, and
+validated uncertainty propagation are priorities. PIMD or alternative
+potentials could then test the remaining physical approximations.
+\\
+\\
+The hybrid method offers a practical route to heat-capacity estimates
+without full PIMD, but its computational advantage was not benchmarked here.
+A finer temperature grid could reduce finite-difference bias; at fixed
+enthalpy precision, however, a smaller $\Delta T$ increases the statistical
+noise in the derivative. It should therefore be tested together with longer
+simulations and independent replicas, rather than assumed to reduce the
+uncertainty automatically.
 
 \begin{thebibliography}{99}
 \addcontentsline{toc}{section}{\refname}
@@ -1628,10 +1636,17 @@ C. Malosso \emph{et al.},
 machine learning}, arXiv:2603.02089v1 (2026),
 \href{https://arxiv.org/abs/2603.02089v1}{arXiv:2603.02089v1}.
 
-\bibitem{petsol-checkpoint}
-PET-SOL local checkpoint, \texttt{pet\_sol-s-best\_nostress.ckpt},
-archived model and training metadata in the project \texttt{models/}
-directory (inspected 3 November 2026).
+\bibitem{bitzek2006}
+E. Bitzek, P. Koskinen, F. G\"ahler, M. Moseler, and P. Gumbsch,
+\emph{Structural Relaxation Made Simple}, Physical Review Letters
+\textbf{97}, 170201 (2006),
+\href{https://doi.org/10.1103/PhysRevLett.97.170201}{doi:10.1103/PhysRevLett.97.170201}.
+
+\bibitem{asdex}
+ASDEX developers, \emph{ASDEX: Automatic Sparse Differentiation in JAX},
+software documentation,
+\href{https://adrianhill.de/asdex/}{online documentation}
+(accessed 13 November 2026).
 
 \bibitem{pet}
 S. N. Pozdnyakov and M. Ceriotti,
