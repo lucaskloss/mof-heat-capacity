@@ -126,42 +126,41 @@ to compute the harmonic heat capacity at a lower computational cost.
 \subsection{Quantum Mechanics}
 \label{sec:qm}
 
-In order to better understand the methods used in this work, we briefly review some important quantum mechanics concepts.
-These are necessary to understand the Born--Oppenheimer approximation,
-which is what allows us to run classical molecular dynamics simulations with a potential energy surface generated.
-But also density functional theory,
-which is the method used to generate the reference energies, forces, and stresses for the machine-learned potentials.
+To better understand the methods used in this work, we briefly review some important concepts in quantum mechanics.
+These provide the basis for understanding the Born--Oppenheimer approximation,
+which defines the potential energy surface used in molecular dynamics simulations,
+and density functional theory, which is used to generate the reference energies, forces, and stresses for the machine-learned potentials.
 
 \subsubsection{Schrödinger's equation}
 
 In (non-relativistic) quantum mechanics, the fundamental equation that describes a quantum system is the Schrödinger equation \cite{cohen-tannoudji2020}.
-Let $\hat{\mathcal H}$ be a Hermitian operator called Hamiltonian, and $|\Psi\rangle$ a vector in a Hilbert space called a state vector.
-The Schrödinger equation can be written as an eigenvalue problem for the Hamiltonian operator
+Let $\hat{\mathcal H}$ be a Hermitian operator called the Hamiltonian, and let $|\Psi\rangle$ be a vector in a Hilbert space called a state vector.
+For a time-independent Hamiltonian, the time-independent Schrödinger equation describes energy eigenstates and can be written as
 
 \begin{equation}
   \hat{\mathcal H}|\Psi_n\rangle=E_n|\Psi_n\rangle,
   \label{eq:schrodinger}
 \end{equation}
 
-where the eigenvalues $E_n$ are real numbers and correspond to the energy of the state $|\Psi_n\rangle$.
-More generally, if $|\Psi(t)\rangle$ or $\hat{\mathcal H}(t)$ are time-dependent,
-the Schrödinger equation can be written as
+where the eigenvalues $E_n$ are real numbers and correspond to the energies of the states $|\Psi_n\rangle$.
+More generally, the time evolution of a state $|\Psi(t)\rangle$ is governed by the time-dependent Schrödinger equation,
+where the Hamiltonian $\hat{\mathcal H}(t)$ may also depend on time:
 
 \begin{equation}
   i\hbar\frac{\partial}{\partial t}|\Psi(t)\rangle
-    =\hat{\mathcal H}|\Psi(t)\rangle,
+    =\hat{\mathcal H}(t)|\Psi(t)\rangle,
   \label{eq:time-dependent-schrodinger}
 \end{equation}
 
 where $\hbar$ is the reduced Planck constant and $i$ is the imaginary unit.
-The position representation is a way of expressing the state of a quantum system in terms of the position.
+The position representation is a way of expressing the state of a quantum system in terms of position.
 For instance, consider the Hermitian position operator $\hat{\bm x}$.
-It posesses eigenstates $\hat{\bm x}|\bm x\rangle=\bm x|\bm x\rangle$,
-with eigenvalues $\bm x$, which is a real number corresponding to the position of the particle.
+Its eigenstates satisfy $\hat{\bm x}|\bm x\rangle=\bm x|\bm x\rangle$,
+where $\bm x$ is a real-valued position vector corresponding to the position of the particle.
 If we project $|\Psi(t)\rangle$ onto $|\bm x\rangle$, we obtain the wavefunction $\Psi(\bm x,t)=\langle\bm x|\Psi(t)\rangle$,
 which is a complex-valued function of position and time.
-In this representation, the momentum operator $\hat{\bm p}$ is also a Hermitian operator, and it's given by $\hat{\bm p}=-i\hbar\nabla_{\bm x}$.
-If we write $\hat{\mathcal H}=\hat p^2/2m + \hat V$ in the position representation,
+In this representation, the momentum operator $\hat{\bm p}$ is also a Hermitian operator and is given by $\hat{\bm p}=-i\hbar\nabla_{\bm x}$.
+If we write $\hat{\mathcal H}=\hat{\bm p}^{\,2}/2m + \hat V$ in the position representation,
 we have $\hat{\mathcal H}(\bm x)=-\frac{\hbar^2}{2m}\nabla_{\bm x}^2+V(\bm x)$.
 The Schrödinger equation in the position representation is then
 
@@ -174,7 +173,7 @@ The Schrödinger equation in the position representation is then
 \subsubsection{The Born--Oppenheimer approximation}
 \label{sec:bo}
 
-Let us now consider a system of $N_{\mathrm e}$ electrons and $N_{\mathrm n}$ nuclei with coordinates $\bm r$ and $\bm R$ respectively.
+Let us now consider a system of $N_{\mathrm e}$ electrons and $N_{\mathrm n}$ nuclei with coordinates $\bm r$ and $\bm R$, respectively.
 The Hamiltonian of this system in the position representation can be written as
 
 \begin{equation}
@@ -187,11 +186,12 @@ The Hamiltonian of this system in the position representation can be written as
 where $\hat T_{\mathrm e}$ and $\hat T_{\mathrm n}$ are the kinetic energy operators for the electrons and nuclei,
 and $\hat V_{\mathrm{ee}}$, $\hat V_{\mathrm{en}}$, and $\hat V_{\mathrm{nn}}$ are the electron--electron,
 electron--nuclear, and nuclear--nuclear interaction potentials.
-Because the mass of the nuclei is much larger than that of the electrons,
-we can decouple the electronic and nuclear motions using the Born--Oppenheimer approximation \cite{born1927}.
-This approximation consits in separating the electronic part of the Hamiltonian
+Because nuclei are much heavier than electrons,
+we can approximately decouple the electronic and nuclear motions using the Born--Oppenheimer approximation \cite{born1927}.
+We first separate the electronic part of the Hamiltonian
 $\hat{\mathcal H}_{\mathrm{el}}(\bm R)=\hat T_{\mathrm e}+\hat V_{\mathrm{ee}}+\hat V_{\mathrm{en}}(\bm R)$
 from the nuclear part of the Hamiltonian $\hat{\mathcal H}_{\mathrm{nuc}}=\hat T_{\mathrm n}+\hat V_{\mathrm{nn}}(\bm R)$.
+The approximation neglects terms arising from nuclear derivatives of the electronic wavefunction.
 We then solve the electronic Schrödinger equation by treating $\bm R$ as a fixed parameter:
 
 \begin{equation}
@@ -202,9 +202,9 @@ We then solve the electronic Schrödinger equation by treating $\bm R$ as a fixe
   \label{eq:bo-electronic-schrodinger}
 \end{equation}
 
-By solving this equation at $\bm R$,
+By solving this equation for fixed nuclear coordinates $\bm R$,
 we obtain the electronic ground-state wavefunction $\psi_0(\bm r;\bm R)$ and its ground-state energy $\varepsilon_0(\bm R)$.
-We can then use $\varepsilon_0(\bm R)$ in the potential of the nuclear system, which is given by
+The potential energy surface for nuclear motion is then given by
 $U(\bm R)=\varepsilon_0(\bm R)+V_{\mathrm{nn}}(\bm R)$.
 The nuclear Schrödinger equation is then given by
 
@@ -215,7 +215,7 @@ The nuclear Schrödinger equation is then given by
     \label{eq:bo-nuclear-schrödinger}
 \end{align}
 
-When solving this equation, we obtain the nuclear wavefunction $\chi_\nu(\bm R)$ and its energy $E_\nu$.
+Solving this equation yields the nuclear wavefunction $\chi_\nu(\bm R)$ and its energy $E_\nu$.
 The total wavefunction of the system can then be approximated as a product of the electronic and nuclear wavefunctions
 
 \begin{equation}
@@ -1521,7 +1521,7 @@ C. Cohen-Tannoudji, B. Diu, and F. Lalo\"e,
 \bibitem{born1927}
 M. Born and R. Oppenheimer,
 \emph{Zur Quantentheorie der Molekeln}, Annalen der Physik \textbf{84}, 457--484 (1927),
-\href{https://doi.org/10.1002/andp.19270840804}{doi:10.1002/andp.19270840804}.
+\href{https://doi.org/10.1002/andp.19273892002}{doi:10.1002/andp.19273892002}.
 
 \bibitem{allen2017}
 M. P. Allen and D. J. Tildesley,
