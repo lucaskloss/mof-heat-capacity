@@ -434,52 +434,66 @@ For constant volume, the heat capacity is then given by
 In other words, the classical heat capacity of a solid is constant and doesn't depend on the temperature.
 This law doesn't hold well at lower temperatures, where quantum effects become important.
 
-\subsubsection{Einstein model}
-\label{sec:einstein-model}
+\subsubsection{Quantum harmonic heat capacity from the Hessian}
+\label{sec:quantum-harmonic-model}
 
-If we keep the same Hamiltonian as in the Dulong--Petit law, but now treat it quantum mechanically,
-we can compute the quantum heat capacity of a solid.
-In the Einstein model, we assume that all atoms vibrate independently with the same frequency $\omega$.
-The Hamiltonian is then a sum of independent quantum harmonic oscillators
+The harmonic approximation can also be used to compute the quantum harmonic heat capacity of a solid.
+Let's consider $N$ atoms displaced by $\bm u$ from their equilibrium position $\bm R_0$, the harmonic approximation gives
 
 \begin{equation}
-  \hat{\mathcal H}=\sum_{i=1}^{N}\left(\frac{\hat{\bm P}_i^2}{2M_i}+\frac12M_i\omega^2\hat{\bm R}_i^2\right).
-  \label{eq:einstein-hamiltonian}
+  U(\bm R_0+\bm u)\simeq U_0+\frac12\bm u^{\mathsf T}\bm H\bm u,
+  \qquad H_{i\alpha,j\beta}=\left.\frac{\partial^2 U}{\partial R_{i\alpha}\partial R_{j\beta}}\right|_{\bm R_0}.
+  \label{eq:harmonic-hessian}
 \end{equation}
 
-The energy levels of a quantum harmonic oscillator are given by $E_n=\hbar\omega(n+1/2)$, where $n$ is a non-negative integer.
-Since these oscillators are independent, the total energy of the system is the sum of the energies of each oscillator
+Using the diagonal mass matrix $\bm M$, which contains the masses of the atoms,
+we can define the mass-weighted Hessian $\bm D$ and its eigenvectors $\bm e_s$ as
 
 \begin{equation}
-  E=\sum_{i=1}^{N}E_i=\sum_{i=1}^{N}\hbar\omega\left(n_i+\frac12\right).
-  \label{eq:einstein-energy}
+  \bm D=\bm M^{-1/2}\bm H\bm M^{-1/2},
+  \qquad \bm D\bm e_s=\omega_s^2\bm e_s.
+  \label{eq:normal-mode-frequencies}
 \end{equation}
 
-Using quantum statistical mechanics, we can compute the average energy of the system by first computing the partition function
+By finding the eigenvalues $\omega_s^2$ of $\bm D$, we can write a quantum version of the Hamiltonian \eqref{eq:harmonic-hamiltonian}
+in terms of the normal mode coordinates $\hat Q_s$ and momenta $\hat P_s$
 
 \begin{equation}
-  Z=\sum_{n_1=0}^{\infty}\cdots\sum_{n_N=0}^{\infty}e^{-\beta E}
-    =\left(\frac{e^{-\beta\hbar\omega/2}}{1-e^{-\beta\hbar\omega}}\right)^N.
-  \label{eq:einstein-partition-function}
+  \hat{\mathcal H}_{\mathrm{har}}=U_0+\sum_s\left(\frac{\hat P_s^2}{2}+\frac12\omega_s^2\hat Q_s^2\right).
+  \label{eq:normal-mode-hamiltonian}
 \end{equation}
 
-The average energy is then given by
+Because this equation is of the form of a quantum harmonic oscillator and each mode is independent,
+we can solve the Schrödinger equation \eqref{eq:schrodinger} for each mode independently.
+Their energy levels are given by $E_{s,n}=\hbar\omega_s(n+1/2)$, where $n$ is a non-negative integer.
+Using the canonical partition function
 
 \begin{equation}
-  \langle E\rangle_{\mathrm{Ein}}=-\frac{\partial\ln Z}{\partial\beta}=\frac{N\hbar\omega}{2}\coth\left(\frac{\beta\hbar\omega}{2}\right).
-  \label{eq:einstein-average-energy}
+  Z=e^{-\beta U_0}\prod_s\sum_{n=0}^{\infty}e^{-\beta\hbar\omega_s(n+1/2)}
+    =e^{-\beta U_0}\prod_s\frac{e^{-\beta\hbar\omega_s/2}}{1-e^{-\beta\hbar\omega_s}},
+  \label{eq:harmonic-partition-function}
 \end{equation}
 
-Using formula \eqref{eq:cp-enthalpy} again, the heat capacity is given by
+we can compute the average energy of the system as
 
 \begin{equation}
-  C_{V,\mathrm{Ein}}=N k_{\mathrm B}\left(\frac{\hbar\omega}{k_{\mathrm B}T}\right)^2
-    \frac{e^{\hbar\omega/k_{\mathrm B}T}}{\left(e^{\hbar\omega/k_{\mathrm B}T}-1\right)^2}.
-  \label{eq:einstein-heat-capacity}
+  \langle E\rangle_{\mathrm{har}}=-\frac{\partial\ln Z}{\partial\beta}
+    =U_0+\sum_s\hbar\omega_s\left(\frac12+\frac{1}{e^{\beta\hbar\omega_s}-1}\right).
+  \label{eq:harmonic-average-energy}
 \end{equation}
 
-We can compute the frequencies by computing the eigenvalues of the Hessian matrix of the potential energy surface.
-We can then insert them into the formula above to compute the quantum harmonic heat capacity of the system.
+The heat capacity at constant volume is then given by
+
+\begin{equation}
+  C_{V,\mathrm{qn}}^{\mathrm{har}}(T)=\frac{\partial\langle E\rangle_{\mathrm{har}}}{\partial T}
+    =\sum_s k_{\mathrm B}x_s^2\frac{e^{x_s}}{(e^{x_s}-1)^2},
+  \qquad x_s=\frac{\hbar\omega_s}{k_{\mathrm B}T}.
+  \label{eq:quantum-harmonic-heat-capacity}
+\end{equation}
+
+Therefore, by computing the Hessian of the atomic system and its eigenvalues,
+we can simply compute the quantum harmonic heat capacity of the system.
+As $T\to\infty$, the heat capacity approaches the Dulong--Petit limit $C_{V,\mathrm{qn}}^{\mathrm{har}}\to 3Nk_{\mathrm B}$.
 
 \clearpage
 \subsection{Point Edge Transformer}
@@ -896,8 +910,8 @@ Each temperature MD simulation will be run on a NVIDIA Tesla V100 GPU, which has
 
 An empty MOF is a rigid structure, so it is appropriate to use the harmonic approximation to compute its heat capacity.
 For lower temperatures, the heat capacity from the Dulong-Petit law \eqref{eq:dulong-petit} is not accurate.
-So in the general case, we would use the heat capacity from the Einstein model \eqref{eq:einstein-heat-capacity},
-which includes quantum effects is more accurate at lower temperatures.
+So in the general case, we would use the quantum harmonic heat capacity \eqref{eq:quantum-harmonic-heat-capacity},
+which includes quantum effects and is more accurate at lower temperatures.
 Doing so gives results that are pretty close to experimental results, as we will see later.
 However, when including guest molecules inside the MOF,
 because these molecules are loose and their interactions with the framework and with each other are not harmonic,
@@ -915,7 +929,7 @@ The hybrid approach uses the classical anharmonic heat capacity from MD simulati
 \end{equation}
 
 The first term $C_{P,\mathrm{cl}}^{\mathrm{anh}}(T)$ is computed using \eqref{eq:finite-difference-cp} from the MD simulations.
-The second term $C_{V,\mathrm{qn}}^{\mathrm{har}}(T)$ is computed using the quantum harmonic heat capacity from \eqref{eq:einstein-heat-capacity}.
+The second term $C_{V,\mathrm{qn}}^{\mathrm{har}}(T)$ is computed using the quantum harmonic heat capacity from \eqref{eq:quantum-harmonic-heat-capacity}.
 The third term $C_{V,\mathrm{cl}}^{\mathrm{har}}(T)$ is computed using the Dulong-Petit law from \eqref{eq:dulong-petit}.
 This construction retains classical anharmonicity while approximating the
 quantum correction harmonically. It neglects quantum anharmonic effects
@@ -927,7 +941,7 @@ To compute the harmonic heat capacity in \eqref{eq:quantum-correction},
 we need to get the frequencies from the eigenvalues of the Hessian matrix.
 To do so, we select the last frame of the MD trajectory at the highest temperature of \SI{400}{K} and relax the structure using a FIRE optimizer.
 Once the structure is relaxed and the forces are minimized, we can compute the eigenvalues of the Hessian matrix.
-The frequencies used in \eqref{eq:einstein-heat-capacity} will be the same for all temperatures,
+The frequencies used in \eqref{eq:quantum-harmonic-heat-capacity} will be the same for all temperatures,
 so only the temperature included in the formula will change.
 The efficiently compute the Hessian matrix, we use sparse automatic differentiation,
 which is a method that uses the sparsity of the Hessian to compute it efficiently.
@@ -1058,7 +1072,7 @@ To compute the uncertainty of the quantum harmonic heat capacity,
 we need first to select the last frame in the simulation, relax the structure and then compute the Hessian.
 We then calculate the eigenvalues of the Hessian matrix, which correspond to the vibrational frequencies of the system.
 We will compute the Hessian for each model and its eigenvalues,
-and then we will compute the quantum harmonic heat capacity for each model using Eq.~\eqref{eq:einstein-heat-capacity}.
+and then we will compute the quantum harmonic heat capacity for each model using Eq.~\eqref{eq:quantum-harmonic-heat-capacity}.
 Finally, we can compute the uncertainty of the quantum harmonic heat capacity as the standard deviation of the heat capacities of all the models:
 
 \begin{equation}
@@ -1452,6 +1466,11 @@ Water-loaded trajectories show particularly strong drift, and all loaded
 spectra contain imaginary modes. Stable spectra, independent
 trajectory/minimum sampling, and validated paired uncertainty propagation
 are needed before interpreting these curves as converged predictions.
+Of course, because we are using finite differences to compute the classical anharmonic heat capacity,
+and it is the biggest source of uncertainty in our results,
+the obvious improvement would be to use a smaller $\Delta T$ to compute the classical anharmonic heat capacity.
+This would require more simulations,
+but it would give us a better estimate of the classical anharmonic heat capacity and reduce the uncertainty in our results.
 
 \section*{AI usage disclosure}
 AI tools were used during this project mainly for code generation and syntax correction.
